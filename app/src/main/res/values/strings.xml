@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">OpenClaw</string>
+    
+    <!-- Gateway Service Notification -->
+    <string name="notification_channel_name">Gateway Service</string>
+    <string name="notification_channel_description">Keeps OpenClaw connected to Feishu</string>
+    <string name="notification_title">OpenClaw Gateway</string>
+    <string name="notification_text">Gateway is running</string>
+    <string name="notification_text_connected">Connected to Feishu</string>
+    
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">OpenClaw uses accessibility services to perform automated actions on your device, such as clicking buttons, entering text, and navigating apps. This allows the AI assistant to help you operate your phone.</string>
+</resources>
