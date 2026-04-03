@@ -119,7 +119,7 @@ fun MainScreen() {
         ConfigManager.init(context)
 
         if (!ConfigManager.hasModelCredentials()) {
-            ConfigManager.setModelApiKey("sk-sp-9593971f0d554ff89283cf13faf01f32")
+            ConfigManager.setModelApiKey("YOUR_API_KEY_HERE")
             ConfigManager.setModelName("bailian/qwen3.5-plus")
             Log.d("MainScreen", "Default API key set for debugging")
         }
