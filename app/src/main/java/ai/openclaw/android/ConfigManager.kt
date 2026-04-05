@@ -94,7 +94,12 @@ object ConfigManager {
      * Check if all required configuration is present
      */
     fun isConfigured(): Boolean {
-        return hasModelCredentials()
+        return if (getModelProvider() == "LOCAL") {
+            // 本地模式无需 API key
+            true
+        } else {
+            hasModelCredentials()
+        }
     }
     
     /**

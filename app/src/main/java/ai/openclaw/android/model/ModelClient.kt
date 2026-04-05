@@ -54,5 +54,6 @@ sealed class ChatEvent {
 enum class ModelProvider {
     BAILIAN,    // 阿里百炼
     OPENAI,     // OpenAI
-    ANTHROPIC   // Anthropic
+    ANTHROPIC,  // Anthropic
+    LOCAL       // 本地端侧推理 (Gemma 4 E4B)
 }

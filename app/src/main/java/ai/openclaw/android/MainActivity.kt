@@ -3,9 +3,12 @@ package ai.openclaw.android
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -32,6 +35,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import ai.openclaw.android.ui.theme.OpenClawTheme
 import ai.openclaw.android.model.BailianClient
+import ai.openclaw.android.model.LocalLLMClient
+import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
 import ai.openclaw.android.agent.AgentSession
 import ai.openclaw.android.agent.SessionEvent
@@ -71,6 +76,9 @@ fun MainScreen() {
     // Configuration state
     var modelApiKey by remember { mutableStateOf("") }
     var modelName by remember { mutableStateOf("qwen-plus") }
+    var modelProvider by remember { mutableStateOf(
+        try { ConfigManager.getModelProvider() } catch (_: Exception) { "BAILIAN" }
+    ) }
 
     // UI state
     var serviceRunning by remember { mutableStateOf(false) }
@@ -78,7 +86,8 @@ fun MainScreen() {
     var logExpanded by remember { mutableStateOf(false) }
 
     // Model client state
-    val modelClient = remember { BailianClient() }
+    var modelClient by remember { mutableStateOf<ModelClient>(BailianClient()) }
+    var localLLMClient by remember { mutableStateOf<LocalLLMClient?>(null) }
     var agentSession by remember { mutableStateOf<AgentSession?>(null) }
     val skillManager = remember { SkillManager(context) }
     val permManager = remember { context.permissionManager() }
@@ -102,15 +111,41 @@ fun MainScreen() {
         settingsPermRefreshKey++ // trigger recomposition of permissions UI
     }
 
+    // Launcher for All Files Access (MANAGE_EXTERNAL_STORAGE) settings page
+    val allFilesAccessLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        // Refresh permissions UI when user returns from the settings page
+        settingsPermRefreshKey++
+    }
+
     // Observe chat-triggered permission requests
     val currentPermRequest by permManager.currentRequest.collectAsStateWithLifecycle()
     LaunchedEffect(currentPermRequest) {
         currentPermRequest?.let { request ->
             if (permManager.hasPermissions(request.permissions)) {
                 permManager.resolveRequest(request.id, true)
+            } else if (permManager.hasSpecialPermission(request.permissions)) {
+                // Special permissions (MANAGE_EXTERNAL_STORAGE) must go through system settings
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:${context.packageName}")
+                )
+                allFilesAccessLauncher.launch(intent)
+                // Note: we can't know the result immediately; resolve after user returns
+                // The user must come back to the app; we check status on resume
             } else {
                 chatPermissionLauncher.launch(request.permissions)
             }
+        }
+    }
+
+    // Re-check special permission status when returning from settings
+    LaunchedEffect(settingsPermRefreshKey) {
+        val req = permManager.currentRequest.value
+        if (req != null && permManager.hasSpecialPermission(req.permissions)) {
+            val granted = permManager.hasPermissions(req.permissions)
+            permManager.resolveRequest(req.id, granted)
         }
     }
 
@@ -120,28 +155,54 @@ fun MainScreen() {
 
         if (!ConfigManager.hasModelCredentials()) {
             ConfigManager.setModelApiKey("YOUR_API_KEY_HERE")
-            ConfigManager.setModelName("bailian/qwen3.5-plus")
+            ConfigManager.setModelName("qwen3.5-plus")
             Log.d("MainScreen", "Default API key set for debugging")
         }
 
         modelApiKey = ConfigManager.getModelApiKey()
         modelName = ConfigManager.getModelName()
+        modelProvider = try { ConfigManager.getModelProvider() } catch (_: Exception) { "BAILIAN" }
         serviceRunning = ConfigManager.isServiceEnabled()
 
         skillManager.loadBuiltinSkills(context)
 
-        if (ConfigManager.hasModelCredentials()) {
-            modelClient.configure(
-                provider = ModelProvider.BAILIAN,
+        // Initialize model client based on saved provider
+        val provider = try {
+            ModelProvider.valueOf(modelProvider)
+        } catch (_: Exception) {
+            ModelProvider.BAILIAN
+        }
+
+        if (provider == ModelProvider.LOCAL) {
+            val client = LocalLLMClient(context)
+            localLLMClient = client
+            modelClient = client
+            val loaded = client.initialize()
+            if (!loaded) {
+                Log.e("MainScreen", "Failed to load local model, falling back to BAILIAN")
+                localLLMClient = null
+                val cloudClient = BailianClient()
+                cloudClient.configure(
+                    provider = ModelProvider.BAILIAN,
+                    apiKey = ConfigManager.getModelApiKey(),
+                    model = ConfigManager.getModelName()
+                )
+                modelClient = cloudClient
+            }
+        } else {
+            val cloudClient = BailianClient()
+            cloudClient.configure(
+                provider = provider,
                 apiKey = ConfigManager.getModelApiKey(),
                 model = ConfigManager.getModelName()
             )
-
-            agentSession = AgentSession(modelClient, skillManager, permManager)
-            agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
-
-            Log.d("MainScreen", "Agent session initialized with ${skillManager.getSkillCount()} skills")
+            modelClient = cloudClient
         }
+
+        agentSession = AgentSession(modelClient, skillManager, permManager)
+        agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
+
+        Log.d("MainScreen", "Agent session initialized (provider: $modelProvider) with ${skillManager.getSkillCount()} skills")
     }
 
     val sendMessage: (String) -> Unit = { text ->
@@ -294,6 +355,8 @@ fun MainScreen() {
                 onModelApiKeyChange = { modelApiKey = it },
                 modelName = modelName,
                 onModelNameChange = { modelName = it },
+                modelProvider = modelProvider,
+                onModelProviderChange = { modelProvider = it },
                 configExpanded = configExpanded,
                 onConfigExpandedChange = { configExpanded = it },
                 logExpanded = logExpanded,
@@ -301,21 +364,63 @@ fun MainScreen() {
                 onSaveConfig = {
                     ConfigManager.setModelApiKey(modelApiKey)
                     ConfigManager.setModelName(modelName)
+                    ConfigManager.setModelProvider(modelProvider)
+
+                    // Release previous local LLM resources
+                    localLLMClient?.release()
+                    localLLMClient = null
 
                     // Reconfigure model client with new settings
-                    modelClient.configure(
-                        provider = ModelProvider.BAILIAN,
-                        apiKey = modelApiKey,
-                        model = modelName
-                    )
-                    agentSession = AgentSession(modelClient, skillManager, permManager)
-                    agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
+                    val provider = try {
+                        ModelProvider.valueOf(modelProvider)
+                    } catch (e: Exception) {
+                        ModelProvider.BAILIAN
+                    }
 
-                    LogManager.shared.log("INFO", "MainActivity", "Configuration saved and session reinitialized")
+                    if (provider == ModelProvider.LOCAL) {
+                        scope.launch {
+                            val client = LocalLLMClient(context)
+                            localLLMClient = client
+                            modelClient = client
+                            val loaded = client.initialize()
+                            if (!loaded) {
+                                Log.e("MainScreen", "Failed to load local model, falling back to BAILIAN")
+                                localLLMClient = null
+                                val cloudClient = BailianClient()
+                                cloudClient.configure(
+                                    provider = ModelProvider.BAILIAN,
+                                    apiKey = modelApiKey,
+                                    model = modelName
+                                )
+                                modelClient = cloudClient
+                            }
+                            agentSession = AgentSession(modelClient, skillManager, permManager)
+                            agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
+                        }
+                    } else {
+                        val cloudClient = BailianClient()
+                        cloudClient.configure(
+                            provider = provider,
+                            apiKey = modelApiKey,
+                            model = modelName
+                        )
+                        modelClient = cloudClient
+                        agentSession = AgentSession(modelClient, skillManager, permManager)
+                        agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
+                    }
+
+                    LogManager.shared.log("INFO", "MainActivity", "Configuration saved and session reinitialized (provider: $modelProvider)")
                 },
                 permissionManager = permManager,
                 onRequestPermissions = { permissions ->
                     settingsPermissionLauncher.launch(permissions)
+                },
+                onRequestAllFilesAccess = {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:${context.packageName}")
+                    )
+                    allFilesAccessLauncher.launch(intent)
                 },
                 settingsPermRefreshKey = settingsPermRefreshKey,
                 modifier = Modifier.padding(padding)
@@ -332,6 +437,8 @@ fun SettingsScreen(
     onModelApiKeyChange: (String) -> Unit,
     modelName: String,
     onModelNameChange: (String) -> Unit,
+    modelProvider: String,
+    onModelProviderChange: (String) -> Unit,
     configExpanded: Boolean,
     onConfigExpandedChange: (Boolean) -> Unit,
     logExpanded: Boolean,
@@ -339,6 +446,7 @@ fun SettingsScreen(
     onSaveConfig: () -> Unit,
     permissionManager: PermissionManager,
     onRequestPermissions: (Array<String>) -> Unit,
+    onRequestAllFilesAccess: () -> Unit,
     settingsPermRefreshKey: Int,
     modifier: Modifier = Modifier
 ) {
@@ -426,30 +534,94 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelLarge
                     )
 
-                    OutlinedTextField(
-                        value = modelApiKey,
-                        onValueChange = onModelApiKeyChange,
-                        label = { Text("API Key (明文显示)") },
-                        placeholder = { Text("sk-xxx") },
-                        // 明文显示 API Key 以便调试验证
-                        visualTransformation = VisualTransformation.None,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                    // Provider selector
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        singleLine = true
-                    )
+                            .padding(top = 8.dp)
+                    ) {
+                        FilterChip(
+                            selected = modelProvider == "BAILIAN",
+                            onClick = { onModelProviderChange("BAILIAN") },
+                            label = { Text("百炼") }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        FilterChip(
+                            selected = modelProvider == "LOCAL",
+                            onClick = { onModelProviderChange("LOCAL") },
+                            label = { Text("本地模型") }
+                        )
+                    }
 
-                    OutlinedTextField(
-                        value = modelName,
-                        onValueChange = onModelNameChange,
-                        label = { Text("Model Name") },
-                        placeholder = { Text("qwen-plus") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        singleLine = true
-                    )
+                    // API Key (only needed for cloud providers)
+                    if (modelProvider != "LOCAL") {
+                        OutlinedTextField(
+                            value = modelApiKey,
+                            onValueChange = onModelApiKeyChange,
+                            label = { Text("API Key (明文显示)") },
+                            placeholder = { Text("sk-xxx") },
+                            // 明文显示 API Key 以便调试验证
+                            visualTransformation = VisualTransformation.None,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            singleLine = true
+                        )
+                    }
+
+                    if (modelProvider != "LOCAL") {
+                        OutlinedTextField(
+                            value = modelName,
+                            onValueChange = onModelNameChange,
+                            label = { Text("Model Name") },
+                            placeholder = { Text("qwen-plus") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            singleLine = true
+                        )
+                    } else {
+                        // Local model info
+                        val hasStorageAccess = remember(settingsPermRefreshKey) {
+                            permissionManager.hasAllFilesAccess()
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (hasStorageAccess)
+                                    MaterialTheme.colorScheme.primaryContainer
+                                else
+                                    MaterialTheme.colorScheme.errorContainer
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Gemma 4 E4B 端侧推理\n模型路径: /sdcard/Download/gemma-4-E4B-it.litertlm",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                if (!hasStorageAccess) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "⚠ 需要文件存储权限才能加载本地模型",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Button(
+                                        onClick = { onRequestAllFilesAccess() },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("授权文件访问", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     Button(
                         onClick = onSaveConfig,
@@ -473,6 +645,7 @@ fun SettingsScreen(
         PermissionsCard(
             permissionManager = permissionManager,
             onRequestPermissions = onRequestPermissions,
+            onRequestAllFilesAccess = onRequestAllFilesAccess,
             refreshKey = settingsPermRefreshKey
         )
 
@@ -576,6 +749,7 @@ fun hasNotificationListenerPermission(context: Context): Boolean {
 fun PermissionsCard(
     permissionManager: PermissionManager,
     onRequestPermissions: (Array<String>) -> Unit,
+    onRequestAllFilesAccess: () -> Unit,
     refreshKey: Int,
     modifier: Modifier = Modifier
 ) {
@@ -609,7 +783,13 @@ fun PermissionsCard(
                 PermissionRow(
                     displayName = group.displayName,
                     isGranted = group.isGranted,
-                    onGrant = { onRequestPermissions(group.permissions) },
+                    onGrant = {
+                        if (group.isSpecialPermission) {
+                            onRequestAllFilesAccess()
+                        } else {
+                            onRequestPermissions(group.permissions)
+                        }
+                    },
                     onOpenSettings = {
                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                             data = Uri.fromParts("package", context.packageName, null)

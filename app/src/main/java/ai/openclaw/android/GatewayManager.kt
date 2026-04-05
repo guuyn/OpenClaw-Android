@@ -4,6 +4,8 @@ import android.util.Log
 import ai.openclaw.android.accessibility.AccessibilityBridge
 import ai.openclaw.android.agent.AgentSession
 import ai.openclaw.android.model.BailianClient
+import ai.openclaw.android.model.LocalLLMClient
+import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
 import ai.openclaw.android.skill.SkillManager
 import ai.openclaw.android.skill.builtin.WeatherSkill
@@ -34,7 +36,8 @@ class GatewayManager(private val service: GatewayService) {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     
     // Components
-    private var modelClient: BailianClient? = null
+    private var modelClient: ModelClient? = null
+    private var localLLMClient: LocalLLMClient? = null
     private var agentSession: AgentSession? = null
     private var accessibilityBridge: AccessibilityBridge? = null
     private var skillManager: SkillManager? = null
@@ -84,7 +87,11 @@ class GatewayManager(private val service: GatewayService) {
      */
     fun stop() {
         Log.d(TAG, "Stopping Gateway...")
-        
+
+        // Release local LLM resources
+        localLLMClient?.release()
+        localLLMClient = null
+
         // Cleanup skills
         skillManager?.getLoadedSkills()?.values?.forEach { skill ->
             try {
@@ -110,18 +117,35 @@ class GatewayManager(private val service: GatewayService) {
         serviceScope.cancel()
     }
     
-    private fun initializeComponents() {
+    private suspend fun initializeComponents() {
         Log.d(TAG, "Initializing components...")
-        
-        // Initialize ModelClient
-        modelClient = BailianClient().apply {
-            configure(
-                provider = ModelProvider.valueOf(ConfigManager.getModelProvider()),
-                apiKey = ConfigManager.getModelApiKey(),
-                model = ConfigManager.getModelName()
-            )
+
+        // Initialize ModelClient based on provider
+        val providerName = ConfigManager.getModelProvider()
+        val provider = try {
+            ModelProvider.valueOf(providerName)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "Unknown provider: $providerName, falling back to BAILIAN")
+            ModelProvider.BAILIAN
         }
-        
+
+        modelClient = if (provider == ModelProvider.LOCAL) {
+            Log.i(TAG, "Using LOCAL on-device model (Gemma 4 E4B)")
+            val client = LocalLLMClient(service)
+            localLLMClient = client
+            val loaded = client.initialize()
+            if (!loaded) {
+                Log.e(TAG, "Failed to load local model, falling back to BAILIAN")
+                localLLMClient = null
+                createCloudClient()
+            } else {
+                client
+            }
+        } else {
+            Log.i(TAG, "Using cloud model: $provider / ${ConfigManager.getModelName()}")
+            createCloudClient(provider)
+        }
+
         // Initialize AccessibilityBridge
         accessibilityBridge = AccessibilityBridge()
         
@@ -153,5 +177,15 @@ class GatewayManager(private val service: GatewayService) {
         }
         
         Log.d(TAG, "Components initialized")
+    }
+
+    private fun createCloudClient(provider: ModelProvider = ModelProvider.BAILIAN): ModelClient {
+        return BailianClient().apply {
+            configure(
+                provider = provider,
+                apiKey = ConfigManager.getModelApiKey(),
+                model = ConfigManager.getModelName()
+            )
+        }
     }
 }

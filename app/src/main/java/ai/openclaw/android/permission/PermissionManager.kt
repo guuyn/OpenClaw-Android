@@ -2,6 +2,8 @@ package ai.openclaw.android.permission
 
 import android.Manifest
 import android.content.Context
+import android.os.Build
+import android.os.Environment
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +24,9 @@ data class PermissionGroupStatus(
     val displayName: String,
     val permissions: Array<String>,
     val isGranted: Boolean,
-    val isPermanentlyDenied: Boolean
+    val isPermanentlyDenied: Boolean,
+    /** If true, this permission requires a system settings page (e.g. MANAGE_EXTERNAL_STORAGE) */
+    val isSpecialPermission: Boolean = false
 )
 
 class PermissionManager(private val context: Context) {
@@ -67,7 +71,32 @@ class PermissionManager(private val context: Context) {
 
     fun hasPermissions(permissions: Array<String>): Boolean {
         return permissions.all { perm ->
-            ContextCompat.checkSelfPermission(context, perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            when {
+                // MANAGE_EXTERNAL_STORAGE is a special permission checked via Environment API
+                perm == Manifest.permission.MANAGE_EXTERNAL_STORAGE -> hasAllFilesAccess()
+                else -> ContextCompat.checkSelfPermission(context, perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+        }
+    }
+
+    /**
+     * Returns true if any of the given permissions is a "special" permission
+     * that must be granted through system settings (not via standard requestPermission flow).
+     */
+    fun hasSpecialPermission(permissions: Array<String>): Boolean {
+        return permissions.any { it == Manifest.permission.MANAGE_EXTERNAL_STORAGE }
+    }
+
+    /**
+     * Check if MANAGE_EXTERNAL_STORAGE (All Files Access) is granted.
+     * On Android 11+ (API 30+), this uses Environment.isExternalStorageManager().
+     * On older versions, falls back to regular READ/WRITE_EXTERNAL_STORAGE checks.
+     */
+    fun hasAllFilesAccess(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            hasPermissions(STORAGE_PERMISSIONS)
         }
     }
 
@@ -103,6 +132,14 @@ class PermissionManager(private val context: Context) {
                 permissions = CALENDAR_PERMISSIONS,
                 isGranted = hasPermissions(CALENDAR_PERMISSIONS),
                 isPermanentlyDenied = false
+            ),
+            PermissionGroupStatus(
+                skillId = "storage",
+                displayName = "文件存储（本地模型）",
+                permissions = STORAGE_PERMISSIONS,
+                isGranted = hasAllFilesAccess(),
+                isPermanentlyDenied = false,
+                isSpecialPermission = true
             )
         )
     }
@@ -115,6 +152,7 @@ class PermissionManager(private val context: Context) {
         val CONTACT_PERMISSIONS = arrayOf(Manifest.permission.READ_CONTACTS)
         val SMS_PERMISSIONS = arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_SMS)
         val CALENDAR_PERMISSIONS = arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
+        val STORAGE_PERMISSIONS = arrayOf(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
 
         /** Map skillId to its permissions */
         fun getPermissionsForSkill(skillId: String): Array<String>? = when (skillId) {
@@ -122,6 +160,7 @@ class PermissionManager(private val context: Context) {
             "contact" -> CONTACT_PERMISSIONS
             "sms" -> SMS_PERMISSIONS
             "calendar" -> CALENDAR_PERMISSIONS
+            "storage" -> STORAGE_PERMISSIONS
             else -> null
         }
 
@@ -131,6 +170,7 @@ class PermissionManager(private val context: Context) {
             "contact" -> "通讯录"
             "sms" -> "短信"
             "calendar" -> "日程"
+            "storage" -> "文件存储"
             "weather" -> "天气"
             "translate" -> "翻译"
             "reminder" -> "提醒"

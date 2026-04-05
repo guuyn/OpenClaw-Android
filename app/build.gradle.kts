@@ -36,8 +36,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
     }
     buildFeatures {
         compose = true
@@ -87,8 +89,8 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-task-text:0.4.4")
 
-    // MediaPipe LLM Inference (for on-device Gemma 4)
-    implementation("com.google.mediapipe:tasks-genai:0.10.14")
+    // LiteRT-LM (on-device Gemma 4 E4B inference)
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
