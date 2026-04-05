@@ -16,6 +16,10 @@ import ai.openclaw.android.skill.builtin.CalendarSkill
 import ai.openclaw.android.skill.builtin.LocationSkill
 import ai.openclaw.android.skill.builtin.ContactSkill
 import ai.openclaw.android.skill.builtin.SMSSkill
+import ai.openclaw.android.feishu.FeishuClient
+import ai.openclaw.android.feishu.OkHttpFeishuClient
+import ai.openclaw.android.feishu.FeishuEvent
+import okhttp3.OkHttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,6 +45,7 @@ class GatewayManager(private val service: GatewayService) {
     private var agentSession: AgentSession? = null
     private var accessibilityBridge: AccessibilityBridge? = null
     private var skillManager: SkillManager? = null
+    private var feishuClient: FeishuClient? = null
     
     // State
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -176,7 +181,23 @@ class GatewayManager(private val service: GatewayService) {
             )
         }
         
+        // Initialize FeishuClient
+        val httpClient = OkHttpClient()
+        feishuClient = OkHttpFeishuClient(httpClient).apply {
+            connect(ConfigManager.getFeishuAppId(), ConfigManager.getFeishuAppSecret())
+            setEventListener { event -> handleFeishuEvent(event) }
+        }
+        
         Log.d(TAG, "Components initialized")
+    }
+
+    private fun handleFeishuEvent(event: FeishuEvent) {
+        if (event.type == "im.message.receive_v1") {
+            val message = event.event?.message
+            if (message != null) {
+                agentSession?.handleMessage(message.content)
+            }
+        }
     }
 
     private fun createCloudClient(provider: ModelProvider = ModelProvider.BAILIAN): ModelClient {
