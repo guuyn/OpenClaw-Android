@@ -1,0 +1,83 @@
+package ai.openclaw.android.domain.memory
+
+import ai.openclaw.android.data.dao.MemoryDao
+import ai.openclaw.android.data.dao.MemoryVectorDao
+import ai.openclaw.android.data.model.MemoryEntity
+import ai.openclaw.android.data.model.MemoryType
+import ai.openclaw.android.data.model.MemoryVectorEntity
+import ai.openclaw.android.domain.service.EmbeddingService
+
+class MemoryManager(
+    private val memoryDao: MemoryDao,
+    private val vectorDao: MemoryVectorDao,
+    private val embeddingService: EmbeddingService,
+    private val extractor: MemoryExtractor
+) {
+    suspend fun store(memory: MemoryEntity): Result<MemoryEntity> = runCatching {
+        // 生成 embedding（如果服务可用）
+        val vector = if (embeddingService.isReady()) {
+            embeddingService.embed(memory.content)
+        } else {
+            // 降级：生成伪向量
+            FloatArray(384) { (memory.content.hashCode() * (it + 1) % 1000) / 1000f }
+        }
+        
+        // 存储记忆
+        val id = memoryDao.insert(memory)
+        
+        // 存储向量
+        vectorDao.insert(MemoryVectorEntity(
+            memoryId = id,
+            vector = vector,
+            updatedAt = System.currentTimeMillis()
+        ))
+        
+        memory.copy(id = id)
+    }
+    
+    suspend fun search(
+        query: String,
+        limit: Int = 10,
+        threshold: Float = 0.7f
+    ): List<MemorySearchResult> {
+        // TODO: 实现向量搜索（需要 sqlite-vec）
+        // 暂时返回高优先级记忆
+        return memoryDao.getHighPriority(limit).map {
+            MemorySearchResult(it, 1.0f)
+        }
+    }
+    
+    suspend fun getByType(type: MemoryType, limit: Int = 20): List<MemoryEntity> {
+        return memoryDao.getByType(type, limit)
+    }
+    
+    suspend fun getImportantMemories(limit: Int = 10): List<MemoryEntity> {
+        return memoryDao.getHighPriority(limit)
+    }
+    
+    suspend fun touch(memoryId: Long) {
+        memoryDao.updateAccess(memoryId, System.currentTimeMillis())
+    }
+    
+    suspend fun extractAndStore(messages: List<ai.openclaw.android.data.model.MessageEntity>): Result<Int> = runCatching {
+        val memories = extractor.extractFromConversation(messages).getOrThrow()
+        memories.forEach { store(it) }
+        memories.size
+    }
+    
+    suspend fun addManual(content: String, type: MemoryType? = null): Result<MemoryEntity> {
+        return extractor.extractFromUserInput(content, type)
+            .getOrThrow()
+            .let { store(it) }
+    }
+    
+    suspend fun cleanup(days: Int = 30, minAccessCount: Int = 2): Int {
+        val threshold = System.currentTimeMillis() - (days * 24 * 60 * 60 * 1000L)
+        val toDelete = memoryDao.findStale(threshold, minAccessCount)
+        toDelete.forEach { memory ->
+            memoryDao.delete(memory)
+            vectorDao.deleteByMemoryId(memory.id)
+        }
+        return toDelete.size
+    }
+}
