@@ -1,6 +1,6 @@
 package ai.openclaw.android.domain.memory
 
-import ai.openclaw.android.data.entity.MemoryEntity
+import ai.openclaw.android.data.model.MemoryEntity
 
 data class MemorySearchResult(
     val memory: MemoryEntity,

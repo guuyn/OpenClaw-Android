@@ -3,8 +3,8 @@ package ai.openclaw.android.domain.memory
 import ai.openclaw.android.data.model.MessageEntity
 import ai.openclaw.android.data.model.MemoryEntity
 import ai.openclaw.android.data.model.MemoryType
-import ai.openclaw.android.util.LocalLLMClient
-import ai.openclaw.android.util.Message
+import ai.openclaw.android.model.LocalLLMClient
+import ai.openclaw.android.model.Message
 import ai.openclaw.android.util.MemoryExtractionPrompts
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject

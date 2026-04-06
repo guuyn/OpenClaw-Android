@@ -1,3 +1,5 @@
+package ai.openclaw.android.util
+
 object MemoryExtractionPrompts {
     val SYSTEM_PROMPT = """
 分析以下对话，提取需要记住的信息。

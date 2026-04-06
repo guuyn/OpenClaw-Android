@@ -1,11 +1,11 @@
 package ai.openclaw.android.domain.memory
 
-import ai.openclaw.android.data.dao.MemoryDao
-import ai.openclaw.android.data.dao.MemoryVectorDao
+import ai.openclaw.android.data.local.MemoryDao
+import ai.openclaw.android.data.local.MemoryVectorDao
 import ai.openclaw.android.data.model.MemoryEntity
 import ai.openclaw.android.data.model.MemoryType
 import ai.openclaw.android.data.model.MemoryVectorEntity
-import ai.openclaw.android.domain.service.EmbeddingService
+import ai.openclaw.android.domain.memory.EmbeddingService
 
 class MemoryManager(
     private val memoryDao: MemoryDao,
