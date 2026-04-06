@@ -1,0 +1,14 @@
+# MiniLM-L6-v2 TFLite Model Placeholder
+
+## Download Information:
+Model URL: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+
+## To download the actual model:
+1. Go to https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+2. Look for the TFLite converted version or convert the model to TFLite format
+3. Replace this placeholder file with the actual .tflite model file
+4. Rename the actual model file to "minilm-l6-v2.tflite"
+
+## Note:
+This is a sentence transformer model for creating embeddings for semantic search
+and similarity comparison in the OpenClaw Android memory system.
