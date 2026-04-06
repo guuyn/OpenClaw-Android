@@ -5,6 +5,7 @@ import ai.openclaw.android.data.model.MessageEntity
 import ai.openclaw.android.data.model.SessionEntity
 import ai.openclaw.android.data.model.SummaryEntity
 import ai.openclaw.android.model.LocalLLMClient
+import ai.openclaw.android.model.Message
 import ai.openclaw.android.util.CompressionPrompts
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.min
@@ -32,16 +33,19 @@ class SessionCompressor(
         }
 
         // LLM 不可用，使用简单截断
-        if (!llmClient.isAvailable()) {
+        if (!llmClient.isModelLoaded()) {
             return@runCatching createSimpleSummary(session, messages, toCompress, preserveRecent)
         }
 
         // 调用 LLM 压缩（带超时）
         val summary = withTimeoutOrNull(30_000) {
-            llmClient.summarize(
-                system = CompressionPrompts.SUMMARIZE_SYSTEM,
-                user = CompressionPrompts.buildPrompt(toCompress)
-            )
+            val response = llmClient.chat(
+                listOf(
+                    Message(role = "system", content = CompressionPrompts.SUMMARIZE_SYSTEM),
+                    Message(role = "user", content = CompressionPrompts.buildPrompt(toCompress))
+                )
+            ).getOrNull()
+            response?.content ?: createSimpleSummaryText(toCompress)
         } ?: createSimpleSummaryText(toCompress)
 
         SummaryEntity(

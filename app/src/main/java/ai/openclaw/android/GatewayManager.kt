@@ -195,7 +195,9 @@ class GatewayManager(private val service: GatewayService) {
         if (event.type == "im.message.receive_v1") {
             val message = event.event?.message
             if (message != null) {
-                agentSession?.handleMessage(message.content)
+                serviceScope.launch {
+                    agentSession?.handleMessage(message.content)
+                }
             }
         }
     }

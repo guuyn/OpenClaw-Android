@@ -10,6 +10,7 @@ import ai.openclaw.android.data.model.SessionEntity
 import ai.openclaw.android.data.model.SessionStatus
 import ai.openclaw.android.domain.session.TokenCounter
 import ai.openclaw.android.model.LocalLLMClient
+import ai.openclaw.android.model.Message
 import kotlinx.coroutines.flow.firstOrNull
 import java.util.UUID
 
@@ -178,10 +179,11 @@ class HybridSessionManager(
      */
     private suspend fun generateSummary(content: String): String? {
         // 如果本地LLM可用，使用它来生成摘要
-        return if (llmClient.isAvailable()) {
+        return if (llmClient.isModelLoaded()) {
             try {
                 val prompt = "请总结以下对话内容，保持重要信息：\n\n$content"
-                llmClient.generate(prompt).getOrNull()
+                llmClient.chat(listOf(Message(role = "user", content = prompt)))
+                    .getOrNull()?.content
             } catch (e: Exception) {
                 null
             }

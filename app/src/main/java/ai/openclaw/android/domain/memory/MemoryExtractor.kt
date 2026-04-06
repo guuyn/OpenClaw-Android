@@ -30,7 +30,7 @@ class MemoryExtractor(private val llmClient: LocalLLMClient) {
             listOf(Message(role = "user", content = prompt))
         ).getOrThrow()
         
-        parseMemories(response.choices.first().message.content ?: "")
+        parseMemories(response.content ?: "")
     }
     
     suspend fun extractFromUserInput(
@@ -67,7 +67,7 @@ class MemoryExtractor(private val llmClient: LocalLLMClient) {
                 MemoryEntity(
                     content = memoryObj["content"]?.jsonPrimitive?.content ?: "",
                     memoryType = MemoryType.valueOf(memoryObj["type"]?.jsonPrimitive?.content ?: "FACT"),
-                    priority = memoryObj["priority"]?.jsonPrimitive?.int ?: 3,
+                    priority = memoryObj["priority"]?.jsonPrimitive?.content?.toIntOrNull() ?: 3,
                     source = "auto",
                     tags = memoryObj["tags"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList(),
                     createdAt = System.currentTimeMillis(),

@@ -3,9 +3,11 @@ package ai.openclaw.android.feishu
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.internal.http.HttpMethod.permitsRequestBody
 import okio.ByteString
 import java.io.File
+import java.io.IOException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -91,7 +93,7 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
             
             val request = Request.Builder()
                 .url("https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id")
-                .post(RequestBody.create(MediaType.get("application/json"), messageBody))
+                .post(RequestBody.create("application/json".toMediaType(), messageBody))
                 .addHeader("Authorization", "Bearer $accessToken")
                 .addHeader("Content-Type", "application/json; charset=utf-8")
                 .build()
@@ -116,7 +118,7 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
                 return Result.failure(Exception("File does not exist: $filePath"))
             }
             
-            val fileBody = RequestBody.create(MediaType.parse("application/octet-stream"), file)
+            val fileBody = RequestBody.create("application/octet-stream".toMediaType(), file)
             val multipartBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("file_type", "stream") // 可根据实际文件类型调整
@@ -154,7 +156,7 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
         // 调用飞书API获取新的访问令牌
         try {
             val requestBody = RequestBody.create(
-                MediaType.parse("application/json; charset=utf-8"),
+                "application/json; charset=utf-8".toMediaType(),
                 """{
                     "app_id": "$appId",
                     "app_secret": "$appSecret"

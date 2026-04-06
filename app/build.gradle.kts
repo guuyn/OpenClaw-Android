@@ -16,6 +16,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        ndkVersion = "27.0.12077973"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -80,9 +81,9 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // Room (for memory system)
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
+    ksp("androidx.room:room-compiler:2.7.2")
 
     // TensorFlow Lite (for ML-based notification classification)
     implementation("org.tensorflow:tensorflow-lite:2.16.1")

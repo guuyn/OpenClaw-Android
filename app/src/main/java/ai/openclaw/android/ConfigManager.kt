@@ -18,6 +18,8 @@ object ConfigManager {
     private const val KEY_MODEL_NAME = "model_name"
     private const val KEY_MODEL_PROVIDER = "model_provider"
     private const val KEY_SERVICE_ENABLED = "service_enabled"
+    private const val KEY_FEISHU_APP_ID = "feishu_app_id"
+    private const val KEY_FEISHU_APP_SECRET = "feishu_app_secret"
     
     private lateinit var prefs: SharedPreferences
     private lateinit var secretPrefs: SharedPreferences
@@ -86,6 +88,28 @@ object ConfigManager {
     
     fun setServiceEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_SERVICE_ENABLED, enabled).apply()
+    }
+    
+    // ==================== Feishu Configuration ====================
+    
+    fun getFeishuAppId(): String {
+        return secretPrefs.getString(KEY_FEISHU_APP_ID, "") ?: ""
+    }
+    
+    fun setFeishuAppId(appId: String) {
+        secretPrefs.edit().putString(KEY_FEISHU_APP_ID, appId).apply()
+    }
+    
+    fun getFeishuAppSecret(): String {
+        return secretPrefs.getString(KEY_FEISHU_APP_SECRET, "") ?: ""
+    }
+    
+    fun setFeishuAppSecret(appSecret: String) {
+        secretPrefs.edit().putString(KEY_FEISHU_APP_SECRET, appSecret).apply()
+    }
+    
+    fun hasFeishuCredentials(): Boolean {
+        return getFeishuAppId().isNotEmpty() && getFeishuAppSecret().isNotEmpty()
     }
     
     // ==================== Bulk Operations ====================
