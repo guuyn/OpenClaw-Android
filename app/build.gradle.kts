@@ -17,6 +17,11 @@ android {
         versionCode = 1
         versionName = "1.0"
         ndkVersion = "27.0.12077973"
+        
+        // 只保留 ARM 架构，移除 x86/x86_64（仅模拟器需要）
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -26,11 +31,17 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        debug {
+            // Debug 也启用优化减小体积
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
     compileOptions {
