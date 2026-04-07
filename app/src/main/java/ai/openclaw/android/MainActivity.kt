@@ -40,6 +40,13 @@ import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
 import ai.openclaw.android.agent.AgentSession
 import ai.openclaw.android.agent.SessionEvent
+import ai.openclaw.android.data.local.AppDatabase
+import ai.openclaw.android.domain.memory.FallbackMemoryExtractor
+import ai.openclaw.android.domain.memory.LlmMemoryExtractor
+import ai.openclaw.android.domain.memory.MemoryManager
+import ai.openclaw.android.domain.session.HybridSessionManager
+import ai.openclaw.android.domain.session.TokenCounter
+import ai.openclaw.android.ml.TfLiteEmbeddingService
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.skill.SkillManager
 import ai.openclaw.android.notification.SmartNotificationListener
@@ -91,6 +98,12 @@ fun MainScreen() {
     var agentSession by remember { mutableStateOf<AgentSession?>(null) }
     val skillManager = remember { SkillManager(context) }
     val permManager = remember { context.permissionManager() }
+
+    // Database & memory state
+    val database = remember { AppDatabase.getInstance(context) }
+    val embeddingService = remember { TfLiteEmbeddingService(context) }
+    var memoryManager by remember { mutableStateOf<MemoryManager?>(null) }
+    var sessionManager by remember { mutableStateOf<HybridSessionManager?>(null) }
 
     // Permission request launcher for chat-triggered requests
     val chatPermissionLauncher = rememberLauncherForActivityResult(
@@ -201,6 +214,39 @@ fun MainScreen() {
 
         agentSession = AgentSession(modelClient, skillManager, permManager)
         agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
+
+        // Initialize memory subsystem
+        embeddingService.initialize()
+
+        val extractor = if (localLLMClient?.isModelLoaded() == true)
+            LlmMemoryExtractor(localLLMClient!!)
+        else
+            FallbackMemoryExtractor()
+
+        val mm = MemoryManager(
+            memoryDao = database.memoryDao(),
+            vectorDao = database.memoryVectorDao(),
+            embeddingService = embeddingService,
+            extractor = extractor
+        )
+        memoryManager = mm
+
+        val sm = HybridSessionManager(
+            sessionDao = database.sessionDao(),
+            messageDao = database.messageDao(),
+            summaryDao = database.summaryDao(),
+            llmClient = localLLMClient,
+            tokenCounter = TokenCounter(),
+            memoryManager = mm
+        )
+        sessionManager = sm
+        sm.initialize()
+
+        // Wire memory provider to agent session
+        agentSession?.setSessionManager(sm)
+        agentSession?.setMemoryContextProvider {
+            sm.getMemoryContext()
+        }
 
         Log.d("MainScreen", "Agent session initialized (provider: $modelProvider) with ${skillManager.getSkillCount()} skills")
     }
@@ -396,6 +442,7 @@ fun MainScreen() {
                             }
                             agentSession = AgentSession(modelClient, skillManager, permManager)
                             agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
+                            rewireMemoryAndSession(agentSession, database, embeddingService, localLLMClient)
                         }
                     } else {
                         val cloudClient = BailianClient()
@@ -407,6 +454,9 @@ fun MainScreen() {
                         modelClient = cloudClient
                         agentSession = AgentSession(modelClient, skillManager, permManager)
                         agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
+                        scope.launch {
+                            rewireMemoryAndSession(agentSession, database, embeddingService, localLLMClient)
+                        }
                     }
 
                     LogManager.shared.log("INFO", "MainActivity", "Configuration saved and session reinitialized (provider: $modelProvider)")
@@ -841,5 +891,39 @@ private fun PermissionRow(
                 Text("授权")
             }
         }
+    }
+}
+
+private suspend fun rewireMemoryAndSession(
+    agentSession: AgentSession?,
+    database: AppDatabase,
+    embeddingService: TfLiteEmbeddingService,
+    localLLMClient: LocalLLMClient?
+) {
+    val extractor = if (localLLMClient?.isModelLoaded() == true)
+        LlmMemoryExtractor(localLLMClient!!)
+    else
+        FallbackMemoryExtractor()
+
+    val mm = MemoryManager(
+        memoryDao = database.memoryDao(),
+        vectorDao = database.memoryVectorDao(),
+        embeddingService = embeddingService,
+        extractor = extractor
+    )
+
+    val sm = HybridSessionManager(
+        sessionDao = database.sessionDao(),
+        messageDao = database.messageDao(),
+        summaryDao = database.summaryDao(),
+        llmClient = localLLMClient,
+        tokenCounter = TokenCounter(),
+        memoryManager = mm
+    )
+    sm.initialize()
+
+    agentSession?.setSessionManager(sm)
+    agentSession?.setMemoryContextProvider {
+        sm.getMemoryContext()
     }
 }

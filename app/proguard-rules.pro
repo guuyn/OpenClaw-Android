@@ -29,3 +29,26 @@
 -keepclasseswithmembers class kotlinx.serialization.json.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
+
+# TensorFlow Lite and LiteRT-LM
+-dontwarn com.google.auto.value.AutoValue
+-dontwarn org.tensorflow.lite.**
+-keep class org.tensorflow.lite.** { *; }
+-keep class com.google.ai.edge.litertlm.** { *; }
+
+# Kotlin 2.3.0 compatibility
+-dontwarn kotlin.**
+-keep class kotlin.** { *; }
+-keep class kotlin.Metadata { *; }
+-dontwarn kotlin.reflect.jvm.internal.**
+-keep class kotlin.reflect.jvm.internal.** { *; }
+
+# OkHttp and Okio
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keep class okhttp3.** { *; }
+-keep class okio.** { *; }
+
+# Room
+-keep class androidx.room.** { *; }
+-keep @androidx.room.Entity class * { *; }

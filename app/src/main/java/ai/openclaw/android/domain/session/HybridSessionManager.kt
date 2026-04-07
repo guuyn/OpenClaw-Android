@@ -8,10 +8,17 @@ import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.domain.model.SessionConfig
 import ai.openclaw.android.data.model.SessionEntity
 import ai.openclaw.android.data.model.SessionStatus
-import ai.openclaw.android.domain.session.TokenCounter
+import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.Message
+import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
@@ -21,11 +28,20 @@ class HybridSessionManager(
     private val sessionDao: SessionDao,
     private val messageDao: MessageDao,
     private val summaryDao: SummaryDao,
-    private val llmClient: LocalLLMClient,
-    private val tokenCounter: TokenCounter
+    private val llmClient: LocalLLMClient?,
+    private val tokenCounter: TokenCounter,
+    private val memoryManager: MemoryManager? = null
 ) {
     private var currentSession: SessionEntity? = null
     private val config = SessionConfig()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var extractionJob: Job? = null
+
+    companion object {
+        private const val TAG = "HybridSessionManager"
+        private const val EXTRACTION_DELAY_MS = 30_000L
+        private val MANUAL_MEMORY_TRIGGERS = listOf("记住这个", "记住：", "记住:", "请记住")
+    }
 
     /**
      * 初始化/恢复会话
@@ -74,6 +90,9 @@ class HybridSessionManager(
             // 检查是否需要压缩
             compressIfNeeded()
 
+            // 记忆系统触发
+            handleMemoryTriggers(role, content)
+
             Result.success(message.copy(id = messageId))
         } catch (e: Exception) {
             Result.failure(e)
@@ -81,7 +100,47 @@ class HybridSessionManager(
     }
 
     /**
-     * 获取对话上下文（摘要 + 最近消息）
+     * 处理记忆触发：手动标记 + 自动提取
+     */
+    private fun handleMemoryTriggers(role: MessageRole, content: String) {
+        val mm = memoryManager ?: return
+
+        // 手动标记检测
+        if (role == MessageRole.USER && MANUAL_MEMORY_TRIGGERS.any { content.contains(it) }) {
+            scope.launch {
+                try {
+                    mm.addManual(content)
+                    Log.d(TAG, "Manual memory triggered")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Manual memory failed", e)
+                }
+            }
+        }
+
+        // 延迟自动提取（仅用户消息触发）
+        if (role == MessageRole.USER) {
+            triggerDelayedExtraction()
+        }
+    }
+
+    private fun triggerDelayedExtraction() {
+        extractionJob?.cancel()
+        extractionJob = scope.launch {
+            delay(EXTRACTION_DELAY_MS)
+            try {
+                val messages = getConversationContext()
+                if (messages.isNotEmpty()) {
+                    memoryManager?.extractAndStore(messages)
+                    Log.d(TAG, "Auto memory extraction completed")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Auto memory extraction failed", e)
+            }
+        }
+    }
+
+    /**
+     * 获取对话上下文（摘要 + 最近消息 + 记忆注入）
      */
     suspend fun getConversationContext(): List<MessageEntity> {
         val sessionId = currentSession?.sessionId ?: return emptyList()
@@ -97,8 +156,8 @@ class HybridSessionManager(
             allMessages
         }
 
-        // 如果有摘要，将其作为SYSTEM消息添加到开头
-        return if (latestSummary != null) {
+        // 构建上下文消息列表
+        val contextMessages = if (latestSummary != null) {
             val summaryMessage = MessageEntity(
                 id = 0,
                 sessionId = latestSummary.sessionId,
@@ -109,8 +168,37 @@ class HybridSessionManager(
             )
             listOf(summaryMessage) + recentMessages
         } else {
-            // 如果没有摘要，返回所有消息
             allMessages
+        }
+
+        // 注入重要记忆
+        val memories = memoryManager?.getImportantMemories(5).orEmpty()
+        if (memories.isNotEmpty()) {
+            val memoryText = memories.joinToString("\n") {
+                "[${it.memoryType.name}] ${it.content}"
+            }
+            val memoryMessage = MessageEntity(
+                id = 0,
+                sessionId = sessionId,
+                role = MessageRole.SYSTEM,
+                content = "用户的重要记忆：\n$memoryText",
+                timestamp = 0L,
+                tokenCount = tokenCounter.estimate(memoryText)
+            )
+            return listOf(memoryMessage) + contextMessages
+        }
+
+        return contextMessages
+    }
+
+    /**
+     * 获取记忆上下文文本（供 AgentSession 注入 system prompt）
+     */
+    suspend fun getMemoryContext(): String? {
+        val memories = memoryManager?.getImportantMemories(5).orEmpty()
+        if (memories.isEmpty()) return null
+        return memories.joinToString("\n") {
+            "[${it.memoryType.name}] ${it.content}"
         }
     }
 
@@ -119,7 +207,7 @@ class HybridSessionManager(
      */
     suspend fun compressIfNeeded(force: Boolean = false) {
         val session = currentSession ?: return
-        
+
         // 如果强制压缩或token数量超过阈值，则执行压缩
         if (force || session.tokenCount > config.maxTokens) {
             performCompression()
@@ -142,8 +230,8 @@ class HybridSessionManager(
 
         if (messagesToCompress.isNotEmpty()) {
             // 使用LLM来生成摘要
-            val messagesToSummarize = messagesToCompress.map { 
-                "${it.role.name}: ${it.content}" 
+            val messagesToSummarize = messagesToCompress.map {
+                "${it.role.name}: ${it.content}"
             }.joinToString("\n")
 
             // 生成摘要
@@ -167,7 +255,7 @@ class HybridSessionManager(
                 // 重新计算会话的token计数
                 val remainingMessages = messageDao.getMessagesBySessionId(sessionId).firstOrNull() ?: emptyList()
                 val newTokenCount = remainingMessages.sumOf { it.tokenCount.toLong() }.toInt()
-                
+
                 currentSession = currentSession?.copy(tokenCount = newTokenCount)
                 sessionDao.updateSession(currentSession!!)
             }
@@ -179,7 +267,7 @@ class HybridSessionManager(
      */
     private suspend fun generateSummary(content: String): String? {
         // 如果本地LLM可用，使用它来生成摘要
-        return if (llmClient.isModelLoaded()) {
+        return if (llmClient != null && llmClient.isModelLoaded()) {
             try {
                 val prompt = "请总结以下对话内容，保持重要信息：\n\n$content"
                 llmClient.chat(listOf(Message(role = "user", content = prompt)))
@@ -246,6 +334,7 @@ class HybridSessionManager(
      * 结束当前会话
      */
     suspend fun endCurrentSession() {
+        extractionJob?.cancel()
         currentSession = null
     }
 }

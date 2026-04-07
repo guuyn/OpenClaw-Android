@@ -10,6 +10,7 @@ import android.telephony.SmsManager
 import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.core.net.toUri
 
 class SMSSkill(private val context: Context) : Skill {
     override val id = "sms"
@@ -66,7 +67,7 @@ class SMSSkill(private val context: Context) : Skill {
             override val name = "read_sms"
             override val description = "读取最近的短信"
             override val parameters = mapOf(
-                "limit" to SkillParam("number", "读取数量（默认10条）", false, 10),
+                "limit" to SkillParam("number", "读取数量（默认100条）", false, 100),
                 "from" to SkillParam("string", "发件人号码筛选（可选）", false)
             )
             
@@ -75,7 +76,7 @@ class SMSSkill(private val context: Context) : Skill {
                     return SkillResult(false, "", "需要读取短信权限")
                 }
                 
-                val limit = (params["limit"] as? Number)?.toInt() ?: 10
+                val limit = (params["limit"] as? Number)?.toInt() ?: 100
                 val fromFilter = params["from"] as? String
                 
                 return try {
@@ -97,7 +98,7 @@ class SMSSkill(private val context: Context) : Skill {
                 val messages = mutableListOf<SMSInfo>()
                 val resolver = context.contentResolver
                 
-                val uri = Uri.parse("content://sms/inbox")
+                val uri = "content://sms/inbox".toUri()
                 val projection = arrayOf("_id", "address", "body", "date")
                 
                 val selection = if (!fromFilter.isNullOrBlank()) {
@@ -151,7 +152,7 @@ class SMSSkill(private val context: Context) : Skill {
             
             private fun getUnreadCount(): Int {
                 val resolver = context.contentResolver
-                val uri = Uri.parse("content://sms/inbox")
+                val uri = "content://sms/inbox".toUri()
                 val projection = arrayOf("_id")
                 val selection = "read = 0"
                 

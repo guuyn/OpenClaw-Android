@@ -5,13 +5,12 @@ import ai.openclaw.android.data.local.MemoryVectorDao
 import ai.openclaw.android.data.model.MemoryEntity
 import ai.openclaw.android.data.model.MemoryType
 import ai.openclaw.android.data.model.MemoryVectorEntity
-import ai.openclaw.android.domain.memory.EmbeddingService
 
 class MemoryManager(
     private val memoryDao: MemoryDao,
     private val vectorDao: MemoryVectorDao,
     private val embeddingService: EmbeddingService,
-    private val extractor: MemoryExtractor
+    private val extractor: MemoryExtractorInterface
 ) {
     suspend fun store(memory: MemoryEntity): Result<MemoryEntity> = runCatching {
         // 生成 embedding（如果服务可用）

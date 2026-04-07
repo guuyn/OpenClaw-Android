@@ -4,14 +4,12 @@ import ai.openclaw.android.data.model.MessageEntity
 import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.data.model.SessionEntity
 import ai.openclaw.android.data.model.SessionStatus
-import ai.openclaw.android.model.LocalLLMClient
+import ai.openclaw.android.model.*
 import io.mockk.*
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
-import kotlin.test.assertTrue
-import kotlin.test.assertNull
-import kotlin.test.assertNotNull
+import org.junit.Assert.*
 import ai.openclaw.android.data.local.SummaryDao
 import ai.openclaw.android.data.model.SummaryEntity
 
@@ -65,9 +63,17 @@ class SessionCompressorTest {
         val session = createTestSession()
         val messages = (1..20).map { createTestMessage(it.toLong()) }
         
-        coEvery { mockLlmClient.isAvailable() } returns true
-        coEvery { mockLlmClient.summarize(any(), any()) } returns "测试摘要"
-        coEvery { mockSummaryDao.insert(any()) } just Runs
+        coEvery { mockLlmClient.isModelLoaded() } returns true
+        coEvery { mockLlmClient.chat(any(), any()) } returns Result.success(ModelResponse(
+            id = "test-response",
+            choices = listOf(Choice(
+                index = 0,
+                message = ResponseMessage(role = "assistant", content = "测试摘要"),
+                finishReason = "stop"
+            )),
+            usage = Usage(promptTokens = 0, completionTokens = 10, totalTokens = 10)
+        ))
+        coEvery { mockSummaryDao.insert(any<SummaryEntity>()) } just Runs
         
         val result = compressor.compress(session, messages, preserveRecent = 10)
         

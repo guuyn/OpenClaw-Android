@@ -13,9 +13,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.JsonElement
 
-class MemoryExtractor(private val llmClient: LocalLLMClient) {
+class LlmMemoryExtractor(private val llmClient: LocalLLMClient) : MemoryExtractorInterface {
     
-    suspend fun extractFromConversation(
+    override suspend fun extractFromConversation(
         messages: List<MessageEntity>
     ): Result<List<MemoryEntity>> = runCatching {
         if (messages.isEmpty()) return@runCatching emptyList()
@@ -33,9 +33,9 @@ class MemoryExtractor(private val llmClient: LocalLLMClient) {
         parseMemories(response.content ?: "")
     }
     
-    suspend fun extractFromUserInput(
+    override suspend fun extractFromUserInput(
         content: String,
-        type: MemoryType? = null
+        type: MemoryType?
     ): Result<MemoryEntity> = runCatching {
         val memoryType = type ?: classifyType(content)
         val priority = if (content.contains("重要") || content.contains("必须")) 5 else 3

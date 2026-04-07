@@ -79,6 +79,27 @@ User → MainActivity (Compose UI)
 
 - **`SmartNotificationListener`** — Notification listener service with ML-based classification.
 
+### Data Layer (`data/`)
+
+Room database (singleton via `AppDatabase.getInstance(context)`) with three domains:
+- **Sessions** — `SessionDao`, `MessageDao`, `SummaryDao` for conversation persistence
+- **Memory** — `MemoryDao`, `MemoryVectorDao` for storing memories and their vector embeddings
+
+Entities are in `data/model/`, the Room database is `AppDatabase`.
+
+### Domain Layer (`domain/`)
+
+- **`domain/session/`** — `HybridSessionManager` manages conversation history with compression via `SessionCompressor`. `TokenCounter` estimates token usage. Receives optional `MemoryManager` for auto-extraction and memory injection into context.
+- **`domain/memory/`** — `MemoryManager` handles memory CRUD. `MemoryExtractorInterface` is implemented by `LlmMemoryExtractor` (uses on-device LLM) and `FallbackMemoryExtractor` (keyword-based heuristic). `EmbeddingService` is the abstract interface; `TfLiteEmbeddingService` (in `ml/`) implements it with MiniLM-L6-v2 for vector embeddings.
+
+### Integration Flow
+
+```
+MainScreen creates: AppDatabase → TfLiteEmbeddingService → MemoryManager → HybridSessionManager → AgentSession
+```
+
+`AgentSession` holds references to `HybridSessionManager` (for message persistence) and a memory context provider (for injecting important memories into system prompt). Messages are persisted after each conversation turn. Memory extraction triggers on "记住这个" keywords and after 30s idle delay.
+
 ### Skill System
 
 Skills live in `skill/builtin/` and implement the `Skill` interface. Each skill:
@@ -94,5 +115,5 @@ Agent responses use the `[A2UI]...[/A2UI]` markup for rich UI rendering. Support
 
 ## Testing
 
-- **Unit tests** (`src/test/`): JVM-based, test serialization and parsing logic (e.g., `ModelModelsTest`).
-- **Instrumented tests** (`src/androidTest/`): Require device/emulator, use fake `ModelClient` implementations and `mockito-kotlin` (e.g., `AgentSessionTest` for streaming behavior).
+- **Unit tests** (`src/test/`): JVM-based using MockK. Tests cover serialization (`ModelModelsTest`), skill logic, session compression, memory system, and embedding service.
+- **Instrumented tests** (`src/androidTest/`): Require device/emulator, use fake `ModelClient` implementations with `mockito-kotlin` (e.g., `AgentSessionTest` for streaming behavior).

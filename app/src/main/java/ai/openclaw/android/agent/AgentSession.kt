@@ -1,6 +1,8 @@
 package ai.openclaw.android.agent
 
 import android.util.Log
+import ai.openclaw.android.data.model.MessageRole
+import ai.openclaw.android.domain.session.HybridSessionManager
 import ai.openclaw.android.model.*
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.skill.SkillManager
@@ -49,6 +51,11 @@ Supported types: weather, location, reminder, translation, search, generic.
     private var tools: List<Tool> = emptyList()
     private var toolExecutor: (suspend (ToolCall) -> String)? = null
 
+    // Memory & persistence hooks (set via setters)
+    private var memoryContextProvider: (suspend () -> String?)? = null
+    private var sessionManager: HybridSessionManager? = null
+    private var memoryContextText: String? = null
+
     // ==================== Tool Setup ====================
 
     fun setTools(tools: List<Tool>, executor: suspend (ToolCall) -> String) {
@@ -72,10 +79,46 @@ Supported types: weather, location, reminder, translation, search, generic.
         Log.d(TAG, "Loaded ${accessibilityTools.size} accessibility + ${skillTools.size} skill = ${this.tools.size} tools")
     }
 
+    // ==================== Memory & Persistence Setup ====================
+
+    fun setMemoryContextProvider(provider: suspend () -> String?) {
+        this.memoryContextProvider = provider
+    }
+
+    fun setSessionManager(manager: HybridSessionManager) {
+        this.sessionManager = manager
+    }
+
+    private suspend fun refreshMemoryContext() {
+        memoryContextText = try {
+            memoryContextProvider?.invoke()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to refresh memory context", e)
+            null
+        }
+    }
+
+    private suspend fun persistMessage(role: String, content: String) {
+        if (content.isBlank()) return
+        val sessionMgr = sessionManager ?: return
+        try {
+            val messageRole = when (role) {
+                "user" -> MessageRole.USER
+                "assistant" -> MessageRole.ASSISTANT
+                else -> return // skip system/tool messages
+            }
+            sessionMgr.addMessage(messageRole, content)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to persist message", e)
+        }
+    }
+
     // ==================== Synchronous API (backward compat) ====================
 
     suspend fun handleMessage(userMessage: String): String {
         history.add(Message(role = "user", content = userMessage))
+        refreshMemoryContext()
+        persistMessage("user", userMessage)
         val activeTools = tools.takeIf { it.isNotEmpty() }
 
         // Agent loop: call model → execute tools → repeat
@@ -98,6 +141,7 @@ Supported types: weather, location, reminder, translation, search, generic.
                 val content = response.content ?: ""
                 history.add(Message(role = "assistant", content = content))
                 trimHistoryByTokens()
+                persistMessage("assistant", content)
                 return content
             }
 
@@ -112,6 +156,7 @@ Supported types: weather, location, reminder, translation, search, generic.
         val content = result.getOrDefault(ModelResponse()).content ?: "操作完成"
         history.add(Message(role = "assistant", content = content))
         trimHistoryByTokens()
+        persistMessage("assistant", content)
         return content
     }
 
@@ -123,6 +168,8 @@ Supported types: weather, location, reminder, translation, search, generic.
      */
     fun handleMessageStream(userMessage: String): Flow<SessionEvent> = flow {
         history.add(Message(role = "user", content = userMessage))
+        refreshMemoryContext()
+        persistMessage("user", userMessage)
         val activeTools = tools.takeIf { it.isNotEmpty() }
 
         var round = 0
@@ -159,6 +206,7 @@ Supported types: weather, location, reminder, translation, search, generic.
                 if (text.isNotEmpty()) {
                     history.add(Message(role = "assistant", content = text))
                     trimHistoryByTokens()
+                    persistMessage("assistant", text)
                     emit(SessionEvent.Complete(text))
                 } else {
                     emit(SessionEvent.Error("No response from model"))
@@ -172,6 +220,7 @@ Supported types: weather, location, reminder, translation, search, generic.
                 val content = response.content ?: fullText.toString()
                 history.add(Message(role = "assistant", content = content))
                 trimHistoryByTokens()
+                persistMessage("assistant", content)
                 emit(SessionEvent.Complete(content))
                 return@flow
             }
@@ -271,6 +320,9 @@ Supported types: weather, location, reminder, translation, search, generic.
     private fun buildMessages(): List<Message> {
         return mutableListOf<Message>().apply {
             add(Message(role = "system", content = BASE_SYSTEM_PROMPT))
+            memoryContextText?.let { context ->
+                add(Message(role = "system", content = "用户的重要记忆：\n$context"))
+            }
             addAll(history)
         }
     }

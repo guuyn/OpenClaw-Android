@@ -4,7 +4,6 @@ import ai.openclaw.android.data.local.MessageDao
 import ai.openclaw.android.data.local.SessionDao
 import ai.openclaw.android.data.local.SummaryDao
 import ai.openclaw.android.data.model.MessageRole
-import ai.openclaw.android.data.model.SessionConfig
 import ai.openclaw.android.data.model.SessionEntity
 import ai.openclaw.android.data.model.SessionStatus
 import ai.openclaw.android.model.LocalLLMClient
@@ -50,7 +49,7 @@ class HybridSessionManagerTest {
     
     @Test
     fun initialize_createsDefaultSession() = runTest {
-        coEvery { mockLlmClient.isAvailable() } returns false
+        coEvery { mockLlmClient.isModelLoaded() } returns false
         val session = manager.initialize()
         assertNotNull(session)
         assertNull(session.name)
@@ -58,7 +57,7 @@ class HybridSessionManagerTest {
     
     @Test
     fun addMessage_increasesTokenCount() = runTest {
-        coEvery { mockLlmClient.isAvailable() } returns false
+        coEvery { mockLlmClient.isModelLoaded() } returns false
         manager.initialize()
         manager.addMessage(MessageRole.USER, "测试消息")
         
@@ -68,7 +67,7 @@ class HybridSessionManagerTest {
     
     @Test
     fun getConversationContext_returnsMessages() = runTest {
-        coEvery { mockLlmClient.isAvailable() } returns false
+        coEvery { mockLlmClient.isModelLoaded() } returns false
         manager.initialize()
         manager.addMessage(MessageRole.USER, "用户消息")
         manager.addMessage(MessageRole.ASSISTANT, "助手回复")

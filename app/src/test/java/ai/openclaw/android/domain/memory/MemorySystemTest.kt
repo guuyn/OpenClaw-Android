@@ -3,8 +3,7 @@ package ai.openclaw.android.domain.memory
 import ai.openclaw.android.data.model.MessageEntity
 import ai.openclaw.android.data.model.MemoryEntity
 import ai.openclaw.android.data.model.MemoryType
-import ai.openclaw.android.util.LocalLLMClient
-import ai.openclaw.android.util.Message
+import ai.openclaw.android.model.LocalLLMClient
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.mockito.kotlin.*
@@ -14,7 +13,7 @@ import kotlin.test.assertTrue
 class MemoryExtractorTest {
     
     private val mockLlmClient = mock<LocalLLMClient>()
-    private val memoryExtractor = MemoryExtractor(mockLlmClient)
+    private val memoryExtractor = LlmMemoryExtractor(mockLlmClient)
     
     @Test
     fun `extractFromConversation should return empty list when messages is empty`() = runTest {
@@ -64,7 +63,7 @@ class MemoryManagerTest {
     private val mockMemoryDao = mock<ai.openclaw.android.data.dao.MemoryDao>()
     private val mockVectorDao = mock<ai.openclaw.android.data.dao.MemoryVectorDao>()
     private val mockEmbeddingService = mock<ai.openclaw.android.domain.service.EmbeddingService>()
-    private val mockExtractor = mock<MemoryExtractor>()
+    private val mockExtractor = mock<MemoryExtractorInterface>()
     
     private val memoryManager = MemoryManager(
         mockMemoryDao,
