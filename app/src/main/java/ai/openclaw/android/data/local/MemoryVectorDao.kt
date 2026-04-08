@@ -17,6 +17,6 @@ interface MemoryVectorDao {
     @Query("DELETE FROM memory_vectors WHERE memoryId = :memoryId")
     suspend fun deleteByMemoryId(memoryId: Long)
     
-    // 注意：sqlite-vec 相似度搜索需要额外的扩展配置
-    // 暂时使用简单的向量存储，后续添加搜索功能
+    @Query("SELECT * FROM memory_vectors")
+    suspend fun getAll(): List<MemoryVectorEntity>
 }

@@ -5,6 +5,7 @@ import ai.openclaw.android.data.local.MemoryVectorDao
 import ai.openclaw.android.data.model.MemoryEntity
 import ai.openclaw.android.data.model.MemoryType
 import ai.openclaw.android.data.model.MemoryVectorEntity
+import kotlin.math.sqrt
 
 class MemoryManager(
     private val memoryDao: MemoryDao,
@@ -18,32 +19,45 @@ class MemoryManager(
             embeddingService.embed(memory.content)
         } else {
             // 降级：生成伪向量
-            FloatArray(384) { (memory.content.hashCode() * (it + 1) % 1000) / 1000f }
+            FloatArray(embeddingService.getDimension()) { (memory.content.hashCode() * (it + 1) % 1000) / 1000f }
         }
-        
+
         // 存储记忆
         val id = memoryDao.insert(memory)
-        
+
         // 存储向量
         vectorDao.insert(MemoryVectorEntity(
             memoryId = id,
             vector = vector,
             updatedAt = System.currentTimeMillis()
         ))
-        
+
         memory.copy(id = id)
     }
-    
+
     suspend fun search(
         query: String,
         limit: Int = 10,
-        threshold: Float = 0.7f
+        threshold: Float = 0.5f
     ): List<MemorySearchResult> {
-        // TODO: 实现向量搜索（需要 sqlite-vec）
-        // 暂时返回高优先级记忆
-        return memoryDao.getHighPriority(limit).map {
-            MemorySearchResult(it, 1.0f)
+        // 生成查询向量
+        val queryVector = if (embeddingService.isReady()) {
+            embeddingService.embed(query)
+        } else {
+            FloatArray(embeddingService.getDimension()) { (query.hashCode() * (it + 1) % 1000) / 1000f }
         }
+
+        // 暴力搜索：加载所有向量并计算余弦相似度
+        val allVectors = vectorDao.getAll()
+        val scored = allVectors.mapNotNull { vec ->
+            val similarity = cosineSimilarity(queryVector, vec.vector)
+            if (similarity >= threshold) {
+                val memory = memoryDao.getById(vec.memoryId) ?: return@mapNotNull null
+                MemorySearchResult(memory, similarity)
+            } else null
+        }
+
+        return scored.sortedByDescending { it.similarity }.take(limit)
     }
     
     suspend fun getByType(type: MemoryType, limit: Int = 20): List<MemoryEntity> {
@@ -78,5 +92,22 @@ class MemoryManager(
             vectorDao.deleteByMemoryId(memory.id)
         }
         return toDelete.size
+    }
+
+    companion object {
+        fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
+            require(a.size == b.size) { "Vector dimensions must match: ${a.size} vs ${b.size}" }
+            var dotProduct = 0.0
+            var normA = 0.0
+            var normB = 0.0
+            for (i in a.indices) {
+                dotProduct += a[i] * b[i]
+                normA += a[i] * a[i]
+                normB += b[i] * b[i]
+            }
+            val denominator = sqrt(normA) * sqrt(normB)
+            if (denominator < 1e-10) return 0f
+            return (dotProduct / denominator).toFloat()
+        }
     }
 }
