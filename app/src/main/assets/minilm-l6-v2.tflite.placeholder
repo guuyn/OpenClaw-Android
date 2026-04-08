@@ -1,14 +1,47 @@
 # MiniLM-L6-v2 TFLite Model Placeholder
 
-## Download Information:
-Model URL: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+## 模型信息
+- 名称: all-MiniLM-L6-v2
+- 维度: 384
+- 用途: 语义搜索和相似度计算
 
-## To download the actual model:
-1. Go to https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
-2. Look for the TFLite converted version or convert the model to TFLite format
-3. Replace this placeholder file with the actual .tflite model file
-4. Rename the actual model file to "minilm-l6-v2.tflite"
+## 下载方法
 
-## Note:
-This is a sentence transformer model for creating embeddings for semantic search
-and similarity comparison in the OpenClaw Android memory system.
+### 方法 1: 从 HuggingFace 下载（推荐）
+1. 访问: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+2. 点击 "Files and versions"
+3. 下载 `model.safetensors` 或 `pytorch_model.bin`
+4. 使用 TensorFlow Lite Converter 转换为 TFLite 格式
+
+### 方法 2: 使用预转换的模型
+1. 访问: https://tfhub.dev/google/universal-sentence-encoder-lite/2
+2. 或搜索 "MiniLM-L6-v2 tflite" 找到预转换版本
+
+### 方法 3: 手动转换
+```python
+from transformers import AutoModel, AutoTokenizer
+import tensorflow as tf
+
+model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+
+# 转换为 TFLite
+# 具体步骤见项目文档
+```
+
+## 安装步骤
+1. 下载模型文件（约 45MB）
+2. 重命名为 `minilm-l6-v2.tflite`
+3. 放到此目录: `app/src/main/assets/`
+4. 删除此 `.placeholder` 文件
+5. 确保 `vocab.txt` 也存在
+
+## 验证
+运行以下命令检查模型是否正确加载:
+```bash
+./gradlew test --tests "ai.openclaw.android.ml.TfLiteEmbeddingServiceTest"
+```
+
+## 注意
+- 模型文件不应提交到 Git（已在 .gitignore 中排除）
+- 如需动态下载，可在首次使用记忆功能时从 CDN 下载
