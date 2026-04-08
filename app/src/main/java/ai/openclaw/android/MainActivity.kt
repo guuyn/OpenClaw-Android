@@ -365,7 +365,36 @@ fun MainScreen() {
                 sendMessage = sendMessage,
                 messages = messages.toList(),
                 isLoading = isLoading,
-                modifier = Modifier.padding(padding)
+                modifier = Modifier.padding(padding),
+                voiceSessionHandler = { userText ->
+                    // 处理语音输入
+                    if (agentSession == null) {
+                        "请先在设置中配置 API Key"
+                    } else {
+                        // 发送消息
+                        messages.add(ChatMessage(role = "user", content = userText))
+                        
+                        // 获取回复
+                        val responseId = java.util.UUID.randomUUID().toString()
+                        messages.add(ChatMessage(id = responseId, role = "assistant", content = ""))
+                        
+                        var fullResponse = ""
+                        agentSession!!.handleMessageStream(userText).collect { event ->
+                            when (event) {
+                                is SessionEvent.Token -> {
+                                    fullResponse += event.text
+                                }
+                                is SessionEvent.Complete -> {
+                                    fullResponse = event.fullText
+                                }
+                                else -> {}
+                            }
+                        }
+                        
+                        // 返回要朗读的文本
+                        fullResponse.ifEmpty { "抱歉，我没有理解您的问题" }
+                    }
+                }
             )
             1 -> {
                 val notifications by SmartNotificationListener.notifications.collectAsStateWithLifecycle()

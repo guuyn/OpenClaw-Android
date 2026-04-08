@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.a2ui.compose">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:allowBackup="true"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true">
+        
+        <activity
+            android:name=".example.A2UIDemoActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.A2UICompose">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        
+        <activity
+            android:name=".example.A2UISampleActivity"
+            android:exported="false"
+            android:label="A2UI Sample"
+            android:theme="@style/Theme.A2UICompose" />
+
+        <activity
+            android:name=".example.A2UIComprehensiveDemo"
+            android:exported="true"
+            android:label="A2UI v0.9 Comprehensive Demo"
+            android:theme="@style/Theme.A2UICompose">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+            
+    </application>
+
+</manifest>
