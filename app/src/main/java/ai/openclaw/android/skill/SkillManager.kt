@@ -22,7 +22,9 @@ class SkillManager(private val context: Context) {
         registerSkill(LocationSkill(context))
         registerSkill(ContactSkill(context))
         registerSkill(SMSSkill(context))
-        
+        registerSkill(AppLauncherSkill())
+        registerSkill(SettingsSkill())
+
         Log.i(TAG, "SkillManager initialized with ${loadedSkills.size} skills")
     }
     
