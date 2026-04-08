@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,6 +7,21 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+
+// Load signing config from local.properties (preferred) or environment variables
+val localProperties = Properties().apply {
+    val propsFile = rootProject.file("local.properties")
+    if (propsFile.exists()) propsFile.inputStream().use { load(it) }
+}
+
+val releaseStoreFile: String? = localProperties.getProperty("RELEASE_STORE_FILE")
+    ?: System.getenv("RELEASE_STORE_FILE")
+val releaseStorePassword: String? = localProperties.getProperty("RELEASE_STORE_PASSWORD")
+    ?: System.getenv("RELEASE_STORE_PASSWORD")
+val releaseKeyAlias: String? = localProperties.getProperty("RELEASE_KEY_ALIAS")
+    ?: System.getenv("RELEASE_KEY_ALIAS")
+val releaseKeyPassword: String? = localProperties.getProperty("RELEASE_KEY_PASSWORD")
+    ?: System.getenv("RELEASE_KEY_PASSWORD")
 
 android {
     namespace = "ai.openclaw.android"
@@ -29,6 +46,19 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            if (releaseStoreFile != null && releaseStorePassword != null &&
+                releaseKeyAlias != null && releaseKeyPassword != null
+            ) {
+                storeFile = file("../$releaseStoreFile")
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -37,6 +67,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             // Debug 也启用优化减小体积

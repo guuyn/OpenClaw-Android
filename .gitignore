@@ -45,10 +45,9 @@ captures/
 .idea/libraries
 .idea/caches
 
-# Keystore files
-# Uncomment the following lines if you do not want to check your keystore files in.
-#*.jks
-#*.keystore
+# Keystore files (never commit signing keys)
+*.jks
+*.keystore
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
@@ -94,3 +93,6 @@ Thumbs.db
 
 # Claude Code
 .claude/
+# Release signing
+openclaw-release.keystore
+local.properties
