@@ -78,7 +78,7 @@ class SettingsSkill : Skill {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 ctx.startActivity(intent)
                 val label = if (type.isNullOrBlank()) "系统设置" else "$type 设置"
-                return SkillResult(true, "已打开$label页面")
+                return SkillResult(true, "已打开${label}页面")
             } catch (e: Exception) {
                 return SkillResult(false, "", "打开设置失败: ${e.message}")
             }

@@ -13,9 +13,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,9 +29,13 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import ai.openclaw.android.voice.VoiceInteractionManager
+import ai.openclaw.android.voice.VoiceState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -240,12 +249,21 @@ fun ChatScreen(
     sendMessage: (String) -> Unit,
     messages: List<ChatMessage>,
     isLoading: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    voiceSessionHandler: (suspend (String) -> String?)? = null
 ) {
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     val focusRequester = remember { FocusRequester() }
+    val context = LocalContext.current
+
+    // Voice interaction
+    val voiceManager = remember { voiceSessionHandler?.let { VoiceInteractionManager(context) } }
+    val voiceState by voiceManager?.sessionState?.collectAsState()
+        ?: remember { mutableStateOf(VoiceState.Idle) }
+    val voiceTranscript by voiceManager?.transcript?.collectAsState()
+        ?: remember { mutableStateOf("") }
 
     val sendInteraction = remember { MutableInteractionSource() }
     val isSendPressed by sendInteraction.collectIsPressedAsState()
@@ -254,6 +272,25 @@ fun ChatScreen(
         animationSpec = spring(stiffness = Spring.StiffnessHigh),
         label = "sendScale"
     )
+
+    // Initialize and cleanup voice manager
+    LaunchedEffect(voiceManager) {
+        voiceManager?.initialize()
+    }
+    DisposableEffect(voiceManager) {
+        onDispose { voiceManager?.destroy() }
+    }
+
+    // Audio permission launcher
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted && voiceManager != null) {
+            voiceManager.startSession { transcript ->
+                voiceSessionHandler?.invoke(transcript)
+            }
+        }
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -305,6 +342,18 @@ fun ChatScreen(
             }
         }
 
+        // Voice state indicator
+        AnimatedVisibility(
+            visible = voiceState != VoiceState.Idle,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            VoiceStateIndicator(
+                voiceState = voiceState,
+                transcript = voiceTranscript
+            )
+        }
+
         Surface(
             modifier = Modifier.fillMaxWidth(),
             tonalElevation = 8.dp
@@ -350,6 +399,25 @@ fun ChatScreen(
                         }
                     }
                 )
+
+                // Voice button
+                if (voiceSessionHandler != null && voiceManager != null) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    VoiceButton(
+                        voiceState = voiceState,
+                        onClick = {
+                            if (voiceState != VoiceState.Idle) {
+                                voiceManager.cancelSession()
+                            } else if (voiceManager.hasRecordAudioPermission()) {
+                                voiceManager.startSession { transcript ->
+                                    voiceSessionHandler.invoke(transcript)
+                                }
+                            } else {
+                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -482,5 +550,114 @@ fun MessageBubble(
                 }
             }
         }
+    }
+}
+
+// ==================== Voice UI Components ====================
+
+@Composable
+fun VoiceStateIndicator(
+    voiceState: VoiceState,
+    transcript: String
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        color = when (voiceState) {
+            VoiceState.Listening -> MaterialTheme.colorScheme.primaryContainer
+            VoiceState.Speaking -> MaterialTheme.colorScheme.secondaryContainer
+            else -> MaterialTheme.colorScheme.surfaceVariant
+        },
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            when (voiceState) {
+                VoiceState.Listening -> {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Listening",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "正在听取...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        if (transcript.isNotEmpty()) {
+                            Text(
+                                text = transcript,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+                VoiceState.Speaking -> {
+                    Icon(
+                        imageVector = Icons.Default.VolumeUp,
+                        contentDescription = "Speaking",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "正在朗读...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+                VoiceState.Processing -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "处理中...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                else -> {}
+            }
+        }
+    }
+}
+
+@Composable
+fun VoiceButton(
+    voiceState: VoiceState,
+    onClick: () -> Unit
+) {
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = when (voiceState) {
+                VoiceState.Listening -> Icons.Default.Mic
+                VoiceState.Speaking -> Icons.Default.VolumeUp
+                VoiceState.Processing -> Icons.Default.Mic
+                else -> Icons.Default.Mic
+            },
+            contentDescription = when (voiceState) {
+                VoiceState.Listening -> "Stop listening"
+                VoiceState.Speaking -> "Speaking"
+                else -> "Start voice input"
+            },
+            tint = when (voiceState) {
+                VoiceState.Listening -> MaterialTheme.colorScheme.error
+                VoiceState.Speaking -> MaterialTheme.colorScheme.secondary
+                else -> MaterialTheme.colorScheme.primary
+            }
+        )
     }
 }
