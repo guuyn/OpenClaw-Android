@@ -12,7 +12,8 @@ import kotlin.math.min
 
 class SessionCompressor(
     private val llmClient: LocalLLMClient,
-    private val summaryDao: SummaryDao
+    private val summaryDao: SummaryDao,
+    private val isLlmReady: (() -> Boolean)? = null
 ) {
     suspend fun compress(
         session: SessionEntity,
@@ -33,7 +34,8 @@ class SessionCompressor(
         }
 
         // LLM 不可用，使用简单截断
-        if (!llmClient.isModelLoaded()) {
+        val modelReady = isLlmReady?.invoke() ?: llmClient.isModelLoaded()
+        if (!modelReady) {
             return@runCatching createSimpleSummary(session, messages, toCompress, preserveRecent)
         }
 

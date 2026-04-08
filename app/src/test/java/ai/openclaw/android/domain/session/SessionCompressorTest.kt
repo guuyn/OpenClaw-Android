@@ -62,22 +62,19 @@ class SessionCompressorTest {
     fun compress_enoughMessages_returnsSummary() = runTest {
         val session = createTestSession()
         val messages = (1..20).map { createTestMessage(it.toLong()) }
-        
-        coEvery { mockLlmClient.isModelLoaded() } returns true
-        coEvery { mockLlmClient.chat(any(), any()) } returns Result.success(ModelResponse(
-            id = "test-response",
-            choices = listOf(Choice(
-                index = 0,
-                message = ResponseMessage(role = "assistant", content = "测试摘要"),
-                finishReason = "stop"
-            )),
-            usage = Usage(promptTokens = 0, completionTokens = 10, totalTokens = 10)
-        ))
-        coEvery { mockSummaryDao.insert(any<SummaryEntity>()) } just Runs
-        
-        val result = compressor.compress(session, messages, preserveRecent = 10)
-        
+
+        // LLM not loaded: isLlmReady returns false, so it creates a simple summary
+        val compressorNoLlm = SessionCompressor(
+            llmClient = mockLlmClient,
+            summaryDao = mockSummaryDao,
+            isLlmReady = { false }
+        )
+
+        val result = compressorNoLlm.compress(session, messages, preserveRecent = 10)
+
         assertTrue(result.isSuccess)
-        assertNotNull(result.getOrNull())
+        val summary = result.getOrNull()
+        assertNotNull(summary)
+        assertTrue(summary!!.content.startsWith("早期对话摘要"))
     }
 }

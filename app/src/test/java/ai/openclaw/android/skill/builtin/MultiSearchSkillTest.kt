@@ -79,10 +79,10 @@ class MultiSearchSkillTest {
 
         // Assert
         assertTrue(result.success)
-        assertTrue(result.data.isNotBlank())
-        assertTrue(result.data.contains("Test Result 1"))
-        assertTrue(result.data.contains("Test Result 2"))
-        assertTrue(result.error.isBlank())
+        assertTrue(result.output.isNotBlank())
+        assertTrue(result.output.contains("Test Result 1"))
+        assertTrue(result.output.contains("Test Result 2"))
+        assertTrue(result.error?.isBlank() != false)
     }
 
     @Test
@@ -112,7 +112,7 @@ class MultiSearchSkillTest {
 
         // Assert
         assertFalse(result.success)
-        assertTrue(result.error.isNotBlank())
+        assertTrue(result.error?.isNotBlank() == true)
     }
 
     @Test
@@ -152,9 +152,9 @@ class MultiSearchSkillTest {
 
         // Assert
         assertTrue(result.success)
-        assertTrue(result.data.contains("Example Title"))
-        assertTrue(result.data.contains("Example content description"))
-        assertTrue(result.data.contains("example.com"))
+        assertTrue(result.output.contains("Example Title"))
+        assertTrue(result.output.contains("Example content description"))
+        assertTrue(result.output.contains("example.com"))
     }
 
     @Test
@@ -169,8 +169,10 @@ class MultiSearchSkillTest {
         // Assert
         // Since we can't directly verify the internal state, 
         // we'll test that initialization doesn't throw exceptions
-        assertDoesNotThrow { 
+        kotlin.runCatching { 
             multiSearchSkill.initialize(mockContext) 
+        }.onFailure { 
+            fail("Initialization threw exception: ${it.message}") 
         }
     }
 
@@ -188,7 +190,7 @@ class MultiSearchSkillTest {
 
         // Assert
         assertFalse(result.success)
-        assertTrue(result.error.contains("缺少 query 参数"))
+        assertTrue(result.error?.contains("缺少 query 参数") == true)
     }
 
     @Test
@@ -205,6 +207,6 @@ class MultiSearchSkillTest {
 
         // Assert
         assertFalse(result.success)
-        assertTrue(result.error.contains("缺少 query 参数"))
+        assertTrue(result.error?.contains("缺少 query 参数") == true)
     }
 }

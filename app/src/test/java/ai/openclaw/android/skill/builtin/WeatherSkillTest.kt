@@ -18,6 +18,8 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Before
 import org.junit.Test
 import org.junit.Assert.*
+import io.mockk.every
+import io.mockk.coEvery
 
 class WeatherSkillTest {
 
@@ -41,7 +43,7 @@ class WeatherSkillTest {
     @Test
     fun `getWeather_validLocation_returnsResult`() = runTest {
         // Arrange
-        val mockCall = mockk<Call>(relaxed = true)
+        val mockCall = mockk<Call>()
         val mockResponse = Response.Builder()
             .request(Request.Builder().url("https://wttr.in/Beijing?format=3").build())
             .protocol(Protocol.HTTP_1_1)
@@ -50,9 +52,9 @@ class WeatherSkillTest {
             .body("Beijing: +20°C".toResponseBody("text/plain".toMediaType()))
             .build()
 
-        coEvery { mockHttpClient.newCall(any()).execute() } returns mockResponse
         every { mockHttpClient.newCall(any()) } returns mockCall
-        
+        every { mockCall.execute() } returns mockResponse
+
         // Initialize the skill with the mocked context
         weatherSkill.initialize(mockContext)
 
@@ -65,14 +67,14 @@ class WeatherSkillTest {
 
         // Assert
         assertTrue(result.success)
-        assertTrue(result.data.isNotBlank())
-        assertTrue(result.error.isBlank())
+        assertTrue(result.output.isNotBlank())
+        assertTrue(result.error?.isBlank() != false)
     }
 
     @Test
     fun `getWeather_invalidLocation_returnsError`() = runTest {
         // Arrange
-        val mockCall = mockk<Call>(relaxed = true)
+        val mockCall = mockk<Call>()
         val mockResponse = Response.Builder()
             .request(Request.Builder().url("https://wttr.in/InvalidLocation?format=3").build())
             .protocol(Protocol.HTTP_1_1)
@@ -81,9 +83,9 @@ class WeatherSkillTest {
             .body("Location not found".toResponseBody("text/plain".toMediaType()))
             .build()
 
-        coEvery { mockHttpClient.newCall(any()).execute() } returns mockResponse
         every { mockHttpClient.newCall(any()) } returns mockCall
-        
+        every { mockCall.execute() } returns mockResponse
+
         // Initialize the skill with the mocked context
         weatherSkill.initialize(mockContext)
 
@@ -96,7 +98,8 @@ class WeatherSkillTest {
 
         // Assert
         assertFalse(result.success)
-        assertTrue(result.error.isNotBlank())
+        assertTrue(result.error?.isNotBlank() == true)
+
     }
 
     @Test
@@ -111,8 +114,10 @@ class WeatherSkillTest {
         // Assert
         // Since we can't directly verify the internal state, 
         // we'll test that initialization doesn't throw exceptions
-        assertDoesNotThrow { 
+        kotlin.runCatching { 
             weatherSkill.initialize(mockContext) 
+        }.onFailure { 
+            fail("Initialization threw exception: ${it.message}") 
         }
     }
 
@@ -130,7 +135,7 @@ class WeatherSkillTest {
 
         // Assert
         assertFalse(result.success)
-        assertTrue(result.error.contains("缺少 location 参数"))
+        assertTrue(result.error?.contains("缺少 location 参数") == true)
     }
 
     @Test
@@ -147,6 +152,6 @@ class WeatherSkillTest {
 
         // Assert
         assertFalse(result.success)
-        assertTrue(result.error.contains("缺少 location 参数"))
+        assertTrue(result.error?.contains("缺少 location 参数") == true)
     }
 }

@@ -81,9 +81,8 @@ class SkillManagerTest {
 
         // Check that tool names follow the expected format (skillId_toolName)
         allTools.forEach { toolDef ->
-            assertTrue("Tool name should contain underscore separator: ${toolDef.name}") {
-                toolDef.name.contains('_')
-            }
+            assertTrue("Tool name should contain underscore separator: ${toolDef.name}",
+                toolDef.name.contains('_'))
 
             val parts = toolDef.name.split('_', limit = 2)
             assertTrue(parts.size == 2)
@@ -106,7 +105,7 @@ class SkillManagerTest {
         // Mock ContextCompat.checkSelfPermission to return granted for all permissions
         mockkStatic(ContextCompat::class)
         every {
-            ContextCompat.checkSelfPermission(any(), any<String>())
+            ContextCompat.checkSelfPermission(any(), any())
         } returns PackageManager.PERMISSION_GRANTED
 
         // For now, test with a simple call that doesn't require actual network
