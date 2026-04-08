@@ -20,3 +20,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "OpenClaw"
 include(":app")
+include(":android_compose")
+project(":android_compose").projectDir = file("/home/guuya/.openclaw/workspace/A2UI-Demo-Android17/android_compose")

@@ -140,6 +140,9 @@ dependencies {
     // LiteRT-LM (on-device Gemma 4 E4B inference)
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
 
+    // A2UI Component Library
+    implementation(project(":android_compose"))
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")

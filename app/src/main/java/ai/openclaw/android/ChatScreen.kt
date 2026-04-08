@@ -41,6 +41,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.text.SimpleDateFormat
 import java.util.*
+import org.a2ui.compose.rendering.A2UIRenderer
+import org.a2ui.compose.rendering.rememberA2UIRenderer
 
 // ==================== A2UI Parsing ====================
 
@@ -171,6 +173,54 @@ private fun A2UICardView(card: MessageSegment.A2UICard) {
                 }
             }
         }
+    }
+}
+
+// ==================== A2UI Protocol Bridge ====================
+
+/**
+ * Converts a legacy A2UICard (type+data from skills) into an A2UI protocol message
+ * that the A2UI component library can render. Returns null if the card data
+ * cannot be converted to a valid A2UI message.
+ */
+private fun tryBuildA2UIMessage(card: MessageSegment.A2UICard): String? {
+    val surfaceId = "msg_card_${card.type}"
+    val children = card.data.entries.mapIndexed { idx, (key, value) ->
+        """{"id":"row_$idx","component":"Row","children":{"array":["label_$idx","value_$idx"]}}""" + "\n" +
+        """{"id":"label_$idx","component":"Text","text":"$key: ","variant":"body"}""" + "\n" +
+        """{"id":"value_$idx","component":"Text","text":"$value","variant":"body"}"""
+    }
+
+    // Build A2UI protocol message
+    val componentsJson = buildString {
+        append("""{"id":"root","component":"Card","children":{"array":[""")
+        children.forEachIndexed { idx, comp ->
+            val parts = comp.split("\n").filter { it.isNotBlank() }
+            parts.forEach { part ->
+                append(part.trimEnd())
+                append(",")
+            }
+        }
+        // Remove trailing comma
+        if (isNotEmpty() && last() == ',') deleteCharAt(length - 1)
+        append("]}}")
+    }
+
+    // Additional component entries (label/value Texts)
+    val extraComponents = buildString {
+        children.forEach { comp ->
+            val parts = comp.split("\n").filter { it.isNotBlank() }
+            parts.drop(1).forEach { part ->
+                append(",")
+                append(part.trimEnd())
+            }
+        }
+    }
+
+    return buildString {
+        append("{\"version\":\"v0.10\",")
+        append("\"createSurface\":{\"surfaceId\":\"$surfaceId\"},")
+        append("\"updateComponents\":{\"surfaceId\":\"$surfaceId\",\"components\":[$componentsJson$extraComponents]}}")
     }
 }
 
@@ -348,19 +398,51 @@ fun MessageBubble(
             Box {
                 Column(modifier = Modifier.padding(12.dp)) {
                     val segments = remember(message.content) { parseMessageContent(message.content) }
-                    for (segment in segments) {
-                        when (segment) {
-                            is MessageSegment.Text -> {
+                    val a2uiRenderer = rememberA2UIRenderer()
+
+                    // Collect A2UI content and process with renderer
+                    val a2uiSegments = segments.filterIsInstance<MessageSegment.A2UICard>()
+                    if (!isUser && a2uiSegments.isNotEmpty()) {
+                        // Process A2UI segments with the library renderer
+                        LaunchedEffect(message.id) {
+                            for (card in a2uiSegments) {
+                                val a2uiMessage = tryBuildA2UIMessage(card)
+                                if (a2uiMessage != null) {
+                                    a2uiRenderer.processMessage(a2uiMessage)
+                                }
+                            }
+                        }
+
+                        // Render non-A2UI text segments
+                        for (segment in segments) {
+                            if (segment is MessageSegment.Text) {
                                 Text(
                                     text = segment.text,
-                                    color = if (isUser)
-                                        MaterialTheme.colorScheme.onPrimary
-                                    else
-                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            is MessageSegment.A2UICard -> {
-                                if (!isUser) {
+                        }
+
+                        // Render A2UI surfaces
+                        for (card in a2uiSegments) {
+                            val surfaceId = "msg_${message.id}_${card.type}"
+                            val surfaceContent = a2uiRenderer.renderSurface(surfaceId)
+                            surfaceContent()
+                        }
+                    } else {
+                        // Original rendering for user messages or messages without A2UI
+                        for (segment in segments) {
+                            when (segment) {
+                                is MessageSegment.Text -> {
+                                    Text(
+                                        text = segment.text,
+                                        color = if (isUser)
+                                            MaterialTheme.colorScheme.onPrimary
+                                        else
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                is MessageSegment.A2UICard -> {
                                     A2UICardView(segment)
                                 }
                             }
