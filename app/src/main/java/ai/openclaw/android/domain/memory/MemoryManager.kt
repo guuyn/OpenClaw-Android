@@ -95,6 +95,9 @@ class MemoryManager(
     }
 
     companion object {
+        const val MAX_MEMORY_COUNT = 500
+        const val MIN_RETAIN_COUNT = 20
+
         fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
             require(a.size == b.size) { "Vector dimensions must match: ${a.size} vs ${b.size}" }
             var dotProduct = 0.0
