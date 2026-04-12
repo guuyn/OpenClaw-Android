@@ -122,6 +122,9 @@ dependencies {
 
     // Koin DI
     implementation("io.insert-koin:koin-android:3.5.3")
+
+    // Script Engine
+    implementation(project(":script"))
     implementation("io.insert-koin:koin-androidx-compose:3.5.3")
 
     // Jetpack Compose

@@ -138,7 +138,41 @@ memory.store("今天学了新东西")
 
 **正式版替换**：Rhino → QuickJS JNI（体积从 ~2MB 降至 ~500KB，性能提升 10x+）
 
-## 9. 后续计划
+## 9. 主工程集成
+
+### 9.1 依赖
+
+`app/build.gradle.kts` 添加：
+```kotlin
+implementation(project(":script"))
+```
+
+### 9.2 ScriptSkill
+
+文件：`app/.../skill/builtin/ScriptSkill.kt`
+
+- 实现 `Skill` 接口，注册到 `SkillManager`
+- 提供一个 `execute_script` 工具
+- LLM 通过调用 `script_execute_script` 触发脚本执行
+- `ScriptOrchestrator` 在 `initialize()` 时创建
+
+### 9.3 SkillManager 注册
+
+```kotlin
+registerSkill(ScriptSkill())
+```
+
+### 9.4 LLM 工具名
+
+`script_execute_script`
+
+参数：
+- `script` (string, required) — JS 脚本代码
+- `capabilities` (string, optional, default "fs,http") — 能力列表
+
+---
+
+## 10. 后续计划
 
 - [ ] 替换 Rhino 为 QuickJS JNI
 - [ ] 添加更多 Bridge（UiBridge、CalendarBridge、ContactBridge）
