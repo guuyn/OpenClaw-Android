@@ -3,6 +3,14 @@ package ai.openclaw.android
 import android.util.Log
 import ai.openclaw.android.accessibility.AccessibilityBridge
 import ai.openclaw.android.agent.AgentSession
+import ai.openclaw.android.agent.SessionEvent
+import ai.openclaw.android.data.local.AppDatabase
+import ai.openclaw.android.domain.memory.FallbackMemoryExtractor
+import ai.openclaw.android.domain.memory.LlmMemoryExtractor
+import ai.openclaw.android.domain.memory.MemoryManager
+import ai.openclaw.android.domain.session.HybridSessionManager
+import ai.openclaw.android.domain.session.TokenCounter
+import ai.openclaw.android.ml.TfLiteEmbeddingService
 import ai.openclaw.android.model.BailianClient
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.ModelClient
@@ -24,80 +32,142 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 
 /**
  * GatewayManager - Manages all Gateway components
+ * Implements GatewayContract to provide a clean API for Activity consumption
  */
-class GatewayManager(private val service: GatewayService) {
-    
+class GatewayManager(private val service: GatewayService) : GatewayContract {
+
     companion object {
         private const val TAG = "GatewayManager"
     }
-    
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    
-    // Components
+
+    // Components (kept private)
     private var modelClient: ModelClient? = null
     private var localLLMClient: LocalLLMClient? = null
     private var agentSession: AgentSession? = null
     private var accessibilityBridge: AccessibilityBridge? = null
     private var skillManager: SkillManager? = null
     private var feishuClient: FeishuClient? = null
-    
+
+    // Memory subsystem (moved from Activity)
+    private var database: AppDatabase? = null
+    private var embeddingService: TfLiteEmbeddingService? = null
+    private var memoryManager: MemoryManager? = null
+    private var sessionManager: HybridSessionManager? = null
+
     // State
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-    val connectionState: StateFlow<ConnectionState> = _connectionState
-    
+    override fun getConnectionState(): StateFlow<ConnectionState> = _connectionState
+
     sealed class ConnectionState {
         object Disconnected : ConnectionState()
         object Connecting : ConnectionState()
         object Connected : ConnectionState()
         data class Error(val message: String) : ConnectionState()
     }
-    
-    /**
-     * Start the Gateway
-     */
+
+    // ========== GatewayContract implementation ==========
+
+    override fun isReady(): Boolean = agentSession != null
+
+    override fun getModelLoadState(): LocalLLMClient.LoadState? = localLLMClient?.getState()
+
+    override fun sendMessage(text: String): Flow<SessionEvent> =
+        agentSession?.handleMessageStream(text)
+            ?: flow { emit(SessionEvent.Error("AgentSession not ready")) }
+
+    override suspend fun reconfigureModel(config: ModelConfig): Boolean {
+        Log.d(TAG, "Reconfiguring model: provider=${config.provider}")
+
+        // 1. Release old model
+        localLLMClient?.release()
+        localLLMClient = null
+
+        // 2. Update config
+        ConfigManager.setModelProvider(config.provider.name)
+        ConfigManager.setModelApiKey(config.apiKey)
+        ConfigManager.setModelName(config.modelName)
+
+        // 3. Create new model client
+        modelClient = if (config.provider == ModelProvider.LOCAL) {
+            val client = LocalLLMClient(service)
+            localLLMClient = client
+            val loaded = client.initialize()
+            if (!loaded) {
+                Log.e(TAG, "Failed to load local model, falling back to BAILIAN")
+                localLLMClient = null
+                createCloudClient()
+            } else {
+                client
+            }
+        } else {
+            createCloudClient(config.provider)
+        }
+
+        // 4. Rebuild AgentSession (keeping same SkillManager and tools)
+        agentSession = AgentSession(
+            modelClient = modelClient!!,
+            skillManager = skillManager!!,
+            maxContextTokens = 4000
+        ).apply {
+            setToolsWithSkills(
+                accessibilityTools = accessibilityBridge?.getTools() ?: emptyList(),
+                executor = { toolCall ->
+                    accessibilityBridge?.execute(toolCall) ?: "Accessibility not available"
+                }
+            )
+        }
+
+        // 5. Rewire memory subsystem
+        wireMemoryToSession()
+
+        Log.d(TAG, "Model reconfigured successfully")
+        return agentSession != null
+    }
+
+    override fun getAvailableSkills(): List<SkillInfo> =
+        skillManager?.getLoadedSkills()?.map { (id, skill) ->
+            SkillInfo(id, skill.name, skill.description)
+        } ?: emptyList()
+
+    // ========== Lifecycle ==========
+
     fun start() {
         Log.d(TAG, "Starting Gateway...")
-        
-        // Check configuration
+
         if (!ConfigManager.isConfigured()) {
             _connectionState.value = ConnectionState.Error("Configuration incomplete")
             return
         }
-        
+
         serviceScope.launch {
             try {
                 _connectionState.value = ConnectionState.Connecting
-                
-                // Initialize components
                 initializeComponents()
-                
                 _connectionState.value = ConnectionState.Connected
                 Log.d(TAG, "Gateway started successfully")
-                
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Gateway: ${e.message}")
                 _connectionState.value = ConnectionState.Error(e.message ?: "Unknown error")
             }
         }
     }
-    
-    /**
-     * Stop the Gateway
-     */
+
     fun stop() {
         Log.d(TAG, "Stopping Gateway...")
 
-        // Release local LLM resources
         localLLMClient?.release()
         localLLMClient = null
 
-        // Cleanup skills
         skillManager?.getLoadedSkills()?.values?.forEach { skill ->
             try {
                 skill.cleanup()
@@ -106,22 +176,24 @@ class GatewayManager(private val service: GatewayService) {
             }
         }
         skillManager = null
-        
+
         agentSession = null
         accessibilityBridge = null
-        
+
+        sessionManager = null
+        memoryManager = null
+
         _connectionState.value = ConnectionState.Disconnected
         Log.d(TAG, "Gateway stopped")
     }
-    
-    /**
-     * Cleanup resources
-     */
+
     fun cleanup() {
         stop()
         serviceScope.cancel()
     }
-    
+
+    // ========== Internal ==========
+
     private suspend fun initializeComponents() {
         Log.d(TAG, "Initializing components...")
 
@@ -153,12 +225,11 @@ class GatewayManager(private val service: GatewayService) {
 
         // Initialize AccessibilityBridge
         accessibilityBridge = AccessibilityBridge()
-        
+
         // Initialize SkillManager and register skills
         skillManager = SkillManager(service).apply {
             registerSkill(WeatherSkill())
             registerSkill(MultiSearchSkill())
-            // Register new mobile skills
             registerSkill(TranslateSkill())
             registerSkill(ReminderSkill(service))
             registerSkill(CalendarSkill(service))
@@ -166,7 +237,7 @@ class GatewayManager(private val service: GatewayService) {
             registerSkill(ContactSkill(service))
             registerSkill(SMSSkill(service))
         }
-        
+
         // Initialize AgentSession with SkillManager
         agentSession = AgentSession(
             modelClient = modelClient!!,
@@ -180,15 +251,56 @@ class GatewayManager(private val service: GatewayService) {
                 }
             )
         }
-        
+
+        // Initialize database and memory subsystem
+        database = AppDatabase.getInstance(service)
+        embeddingService = TfLiteEmbeddingService(service)
+        embeddingService!!.initialize()
+
+        wireMemoryToSession()
+
         // Initialize FeishuClient
         val httpClient = OkHttpClient()
         feishuClient = OkHttpFeishuClient(httpClient).apply {
             connect(ConfigManager.getFeishuAppId(), ConfigManager.getFeishuAppSecret())
             setEventListener { event -> handleFeishuEvent(event) }
         }
-        
+
         Log.d(TAG, "Components initialized")
+    }
+
+    private suspend fun wireMemoryToSession() {
+        val db = database ?: return
+        val emb = embeddingService ?: return
+
+        val extractor = if (localLLMClient?.isModelLoaded() == true)
+            LlmMemoryExtractor(localLLMClient!!)
+        else
+            FallbackMemoryExtractor()
+
+        val mm = MemoryManager(
+            memoryDao = db.memoryDao(),
+            vectorDao = db.memoryVectorDao(),
+            embeddingService = emb,
+            extractor = extractor
+        )
+        memoryManager = mm
+
+        val sm = HybridSessionManager(
+            sessionDao = db.sessionDao(),
+            messageDao = db.messageDao(),
+            summaryDao = db.summaryDao(),
+            llmClient = localLLMClient,
+            tokenCounter = TokenCounter(),
+            memoryManager = mm
+        )
+        sessionManager = sm
+        sm.initialize()
+
+        agentSession?.setSessionManager(sm)
+        agentSession?.setMemoryContextProvider {
+            sm.getMemoryContext()
+        }
     }
 
     private fun handleFeishuEvent(event: FeishuEvent) {

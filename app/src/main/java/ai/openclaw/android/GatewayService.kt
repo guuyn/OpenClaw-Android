@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -64,6 +65,12 @@ class GatewayService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var gatewayManager: GatewayManager? = null
     private var isRunning = false
+    private val binder = LocalBinder()
+
+    inner class LocalBinder : Binder() {
+        fun getService(): GatewayService = this@GatewayService
+        fun getGatewayContract(): GatewayContract = gatewayManager!!
+    }
     
     override fun onCreate() {
         super.onCreate()
@@ -102,7 +109,7 @@ class GatewayService : Service() {
         return START_STICKY
     }
     
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): IBinder = binder
     
     override fun onDestroy() {
         logManager.log("INFO", TAG, "GatewayService destroyed")
@@ -174,7 +181,7 @@ class GatewayService : Service() {
         
         // Start gateway and monitor state
         serviceScope.launch {
-            gatewayManager?.connectionState?.collectLatest { state ->
+            gatewayManager?.getConnectionState()?.collectLatest { state ->
                 val text = when (state) {
                     is GatewayManager.ConnectionState.Connected -> {
                         logManager.log("INFO", TAG, "Gateway connected")

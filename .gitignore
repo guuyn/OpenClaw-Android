@@ -96,3 +96,7 @@ Thumbs.db
 # Release signing
 openclaw-release.keystore
 local.properties
+.git-safe-backups/
+model-staging/
+sc/
+.idea/
