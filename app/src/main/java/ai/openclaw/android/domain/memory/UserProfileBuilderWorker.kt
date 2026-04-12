@@ -49,18 +49,19 @@ class UserProfileBuilderWorker(
             // 2. Tag frequency map
             val tagCounts = mutableMapOf<String, Int>()
             for (memory in allMemories) {
-                for (tag in memory.tags) {
+                val tags: List<String> = memory.tags
+                for (tag in tags) {
                     tagCounts[tag] = (tagCounts[tag] ?: 0) + 1
                 }
             }
             val topTags = tagCounts.entries
-                .sortedByDescending { it.value }
+                .sortedByDescending { entry -> entry.value }
                 .take(10)
-                .map { "${it.key}(${it.value})" }
+                .map { entry -> "${entry.key}(${entry.value})" }
 
             // 3. Type distribution
-            val typeDistribution = allMemories.groupBy { it.memoryType }
-                .map { "${it.key}:${it.value.size}" }
+            val typeDistribution = allMemories.groupBy { mem -> mem.memoryType }
+                .entries.map { entry -> "${entry.key}:${entry.value.size}" }
 
             // Build profile summary
             val profileContent = buildString {

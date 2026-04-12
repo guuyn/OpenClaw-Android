@@ -13,5 +13,6 @@ data class MemoryEntity(
     val tags: List<String>,
     val createdAt: Long,
     val lastAccessedAt: Long,
-    val accessCount: Int = 0
+    val accessCount: Int = 0,
+    val version: Int = 1
 )

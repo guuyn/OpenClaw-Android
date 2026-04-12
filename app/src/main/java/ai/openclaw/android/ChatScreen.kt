@@ -1,5 +1,6 @@
 package ai.openclaw.android
 
+import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
@@ -60,7 +61,7 @@ sealed class MessageSegment {
     data class A2UICard(val type: String, val data: Map<String, String>) : MessageSegment()
 }
 
-private fun parseMessageContent(content: String): List<MessageSegment> {
+internal fun parseMessageContent(content: String): List<MessageSegment> {
     val segments = mutableListOf<MessageSegment>()
     val startTag = "[A2UI]"
     val endTag = "[/A2UI]"
@@ -370,9 +371,10 @@ fun ChatScreen(
                     onValueChange = { inputText = it },
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 48.dp, max = 120.dp)
                         .focusRequester(focusRequester),
                     placeholder = { Text("输入消息...") },
+                    singleLine = false,
+                    minLines = 1,
                     maxLines = 4,
                     shape = RoundedCornerShape(24.dp),
                     trailingIcon = {
@@ -471,31 +473,33 @@ fun MessageBubble(
                     // Collect A2UI content and process with renderer
                     val a2uiSegments = segments.filterIsInstance<MessageSegment.A2UICard>()
                     if (!isUser && a2uiSegments.isNotEmpty()) {
-                        // Process A2UI segments with the library renderer
+                        // Process A2UI segments with the library renderer (fire-and-forget)
                         LaunchedEffect(message.id) {
-                            for (card in a2uiSegments) {
-                                val a2uiMessage = tryBuildA2UIMessage(card)
-                                if (a2uiMessage != null) {
-                                    a2uiRenderer.processMessage(a2uiMessage)
+                            try {
+                                for (card in a2uiSegments) {
+                                    val a2uiMessage = tryBuildA2UIMessage(card)
+                                    if (a2uiMessage != null) {
+                                        a2uiRenderer.processMessage(a2uiMessage)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.e("ChatScreen", "A2UI processMessage failed, falling back to legacy render", e)
+                            }
+                        }
+
+                        // Render all segments using legacy A2UICardView (crash-safe)
+                        for (segment in segments) {
+                            when (segment) {
+                                is MessageSegment.Text -> {
+                                    Text(
+                                        text = segment.text,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                is MessageSegment.A2UICard -> {
+                                    A2UICardView(segment)
                                 }
                             }
-                        }
-
-                        // Render non-A2UI text segments
-                        for (segment in segments) {
-                            if (segment is MessageSegment.Text) {
-                                Text(
-                                    text = segment.text,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        // Render A2UI surfaces
-                        for (card in a2uiSegments) {
-                            val surfaceId = "msg_${message.id}_${card.type}"
-                            val surfaceContent = a2uiRenderer.renderSurface(surfaceId)
-                            surfaceContent()
                         }
                     } else {
                         // Original rendering for user messages or messages without A2UI

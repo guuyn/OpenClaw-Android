@@ -57,6 +57,18 @@ android {
                 keyPassword = releaseKeyPassword
             }
         }
+        // Global unified debug keystore - shared across ALL Android projects
+        // Location: E:\Android\keystores\debug.keystore (WSL2: /mnt/e/Android/keystores/debug.keystore)
+        // SHA-256: A3:48:0C:D7:EB:37:2A:76:48:60:72:D3:D2:F2:E0:5F:45:88:62:7A:21:CD:DD:62:61:54:60:5B:80:8E:B9:45
+        create("unifiedDebug") {
+            storeFile = if (System.getProperty("os.name").lowercase().contains("linux"))
+                file("/mnt/e/Android/keystores/debug.keystore")
+            else
+                file("E:/Android/keystores/debug.keystore")
+            storePassword = "openclaw123"
+            keyAlias = "openclaw-debug"
+            keyPassword = "openclaw123"
+        }
     }
 
     buildTypes {
@@ -73,6 +85,8 @@ android {
             // Debug 也启用优化减小体积
             isMinifyEnabled = false
             isShrinkResources = false
+            // Use unified debug keystore for consistent signatures across WSL2 and Windows
+            signingConfig = signingConfigs.getByName("unifiedDebug")
         }
     }
     compileOptions {
@@ -106,6 +120,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.10.1")
 
+    // Koin DI
+    implementation("io.insert-koin:koin-android:3.5.3")
+    implementation("io.insert-koin:koin-androidx-compose:3.5.3")
+
     // Jetpack Compose
     implementation(platform("androidx.compose:compose-bom:2025.03.00"))
     implementation("androidx.compose.ui:ui")
@@ -127,18 +145,28 @@ dependencies {
     // Security (for encrypted preferences)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
+    // SQLCipher (encrypted database)
+    implementation("net.zetetic:sqlcipher-android:4.10.0")
+
     // Room (for memory system)
     implementation("androidx.room:room-runtime:2.7.2")
     implementation("androidx.room:room-ktx:2.7.2")
     ksp("androidx.room:room-compiler:2.7.2")
 
-    // TensorFlow Lite (for ML-based notification classification)
-    implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
-    implementation("org.tensorflow:tensorflow-lite-task-text:0.4.4")
+    // WorkManager (for periodic memory maintenance)
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
+
+    // LiteRT (successor to TensorFlow Lite, 16KB page aligned)
+    implementation("com.google.ai.edge.litert:litert:2.1.3")
 
     // LiteRT-LM (on-device Gemma 4 E4B inference)
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
+
+    // ONNX Runtime
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.24.3")
+
+    // Rhino JS Engine (prototype for QuickJS)
+    implementation("org.mozilla:rhino:1.7.15")
 
     // A2UI Component Library
     implementation(project(":android_compose"))

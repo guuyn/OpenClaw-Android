@@ -96,7 +96,15 @@ class PermissionManager(private val context: Context) {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()
         } else {
-            hasPermissions(STORAGE_PERMISSIONS)
+            // On Android 10 and below, check legacy storage permissions directly
+            // DO NOT call hasPermissions() to avoid infinite recursion
+            val granted = ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val grantedWrite = ContextCompat.checkSelfPermission(
+                context, Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            granted && grantedWrite
         }
     }
 

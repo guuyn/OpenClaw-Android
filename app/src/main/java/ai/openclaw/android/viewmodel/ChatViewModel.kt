@@ -97,7 +97,7 @@ class ChatViewModel(
                 agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
 
                 // 初始化 Embedding 服务
-                val embedding = EmbeddingServiceFactory.createAndInitialize(context)
+                val embedding = EmbeddingServiceFactory.create(context)
 
                 // 初始化记忆子系统
                 setupMemorySubsystem(embedding)
@@ -162,8 +162,7 @@ class ChatViewModel(
             memoryDao = database.memoryDao(),
             vectorDao = database.memoryVectorDao(),
             embeddingService = embedding,
-            extractor = extractor,
-            hybridSearchEngine = hybridSearchEngine
+            extractor = extractor
         )
 
         val sm = HybridSessionManager(

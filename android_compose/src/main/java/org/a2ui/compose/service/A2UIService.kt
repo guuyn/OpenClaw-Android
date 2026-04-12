@@ -11,7 +11,7 @@ import org.a2ui.compose.transport.*
 import java.util.concurrent.atomic.AtomicBoolean
 
 @Composable
-fun rememberA2UIRenderer(
+fun rememberA2UIRendererState(
     transport: A2UITransport? = null,
     actionHandler: ActionHandler? = null,
     logger: A2UILogger = DefaultLogger()

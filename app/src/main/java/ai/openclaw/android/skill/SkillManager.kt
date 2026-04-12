@@ -1,5 +1,6 @@
 package ai.openclaw.android.skill
 
+// import ai.openclaw.android.script.ScriptSkill  // TODO: fix Rhino dependency
 import ai.openclaw.android.skill.builtin.*
 import android.content.Context
 import android.util.Log
@@ -24,6 +25,7 @@ class SkillManager(private val context: Context) {
         registerSkill(SMSSkill(context))
         registerSkill(AppLauncherSkill())
         registerSkill(SettingsSkill())
+        // registerSkill(ScriptSkill())  // disabled - script module not compiled
 
         Log.i(TAG, "SkillManager initialized with ${loadedSkills.size} skills")
     }

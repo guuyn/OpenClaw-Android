@@ -6,8 +6,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.Saver
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import kotlinx.coroutines.flow.Flow
@@ -82,12 +81,10 @@ class A2UIRenderer(
         const val MAX_ERROR_COUNT = 100
         val ALLOWED_URL_SCHEMES = setOf("https://", "http://", "mailto:", "tel:", "sms:")
 
-        val Saver: Saver<A2UIRenderer, SavedRendererState> = Saver(
-            save = { renderer -> renderer.saveState() },
-            restore = { savedState ->
-                A2UIRenderer().apply { restoreState(savedState) }
-            }
-        )
+    // Saver removed — SavedRendererState is not Bundle-serializable.
+    // The A2UI renderer does not need process-death persistence; it rebuilds
+    // from incoming messages. See crash report: rememberSaveable with
+    // SavedRendererState causes IllegalArgumentException on state save.
     }
 
     private val json = Json {
@@ -495,9 +492,9 @@ class DefaultLogger : A2UILogger {
 fun rememberA2UIRenderer(
     logger: A2UILogger = DefaultLogger()
 ): A2UIRenderer {
-    return rememberSaveable(saver = A2UIRenderer.Saver) {
-        A2UIRenderer(logger)
-    }
+    // Use plain remember() — A2UI renderer state does not need to survive
+    // process death. The renderer rebuilds from messages on each launch.
+    return remember { A2UIRenderer(logger) }
 }
 
 /**
