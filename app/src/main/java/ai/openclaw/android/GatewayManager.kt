@@ -113,6 +113,22 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             createCloudClient(config.provider)
         }
 
+        // 3.5. Ensure SkillManager is initialized (may be null if called before start())
+        if (skillManager == null) {
+            Log.d(TAG, "SkillManager not initialized, initializing now")
+            accessibilityBridge = AccessibilityBridge()
+            skillManager = SkillManager(service).apply {
+                registerSkill(ai.openclaw.android.skill.builtin.WeatherSkill())
+                registerSkill(ai.openclaw.android.skill.builtin.MultiSearchSkill())
+                registerSkill(ai.openclaw.android.skill.builtin.TranslateSkill())
+                registerSkill(ai.openclaw.android.skill.builtin.ReminderSkill(service))
+                registerSkill(ai.openclaw.android.skill.builtin.CalendarSkill(service))
+                registerSkill(ai.openclaw.android.skill.builtin.LocationSkill(service))
+                registerSkill(ai.openclaw.android.skill.builtin.ContactSkill(service))
+                registerSkill(ai.openclaw.android.skill.builtin.SMSSkill(service))
+            }
+        }
+
         // 4. Rebuild AgentSession (keeping same SkillManager and tools)
         agentSession = AgentSession(
             modelClient = modelClient!!,
