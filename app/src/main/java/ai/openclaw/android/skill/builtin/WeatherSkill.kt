@@ -1,16 +1,18 @@
 package ai.openclaw.android.skill.builtin
 
 import ai.openclaw.android.skill.*
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.io.IOException
+import ai.openclaw.script.ScriptOrchestrator
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class WeatherSkill : Skill {
     override val id = "weather"
     override val name = "天气查询"
     override val description = "查询当前天气和天气预报"
-    override val version = "1.0.0"
-    
+    override val version = "2.0.0"
+
     override val instructions = """
 # Weather Skill
 
@@ -20,13 +22,14 @@ class WeatherSkill : Skill {
 - 用户询问天气时，调用 get_weather 工具
 - 无需 API Key，直接可用
 """
-    
-    private var httpClient: OkHttpClient? = null
-    
+
+    private var orchestrator: ScriptOrchestrator? = null
+    private var scriptContent: String? = null
+
     override val tools: List<SkillTool> = listOf(
         WeatherTool()
     )
-    
+
     private inner class WeatherTool : SkillTool {
         override val name = "get_weather"
         override val description = "获取指定位置的天气信息"
@@ -37,52 +40,52 @@ class WeatherSkill : Skill {
                 required = true
             )
         )
-        
+
         override suspend fun execute(params: Map<String, Any>): SkillResult {
             val location = params["location"] as? String
-            android.util.Log.d("WeatherSkill", "execute called, location=$location, httpClient=$httpClient")
-            if (location == null || location.isBlank()) {
+            if (location.isNullOrBlank()) {
                 return SkillResult(false, "", "缺少 location 参数")
             }
-            
-            val client = httpClient ?: return SkillResult(false, "", "HTTP client not initialized")
-            
+
+            val orch = orchestrator
+                ?: return SkillResult(false, "", "ScriptOrchestrator not initialized")
+            val script = scriptContent
+                ?: return SkillResult(false, "", "weather.js not loaded")
+
             try {
-                val url = "https://wttr.in/${location}?format=3"
-                android.util.Log.d("WeatherSkill", "Requesting URL: $url")
-                val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
-                
-                android.util.Log.d("WeatherSkill", "Response code: ${response.code}")
-                if (!response.isSuccessful) {
-                    return SkillResult(false, "", "HTTP error: ${response.code}")
+                val fullScript = "var LOCATION = \"$location\";\n$script"
+                val result = orch.execute(fullScript, listOf("http"))
+
+                if (!result.success) {
+                    return SkillResult(false, "", result.error ?: "Script execution failed")
                 }
-                
-                val body = response.body?.string()?.trim() ?: ""
-                android.util.Log.d("WeatherSkill", "Response body: $body")
-                return SkillResult(true, body)
-            } catch (e: IOException) {
-                android.util.Log.e("WeatherSkill", "IOException: ${e.message}", e)
-                return SkillResult(false, "", "Network error: ${e.message}")
+
+                // Parse JSON result from script
+                val json = Json.parseToJsonElement(result.output).jsonObject
+                val success = json["success"]?.jsonPrimitive?.content?.toBoolean() ?: false
+                if (success) {
+                    val data = json["data"]?.jsonPrimitive?.content ?: ""
+                    return SkillResult(true, data)
+                } else {
+                    val error = json["error"]?.jsonPrimitive?.content ?: "Unknown error"
+                    return SkillResult(false, "", error)
+                }
             } catch (e: Exception) {
-                android.util.Log.e("WeatherSkill", "Exception: ${e.message}", e)
                 return SkillResult(false, "", "Error: ${e.message}")
             }
         }
-        
-        fun setHttpClient(client: OkHttpClient) {
-            httpClient = client
-        }
     }
-    
+
     override fun initialize(context: SkillContext) {
-        android.util.Log.d("WeatherSkill", "initialize called, httpClient from context: ${context.httpClient}")
-        // Pass HTTP client to the tool
-        (tools[0] as WeatherTool).setHttpClient(context.httpClient)
-        android.util.Log.d("WeatherSkill", "httpClient set to: $httpClient")
+        orchestrator = ScriptOrchestrator(context.applicationContext)
+        scriptContent = context.applicationContext.assets
+            .open("scripts/weather.js")
+            .bufferedReader()
+            .use { it.readText() }
     }
-    
+
     override fun cleanup() {
-        // No cleanup needed
+        orchestrator = null
+        scriptContent = null
     }
 }

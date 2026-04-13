@@ -3,6 +3,10 @@ package ai.openclaw.android.ml
 import org.junit.Assert.*
 import org.junit.Test
 import kotlinx.coroutines.runBlocking
+import io.mockk.mockk
+import android.content.Context
+
+private fun mockContext() = mockk<Context>(relaxed = true)
 
 /**
  * Unit tests for SimpleEmbeddingService
@@ -44,7 +48,7 @@ class SimpleEmbeddingServiceTest {
         val embedding = service.embed("this is a test sentence")
         
         // Calculate L2 norm
-        val norm = kotlin.math.sqrt(embedming.sumOf { (it * it).toDouble() })
+        val norm = kotlin.math.sqrt(embedding.sumOf { (it * it).toDouble() })
         
         // Should be close to 1.0 (normalized)
         assertEquals(1.0, norm, 0.01)
