@@ -25,7 +25,7 @@ val releaseKeyPassword: String? = localProperties.getProperty("RELEASE_KEY_PASSW
 
 android {
     namespace = "ai.openclaw.android"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "ai.openclaw.android"
