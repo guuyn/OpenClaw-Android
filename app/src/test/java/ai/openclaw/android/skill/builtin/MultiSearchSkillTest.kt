@@ -4,6 +4,7 @@ import ai.openclaw.android.skill.SkillContext
 import ai.openclaw.script.ScriptOrchestrator
 import ai.openclaw.script.ScriptResult
 import io.mockk.MockKAnnotations
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
@@ -63,7 +64,7 @@ class MultiSearchSkillTest {
 
     @Test
     fun `search valid query returns success with results`() = runTest {
-        every {
+        coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.success(
             """{"success":true,"results":[{"title":"Kotlin","snippet":"A modern language","url":"https://kotlinlang.org"}]}"""
@@ -84,7 +85,7 @@ class MultiSearchSkillTest {
 
     @Test
     fun `search multiple results all included in output`() = runTest {
-        every {
+        coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.success(
             """{"success":true,"results":[{"title":"R1","snippet":"S1","url":"https://a.com"},{"title":"R2","snippet":"S2","url":"https://b.com"}]}"""
@@ -104,7 +105,7 @@ class MultiSearchSkillTest {
 
     @Test
     fun `search script returns failure`() = runTest {
-        every {
+        coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.success(
             """{"success":false,"error":"所有搜索实例均不可用"}"""
@@ -121,7 +122,7 @@ class MultiSearchSkillTest {
 
     @Test
     fun `search orchestrator execution fails`() = runTest {
-        every {
+        coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.failure("Timeout (10000ms)")
 
@@ -187,7 +188,7 @@ class MultiSearchSkillTest {
 
     @Test
     fun `search A2UI card uses flat key format`() = runTest {
-        every {
+        coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.success(
             """{"success":true,"results":[{"title":"T1","snippet":"S1","url":"https://a.com"}]}"""
