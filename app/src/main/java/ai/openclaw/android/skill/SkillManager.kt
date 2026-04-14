@@ -24,7 +24,9 @@ class SkillManager(private val context: Context) {
         registerSkill(SMSSkill(context))
         registerSkill(AppLauncherSkill())
         registerSkill(SettingsSkill())
+        registerSkill(FileSkill(context))
         registerSkill(ScriptSkill())
+        registerSkill(NotificationSkill(context))
 
         Log.i(TAG, "SkillManager initialized with ${loadedSkills.size} skills")
     }

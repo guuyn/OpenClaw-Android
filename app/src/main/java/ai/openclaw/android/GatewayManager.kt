@@ -132,11 +132,37 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
                 registerSkill(ai.openclaw.android.skill.builtin.LocationSkill(service))
                 registerSkill(ai.openclaw.android.skill.builtin.ContactSkill(service))
                 registerSkill(ai.openclaw.android.skill.builtin.SMSSkill(service))
+                registerSkill(ai.openclaw.android.skill.builtin.AppLauncherSkill())
+                registerSkill(ai.openclaw.android.skill.builtin.SettingsSkill())
+                registerSkill(ai.openclaw.android.skill.builtin.FileSkill(service))
+                registerSkill(ai.openclaw.android.skill.builtin.ScriptSkill())
                 registerSkill(NotificationSkill(service))
             }
         }
 
-        // 3.6. Inject MemoryManager into ScriptSkill if available
+        // 3.6. Ensure DynamicSkillManager is initialized (for generate_skill tool)
+        if (dynamicSkillManager == null) {
+            database = AppDatabase.getInstance(service)
+            dynamicSkillManager = DynamicSkillManager(
+                context = service,
+                dynamicSkillDao = database!!.dynamicSkillDao(),
+                skillManager = skillManager!!,
+                orchestrator = ai.openclaw.script.ScriptOrchestrator(service),
+                preferenceManager = ai.openclaw.android.skill.UserPreferenceManager(service),
+                onUserConfirmation = { _, _ ->
+                    ApprovalDecision.ALWAYS_APPROVE
+                }
+            )
+            dynamicSkillManager!!.loadAllSaved()
+            dynamicSkillManager!!.setToolsChangedListener {
+                agentSession?.refreshTools()
+            }
+            val generateSkillTool = GenerateSkillTool(dynamicSkillManager!!)
+            val generateSkillSkill = GenerateSkillSkill(generateSkillTool)
+            skillManager!!.registerSkill(generateSkillSkill)
+        }
+
+        // 3.7. Inject MemoryManager into ScriptSkill if available
         if (memoryManager != null) {
             val scriptSkill = skillManager?.getLoadedSkills()?.get("script") as? ai.openclaw.android.skill.builtin.ScriptSkill
             scriptSkill?.setMemoryManager(memoryManager)

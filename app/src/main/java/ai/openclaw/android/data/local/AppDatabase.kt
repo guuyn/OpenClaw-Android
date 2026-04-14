@@ -57,27 +57,31 @@ abstract class AppDatabase : RoomDatabase() {
 
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                // Create dynamic_skills with ALL columns to avoid migration validation issues
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS dynamic_skills (" +
-                    "id TEXT PRIMARY KEY, " +
+                    "id TEXT PRIMARY KEY NOT NULL, " +
                     "name TEXT NOT NULL, " +
                     "description TEXT NOT NULL, " +
                     "version TEXT NOT NULL, " +
+                    "category TEXT NOT NULL DEFAULT 'custom', " +
                     "instructions TEXT NOT NULL, " +
                     "script TEXT NOT NULL, " +
                     "toolsJson TEXT NOT NULL, " +
                     "permissions TEXT NOT NULL DEFAULT '', " +
-                    "createdAt INTEGER NOT NULL, " +
-                    "enabled INTEGER NOT NULL DEFAULT 1)"
+                    "createdAt INTEGER NOT NULL DEFAULT 0, " +
+                    "lastUsedAt INTEGER NOT NULL DEFAULT 0, " +
+                    "enabled INTEGER NOT NULL DEFAULT 1, " +
+                    "approvalPrefsJson TEXT NOT NULL DEFAULT ''" +
+                    ")"
                 )
             }
         }
 
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE dynamic_skills ADD COLUMN category TEXT NOT NULL DEFAULT 'custom'")
-                db.execSQL("ALTER TABLE dynamic_skills ADD COLUMN lastUsedAt INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("ALTER TABLE dynamic_skills ADD COLUMN approvalPrefsJson TEXT NOT NULL DEFAULT ''")
+                // No-op: MIGRATION_3_4 already created dynamic_skills with all columns
+                // This migration just bumps the version for Room schema validation
             }
         }
 
@@ -93,6 +97,7 @@ abstract class AppDatabase : RoomDatabase() {
             )
                 .openHelperFactory(factory)
                 .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .fallbackToDestructiveMigration()
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
