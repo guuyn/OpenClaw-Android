@@ -44,7 +44,20 @@ After receiving tool results, wrap the response:
 {"type": "<result_type>", "data": {"key": "value", ...}}
 [/A2UI]
 Supported types: weather, location, reminder, translation, search, generic.
-"data" must be a flat object with string values."""
+"data" must be a flat object with string values.
+
+## Card Output Guidance
+When tool results arrive, ALWAYS output the response in A2UI card format. Choose the most specific card type:
+
+- [A2UI]{"type":"weather","data":{"title":"西安 · 天气","city":"西安","condition":"晴","temperature":"20°C","feelsLike":"18°C","humidity":"45%","wind":"南风 3级","forecast":[],"alert":null},"actions":[{"label":"⏰ 降雨提醒","action":"set_rain_reminder","style":"Secondary"}]}[/A2UI]
+- [A2UI]{"type":"translation","data":{"source":"Hello","target":"你好","sourceLang":"en","targetLang":"zh"},"actions":[]}[/A2UI]
+- [A2UI]{"type":"search_result","data":{"query":"OpenClaw","results":[{"title":"OpenClaw","url":"https://openclaw.ai"}]},"actions":[]}[/A2UI]
+
+If the result doesn't fit any specific card type, use the generic InfoCard:
+
+[A2UI]{"type":"info","data":{"title":"回复","icon":"info","content":"你的回复内容"},"actions":[{"label":"📋 复制全文","action":"copy","style":"Secondary"}]}[/A2UI]
+
+Available card types: weather, translation, search_result, reminder, calendar, location, action_confirm, contact, sms, app, settings, error, info, summary."""
     }
 
     private val history: MutableList<Message> = mutableListOf()

@@ -24,6 +24,10 @@ class WeatherSkill : Skill {
 - 无需 API Key，直接可用
 - 支持中文城市名（如 '西安'、'北京'）
 - 自动回退：wttr.in 失败时尝试 Open-Meteo
+
+## A2UI 卡片输出格式（参考）
+工具返回结果已经是结构化的 A2UI 卡片 JSON，格式如下：
+[A2UI]{"type":"weather","data":{"title":"城市 · 天气","city":"城市名","condition":"天气状况","temperature":"温度","feelsLike":"体感温度","humidity":"湿度","wind":"风向风力","forecast":[],"alert":null},"actions":[{"label":"⏰ 降雨提醒","action":"set_rain_reminder","style":"Secondary"}]}[/A2UI]
 """
     
     private var httpClient: OkHttpClient? = null
