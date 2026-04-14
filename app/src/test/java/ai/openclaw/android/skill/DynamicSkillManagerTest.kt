@@ -274,4 +274,37 @@ class DynamicSkillManagerTest {
         manager.cleanup()
         // No crash = success; scope cancellation is internal
     }
+
+    // ========== onToolsChanged callback (Task 6) ==========
+
+    @Test
+    fun `registerFromJson triggers onToolsChanged callback`() = runBlocking {
+        var callbackCount = 0
+        manager.setToolsChangedListener { callbackCount++ }
+
+        val result = manager.registerFromJson(validSkillJson)
+
+        assertTrue(result.isSuccess)
+        assertEquals(1, callbackCount)
+        verify { mockSkillManager.registerSkill(any()) }
+    }
+
+    @Test
+    fun `registerFromJson without listener does not crash`() = runBlocking {
+        // No listener set — should still work
+        val result = manager.registerFromJson(validSkillJson)
+
+        assertTrue(result.isSuccess)
+    }
+
+    @Test
+    fun `registerFromJson invalid JSON does not trigger callback`() = runBlocking {
+        var callbackCount = 0
+        manager.setToolsChangedListener { callbackCount++ }
+
+        val result = manager.registerFromJson("not valid json")
+
+        assertTrue(result.isFailure)
+        assertEquals(0, callbackCount)
+    }
 }

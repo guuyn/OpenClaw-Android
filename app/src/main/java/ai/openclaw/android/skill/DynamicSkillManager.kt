@@ -32,6 +32,17 @@ class DynamicSkillManager(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // 工具列表变化回调（由 GatewayManager 连接到 AgentSession.refreshTools）
+    private var onToolsChanged: (() -> Unit)? = null
+
+    fun setToolsChangedListener(listener: () -> Unit) {
+        onToolsChanged = listener
+    }
+
+    private fun notifyToolsChanged() {
+        onToolsChanged?.invoke()
+    }
+
     /**
      * 从 JSON 注册新技能
      *
@@ -59,6 +70,7 @@ class DynamicSkillManager(
 
         // 运行时注册
         skillManager.registerSkill(skill)
+        notifyToolsChanged()
 
         Log.i(TAG, "Registered dynamic skill: ${skill.id}")
         Result.success(skill.id)

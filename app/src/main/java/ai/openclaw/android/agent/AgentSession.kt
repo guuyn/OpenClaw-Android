@@ -63,6 +63,7 @@ Available card types: weather, translation, search_result, reminder, calendar, l
     private val history: MutableList<Message> = mutableListOf()
     private var tools: List<Tool> = emptyList()
     private var toolExecutor: (suspend (ToolCall) -> String)? = null
+    private var accessibilityTools: List<Tool> = emptyList()
 
     // Memory & persistence hooks (set via setters)
     private var memoryContextProvider: (suspend () -> String?)? = null
@@ -76,7 +77,8 @@ Available card types: weather, translation, search_result, reminder, calendar, l
         this.toolExecutor = executor
     }
 
-    fun setToolsWithSkills(accessibilityTools: List<Tool>, executor: suspend (ToolCall) -> String) {
+    fun setToolsWithSkills(accessTools: List<Tool>, executor: suspend (ToolCall) -> String) {
+        this.accessibilityTools = accessTools
         val skillTools = skillManager.getAllTools().map { toolDef ->
             Tool(
                 type = "function",
@@ -87,9 +89,30 @@ Available card types: weather, translation, search_result, reminder, calendar, l
                 )
             )
         }
-        this.tools = accessibilityTools + skillTools
+        this.tools = accessTools + skillTools
         this.toolExecutor = executor
-        Log.d(TAG, "Loaded ${accessibilityTools.size} accessibility + ${skillTools.size} skill = ${this.tools.size} tools")
+        Log.d(TAG, "Loaded ${accessTools.size} accessibility + ${skillTools.size} skill = ${this.tools.size} tools")
+    }
+
+    /**
+     * 刷新工具列表（当动态技能注册后调用）
+     * 重新从 SkillManager 获取最新工具列表，保留已有的 accessibility tools
+     */
+    fun refreshTools() {
+        val executor = this.toolExecutor ?: return
+        val skillTools = skillManager.getAllTools().map { toolDef ->
+            Tool(
+                type = "function",
+                function = ToolFunction(
+                    name = toolDef.name,
+                    description = toolDef.description,
+                    parameters = convertSkillParams(toolDef.parameters)
+                )
+            )
+        }
+        val allTools = accessibilityTools + skillTools
+        setTools(allTools, executor)
+        Log.d(TAG, "Tools refreshed: ${allTools.size} total (${skillTools.size} skill tools)")
     }
 
     // ==================== Memory & Persistence Setup ====================

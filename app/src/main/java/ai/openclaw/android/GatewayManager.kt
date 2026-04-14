@@ -149,7 +149,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             maxContextTokens = 4000
         ).apply {
             setToolsWithSkills(
-                accessibilityTools = accessibilityBridge?.getTools() ?: emptyList(),
+                accessTools = accessibilityBridge?.getTools() ?: emptyList(),
                 executor = { toolCall ->
                     accessibilityBridge?.execute(toolCall) ?: "Accessibility not available"
                 }
@@ -287,6 +287,9 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             }
         )
         dynamicSkillManager!!.loadAllSaved()
+        dynamicSkillManager!!.setToolsChangedListener {
+            agentSession?.refreshTools()
+        }
 
         val generateSkillTool = GenerateSkillTool(dynamicSkillManager!!)
         val generateSkillSkill = GenerateSkillSkill(generateSkillTool)
@@ -299,7 +302,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             maxContextTokens = 4000
         ).apply {
             setToolsWithSkills(
-                accessibilityTools = accessibilityBridge!!.getTools(),
+                accessTools = accessibilityBridge!!.getTools(),
                 executor = { toolCall ->
                     accessibilityBridge!!.execute(toolCall)
                 }
