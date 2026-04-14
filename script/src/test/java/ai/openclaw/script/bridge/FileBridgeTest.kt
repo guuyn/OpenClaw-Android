@@ -1,5 +1,6 @@
 package ai.openclaw.script.bridge
 
+import com.dokar.quickjs.binding.ObjectBindingScope
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -77,4 +78,11 @@ class FileBridgeTest {
         assertTrue(r.contains("\\\""))
     }
     @Test fun `jsonEscape empty`() { assertEquals("\"\"", jsonEscape("")) }
+
+    @Test fun `registerBindings method exists`() {
+        // Verify registerBindings method is defined on the class with correct signature
+        val method = FileBridge::class.java.getMethod("registerBindings", ObjectBindingScope::class.java)
+        assertNotNull(method)
+        assertEquals("registerBindings", method.name)
+    }
 }

@@ -2,6 +2,8 @@ package ai.openclaw.script.bridge
 
 import android.content.Context
 import ai.openclaw.script.CapabilityBridge
+import com.dokar.quickjs.binding.FunctionBinding
+import com.dokar.quickjs.binding.ObjectBindingScope
 import java.io.File
 
 /**
@@ -21,6 +23,38 @@ class FileBridge(
 ) : CapabilityBridge {
 
     override val name: String = "fs"
+
+    /**
+     * QuickJS 绑定: 注册 JS 函数到 ObjectBindingScope DSL 块。
+     * 复用已有的 handle() 逻辑，将 JS 参数构造为 JSON 后分发。
+     */
+    override fun registerBindings(dsl: ObjectBindingScope) {
+        dsl.apply {
+            function("readFile", FunctionBinding { args ->
+                val path = args.getOrNull(0) as? String ?: return@FunctionBinding """{"error":"Missing path"}"""
+                handle("fs.readFile", """{"path":${jsonString(path)}}""")
+            })
+            function("writeFile", FunctionBinding { args ->
+                val path = args.getOrNull(0) as? String ?: return@FunctionBinding """{"error":"Missing path"}"""
+                val content = args.getOrNull(1) as? String ?: ""
+                handle("fs.writeFile", """{"path":${jsonString(path)},"content":${jsonString(content)}}""")
+            })
+            function("list", FunctionBinding { args ->
+                val dir = args.getOrNull(0) as? String ?: "."
+                handle("fs.list", """{"dir":${jsonString(dir)}}""")
+            })
+            function("exists", FunctionBinding { args ->
+                val path = args.getOrNull(0) as? String ?: return@FunctionBinding """{"exists":false}"""
+                handle("fs.exists", """{"path":${jsonString(path)}}""")
+            })
+        }
+    }
+
+    /**
+     * 将普通字符串转为 JSON 字符串字面量（带引号+转义）。
+     * 用于在 QuickJS 绑定时手动构造 JSON 参数。
+     */
+    private fun jsonString(value: String): String = jsonEscape(value)
 
     override fun getJsPrototype(): String = """
         var fs = {
@@ -88,7 +122,7 @@ class FileBridge(
 /** 从简单 JSON 中提取字段值（不依赖 org.json） */
 internal fun extractField(json: String, field: String): String {
     val key = """"$field""""
-    val idx = json.indexOf(key) ?: return ""
+    val idx = json.indexOf(key)
     if (idx < 0) return ""
     val colonIdx = json.indexOf(':', idx + key.length)
     if (colonIdx < 0) return ""
