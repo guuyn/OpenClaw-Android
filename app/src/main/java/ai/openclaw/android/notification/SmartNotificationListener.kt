@@ -28,6 +28,9 @@ class SmartNotificationListener : NotificationListenerService() {
         // 分类器
         private lateinit var classifier: NotificationClassifier
         
+        // 服务实例（供 companion 方法调用系统 API）
+        @Volatile private var instance: SmartNotificationListener? = null
+        
         // 获取待处理通知数量
         fun getPendingCount(): Int = _notifications.value.count { !it.isRead }
         
@@ -39,6 +42,20 @@ class SmartNotificationListener : NotificationListenerService() {
 
         // 后台作用域（供 companion 方法使用）
         private val companionScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        
+        /**
+         * 从系统通知栏主动拉取当前所有通知（兜底方法）
+         * 用于：1) 启动时初始加载  2) 内存列表为空时的兜底查询
+         */
+        fun fetchActiveNotificationsFromSystem() {
+            val svc = instance ?: run {
+                Log.w(TAG, "fetchActiveNotifications: service not available")
+                return
+            }
+            companionScope.launch {
+                svc.loadActiveNotifications()
+            }
+        }
 
         /**
          * 删除通知（companion 方法，供非实例上下文调用）
@@ -57,6 +74,13 @@ class SmartNotificationListener : NotificationListenerService() {
                 _notifications.value = emptyList()
             }
         }
+        
+        /**
+         * 重新从系统拉取通知（兜底/刷新用）
+         */
+        fun refreshFromSystem() {
+            fetchActiveNotificationsFromSystem()
+        }
 
         /**
          * 标记通知为已读（companion 方法，供非实例上下文调用）
@@ -74,6 +98,7 @@ class SmartNotificationListener : NotificationListenerService() {
     
     override fun onCreate() {
         super.onCreate()
+        instance = this
         classifier = NotificationClassifier(this)
         Log.d(TAG, "SmartNotificationListener created")
     }
@@ -92,6 +117,11 @@ class SmartNotificationListener : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         Log.d(TAG, "Notification listener connected")
+        
+        // 【1. 启动时主动拉取】获取当前状态栏所有通知
+        scope.launch {
+            loadActiveNotifications()
+        }
     }
     
     override fun onListenerDisconnected() {
@@ -109,10 +139,47 @@ class SmartNotificationListener : NotificationListenerService() {
     }
     
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        // 用户在系统通知栏移除了通知，同步更新我们的列表
+        // 【2. 被动监听】用户在系统通知栏移除了通知，同步更新
         val id = sbn.key
         scope.launch {
             _notifications.value = _notifications.value.filter { it.id != id }
+        }
+    }
+    
+    /**
+     * 主动加载系统通知栏所有通知
+     * 启动时调用 + 内存列表为空时兜底
+     */
+    private suspend fun loadActiveNotifications() {
+        try {
+            val activeSbns = getActiveNotifications()
+            if (activeSbns.isNullOrEmpty()) {
+                Log.d(TAG, "No active notifications in status bar")
+                return
+            }
+            Log.d(TAG, "Loading ${activeSbns.size} active notifications from system")
+            
+            val parsed = activeSbns.mapNotNull { parseNotification(it) }
+            
+            // 分类所有通知
+            val classified = parsed.map { notification ->
+                val category = classifier.classify(notification)
+                if (category == NotificationCategory.NOISE) {
+                    Log.d(TAG, "Noise notification ignored: ${notification.title}")
+                    null
+                } else {
+                    notification.copy(category = category)
+                }
+            }.filterNotNull()
+                .sortedByDescending { it.timestamp }
+                .take(100)
+            
+            _notifications.value = classified
+            Log.d(TAG, "Loaded ${classified.size} notifications (${parsed.size - classified.size} noise filtered)")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "No permission to access notifications: ${e.message}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load active notifications: ${e.message}")
         }
     }
     
