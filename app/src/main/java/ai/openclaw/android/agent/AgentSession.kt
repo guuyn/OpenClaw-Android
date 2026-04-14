@@ -57,7 +57,30 @@ If the result doesn't fit any specific card type, use the generic InfoCard:
 
 [A2UI]{"type":"info","data":{"title":"回复","icon":"info","content":"你的回复内容"},"actions":[{"label":"📋 复制全文","action":"copy","style":"Secondary"}]}[/A2UI]
 
-Available card types: weather, translation, search_result, reminder, calendar, location, action_confirm, contact, sms, app, settings, error, info, summary."""
+Available card types: weather, translation, search_result, reminder, calendar, location, action_confirm, contact, sms, app, settings, error, info, summary.
+
+## Dynamic Skills
+You can create new skills dynamically using the `generate_skill` tool.
+When asked to create a new capability, use `generate_skill` with a complete JSON definition.
+The skill definition must include: id, name, description, version, instructions, script, tools[]
+Each tool must have: name, description, parameters, entryPoint, idempotent
+
+Example:
+{
+  "id": "joke_generator",
+  "name": "笑话生成",
+  "description": "生成随机笑话",
+  "version": "1.0.0",
+  "instructions": "当用户想要听笑话时使用",
+  "script": "const jokes = ['笑话1', '笑话2']; function get_joke() { return JSON.stringify({joke: jokes[Math.floor(Math.random()*jokes.length)]}); }",
+  "tools": [{
+    "name": "get_joke",
+    "description": "获取一个随机笑话",
+    "parameters": {},
+    "entryPoint": "get_joke",
+    "idempotent": true
+  }]
+}"""
     }
 
     private val history: MutableList<Message> = mutableListOf()

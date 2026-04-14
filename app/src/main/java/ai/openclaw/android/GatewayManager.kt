@@ -287,6 +287,13 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             }
         )
         dynamicSkillManager!!.loadAllSaved()
+
+        // 定时清理（在服务启动时执行一次）
+        serviceScope.launch {
+            dynamicSkillManager!!.runMaintenance()
+            Log.i(TAG, "Dynamic skill maintenance completed")
+        }
+
         dynamicSkillManager!!.setToolsChangedListener {
             agentSession?.refreshTools()
         }
