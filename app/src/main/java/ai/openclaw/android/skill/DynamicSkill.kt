@@ -24,7 +24,7 @@ class DynamicSkill(
     override val description: String,
     override val version: String,
     override val instructions: String,
-    private val script: String,
+    val script: String,
     toolDefs: List<DynamicToolDef>,
     private val orchestrator: ScriptOrchestrator,
     private val preferenceManager: UserPreferenceManager? = null,

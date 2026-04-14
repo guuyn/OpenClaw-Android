@@ -165,6 +165,15 @@ class SkillManager(private val context: Context) {
     fun getLoadedSkills(): Map<String, Skill> = loadedSkills.toMap()
     
     fun getSkillCount(): Int = loadedSkills.size
+
+    /**
+     * 注销已加载的技能
+     */
+    fun unregisterSkill(skillId: String) {
+        val skill = loadedSkills.remove(skillId)
+        skill?.cleanup()
+        Log.i(TAG, "Unregistered skill: $skillId")
+    }
 }
 
 data class ToolDefinition(

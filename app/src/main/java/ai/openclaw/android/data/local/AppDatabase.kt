@@ -20,7 +20,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
     entities = [SessionEntity::class, MessageEntity::class, SummaryEntity::class, MemoryEntity::class, MemoryVectorEntity::class, DynamicSkillEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -73,6 +73,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE dynamic_skills ADD COLUMN category TEXT NOT NULL DEFAULT 'custom'")
+                db.execSQL("ALTER TABLE dynamic_skills ADD COLUMN lastUsedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE dynamic_skills ADD COLUMN approvalPrefsJson TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         private fun buildDatabase(context: Context): AppDatabase {
             val keyManager = SecurityKeyManager(context)
             val passphrase = keyManager.getOrCreateDatabaseKey()
@@ -84,7 +92,7 @@ abstract class AppDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
