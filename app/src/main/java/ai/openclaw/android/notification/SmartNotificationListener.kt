@@ -44,7 +44,36 @@ class SmartNotificationListener : NotificationListenerService() {
         private val companionScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
         
         /**
-         * 从系统通知栏主动拉取当前所有通知（兜底方法）
+         * 直接从系统通知栏获取当前所有通知（同步方法）
+         * 这是 list_notifications 技能的主要数据源，不依赖内存 StateFlow
+         */
+        fun getActiveNotificationsList(): List<SmartNotification> {
+            val svc = instance ?: run {
+                Log.w(TAG, "getActiveNotificationsList: service not available")
+                return emptyList()
+            }
+            return try {
+                val activeSbns = svc.getActiveNotifications()
+                if (activeSbns.isNullOrEmpty()) {
+                    Log.d(TAG, "getActiveNotifications returned 0 notifications")
+                    return emptyList()
+                }
+                Log.d(TAG, "getActiveNotifications returned ${activeSbns.size} notifications")
+                activeSbns.mapNotNull { sbn ->
+                    svc.parseNotification(sbn)
+                }.sortedByDescending { it.timestamp }
+                    .take(100)
+            } catch (e: SecurityException) {
+                Log.e(TAG, "No permission: ${e.message}")
+                emptyList()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed: ${e.message}")
+                emptyList()
+            }
+        }
+
+        /**
+         * 从系统通知栏主动拉取当前所有通知（异步，更新 StateFlow）
          * 用于：1) 启动时初始加载  2) 内存列表为空时的兜底查询
          */
         fun fetchActiveNotificationsFromSystem() {
@@ -118,10 +147,26 @@ class SmartNotificationListener : NotificationListenerService() {
         super.onListenerConnected()
         Log.d(TAG, "Notification listener connected")
         
+        // 检查通知监听权限是否授予
+        try {
+            val enabled = android.provider.Settings.Secure.getString(
+                contentResolver,
+                "enabled_notification_listeners"
+            )
+            val isGranted = enabled?.contains(packageName) == true
+            Log.d(TAG, "Notification listener permission granted: $isGranted (enabled: $enabled)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to check permission: ${e.message}")
+        }
+        
         // 【1. 启动时主动拉取】获取当前状态栏所有通知
+        // 延迟 5 秒等待系统同步完成
         scope.launch {
+            delay(5000)
+            Log.d(TAG, "Calling getActiveNotifications()...")
             loadActiveNotifications()
         }
+        
     }
     
     override fun onListenerDisconnected() {
@@ -150,22 +195,48 @@ class SmartNotificationListener : NotificationListenerService() {
      * 主动加载系统通知栏所有通知
      * 启动时调用 + 内存列表为空时兜底
      */
-    private suspend fun loadActiveNotifications() {
+    private suspend fun loadActiveNotifications(retryCount: Int = 0) {
         try {
+            Log.d(TAG, "=== loadActiveNotifications attempt ${retryCount + 1} ===")
+            Log.d(TAG, "packageName=$packageName")
             val activeSbns = getActiveNotifications()
+            Log.d(TAG, "getActiveNotifications returned ${activeSbns?.size ?: 0} notifications (type: ${activeSbns?.javaClass?.simpleName})")
+            
             if (activeSbns.isNullOrEmpty()) {
-                Log.d(TAG, "No active notifications in status bar")
+                Log.w(TAG, "getActiveNotifications returned empty list (retry $retryCount/5)")
+                if (retryCount < 5) {
+                    val delayMs = 2000L * (retryCount + 1)
+                    Log.d(TAG, "Retrying in ${delayMs}ms...")
+                    delay(delayMs)
+                    loadActiveNotifications(retryCount + 1)
+                } else {
+                    Log.e(TAG, "Failed to get notifications after 6 retries (12s total)")
+                    _notifications.value = emptyList()
+                }
                 return
             }
-            Log.d(TAG, "Loading ${activeSbns.size} active notifications from system")
+            
+            Log.d(TAG, "Found ${activeSbns.size} active notifications, parsing...")
+            activeSbns.forEachIndexed { index, sbn ->
+                Log.d(TAG, "  [$index] pkg=${sbn.packageName} id=${sbn.id} key=${sbn.key}")
+                val extras = sbn.notification.extras
+                val title = extras.getString(Notification.EXTRA_TITLE) ?: "(no title)"
+                val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: "(no text)"
+                Log.d(TAG, "       title=\"$title\" text=\"$text\"")
+            }
             
             val parsed = activeSbns.mapNotNull { parseNotification(it) }
+            Log.d(TAG, "Parsed ${parsed.size} valid notifications from ${activeSbns.size}")
+            
+            if (parsed.isEmpty()) {
+                Log.w(TAG, "All ${activeSbns.size} notifications were filtered out (empty title/text or self)")
+            }
             
             // 分类所有通知
             val classified = parsed.map { notification ->
                 val category = classifier.classify(notification)
                 if (category == NotificationCategory.NOISE) {
-                    Log.d(TAG, "Noise notification ignored: ${notification.title}")
+                    Log.d(TAG, "Filtered as noise: ${notification.title}")
                     null
                 } else {
                     notification.copy(category = category)
@@ -175,11 +246,15 @@ class SmartNotificationListener : NotificationListenerService() {
                 .take(100)
             
             _notifications.value = classified
-            Log.d(TAG, "Loaded ${classified.size} notifications (${parsed.size - classified.size} noise filtered)")
+            Log.d(TAG, "=== Final: ${classified.size} notifications loaded (${parsed.size - classified.size} filtered as noise) ===")
         } catch (e: SecurityException) {
-            Log.e(TAG, "No permission to access notifications: ${e.message}")
+            Log.e(TAG, "SecurityException: ${e.message}")
+            if (retryCount < 2) {
+                delay(2000L)
+                loadActiveNotifications(retryCount + 1)
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load active notifications: ${e.message}")
+            Log.e(TAG, "Exception: ${e.message}", e)
         }
     }
     

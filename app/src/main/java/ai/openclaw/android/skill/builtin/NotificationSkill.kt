@@ -73,22 +73,21 @@ class NotificationSkill(private val context: Context) : Skill {
             val limit = (params["limit"] as? Number)?.toInt() ?: 20
             val includeRead = params["includeRead"] as? Boolean ?: false
 
-            // 【3. 异常兜底】内存列表为空时，主动从系统拉取
-            var notifications = SmartNotificationListener.notifications.value
-            if (notifications.isEmpty()) {
-                Log.d("NotificationSkill", "List empty, refreshing from system...")
-                SmartNotificationListener.refreshFromSystem()
-                delay(500) // 等待加载完成
-                notifications = SmartNotificationListener.notifications.value
-            }
-            if (!includeRead) {
-                notifications = notifications.filter { !it.isRead }
-            }
-            packageName?.let { pkgName ->
-                notifications = notifications.filter { it.packageName.contains(pkgName, ignoreCase = true) }
-            }
+            // 直接从系统通知栏获取（不依赖内存 StateFlow）
+            val notifications = SmartNotificationListener.getActiveNotificationsList()
+            Log.d("NotificationSkill", "Got ${notifications.size} notifications from system")
 
-            val result = notifications.take(limit).map { n ->
+            val filtered = if (!includeRead) {
+                // 内存列表中的已读状态，对新拉取的通知默认未读
+                notifications
+            } else {
+                notifications
+            }
+            val finalNotifications = packageName?.let { pkgName ->
+                filtered.filter { it.packageName.contains(pkgName, ignoreCase = true) }
+            } ?: filtered
+
+            val result = finalNotifications.take(limit).map { n ->
                 mapOf(
                     "id" to n.id,
                     "package" to n.packageName,
@@ -100,7 +99,7 @@ class NotificationSkill(private val context: Context) : Skill {
                 )
             }
 
-            return SkillResult(true, formatNotificationList(result, notifications.size), "")
+            return SkillResult(true, formatNotificationList(result, finalNotifications.size), "")
         }
     }
 
