@@ -13,6 +13,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -921,7 +925,78 @@ fun ActionConfirmCard(
     }
 }
 
-// ==================== InfoCard (fallback) ====================
+// ==================== 8. ErrorCard ====================
+
+@Composable
+fun ErrorCard(
+    data: ErrorCardData,
+    actions: List<CardAction> = emptyList(),
+    onActionClick: (CardAction) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val (iconEmoji, accentColor, containerColor) = when (data.icon) {
+        "warning" -> Triple(
+            "⚠️",
+            Color(0xFFF59E0B),
+            Color(0xFFFFFBEB)
+        )
+        "error" -> Triple(
+            "❌",
+            MaterialTheme.colorScheme.error,
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        )
+        else -> Triple(
+            "ℹ️",
+            Color(0xFF3B82F6),
+            Color(0xFFEFF6FF)
+        )
+    }
+
+    CardContainer(modifier = modifier) {
+        // 头部
+        CardHeader(icon = iconEmoji, title = data.title)
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 错误消息
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = containerColor
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = data.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
+        // 建议
+        data.suggestion?.let { suggestion ->
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Lightbulb,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = suggestion,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // 操作按钮
+        CardActionButtons(actions, onActionClick)
+    }
+}
+
+// ==================== 9. InfoCard ====================
 
 @Composable
 fun InfoCard(
@@ -930,19 +1005,32 @@ fun InfoCard(
     onActionClick: (CardAction) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val iconEmoji = when (data.icon) {
+        "lightbulb" -> "💡"
+        "tip" -> "💡"
+        else -> "ℹ️"
+    }
+
     CardContainer(modifier = modifier) {
-        CardHeader(icon = data.icon, title = data.title ?: "信息")
+        // 头部（可选标题）
+        if (data.title != null) {
+            CardHeader(icon = iconEmoji, title = data.title)
+        } else {
+            CardHeader(icon = iconEmoji, title = "信息")
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // 内容
         Text(
             text = data.content,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
 
+        // 可选摘要
         data.summary?.let { summary ->
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Surface(
                 shape = RoundedCornerShape(8.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant
@@ -956,11 +1044,410 @@ fun InfoCard(
             }
         }
 
+        // 操作按钮
         CardActionButtons(actions, onActionClick)
     }
 }
 
-// ==================== A2UICardRouter — 完整实现 ====================
+// ==================== 10. SummaryCard ====================
+
+@Composable
+fun SummaryCard(
+    data: SummaryCardData,
+    actions: List<CardAction> = emptyList(),
+    onActionClick: (CardAction) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    val iconEmoji = when (data.icon) {
+        "article" -> "📄"
+        "news" -> "📰"
+        else -> "📄"
+    }
+
+    CardContainer(modifier = modifier) {
+        // 头部
+        CardHeader(icon = iconEmoji, title = data.title)
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 摘要（始终显示）
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Text(
+                text = data.summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
+
+        // 展开/折叠内容
+        if (expanded) {
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = data.fullContent,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            )
+        }
+
+        // 展开/折叠按钮
+        Spacer(modifier = Modifier.height(10.dp))
+        TextButton(
+            onClick = { expanded = !expanded },
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        ) {
+            Text(
+                text = if (expanded) "收起 ▲" else "📖 阅读全文 ▼",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        // 操作按钮
+        CardActionButtons(actions, onActionClick)
+    }
+}
+
+// ==================== 11. ContactCard ====================
+
+@Composable
+fun ContactCard(
+    data: ContactCardData,
+    actions: List<CardAction> = emptyList(),
+    onActionClick: (CardAction) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    CardContainer(modifier = modifier) {
+        // 头部
+        CardHeader(icon = "👤", title = data.name)
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 电话
+        data.phone?.let { phone ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Phone,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = phone,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        // 邮箱
+        data.email?.let { email ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Email,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = email,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        // 地址
+        data.address?.let { address ->
+            Row(verticalAlignment = Alignment.Top) {
+                Icon(
+                    imageVector = Icons.Default.Place,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = address,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
+        // 操作按钮
+        CardActionButtons(actions, onActionClick)
+    }
+}
+
+// ==================== 12. SMSCard ====================
+
+@Composable
+fun SMSCard(
+    data: SMSCardData,
+    actions: List<CardAction> = emptyList(),
+    onActionClick: (CardAction) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val statusEmoji = when (data.status) {
+        "sent" -> "✅ 已发送"
+        "failed" -> "❌ 发送失败"
+        "pending" -> "⏳ 待发送"
+        else -> "⏳ 待发送"
+    }
+
+    CardContainer(modifier = modifier) {
+        // 头部
+        CardHeader(icon = "💬", title = "发送短信")
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 收件人
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "收件人：",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(64.dp)
+            )
+            Text(
+                text = data.recipient,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 短信内容
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Text(
+                text = data.content,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 状态
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = when (data.status) {
+                "sent" -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+                "failed" -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            }
+        ) {
+            Text(
+                text = statusEmoji,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+        }
+
+        // 操作按钮
+        CardActionButtons(actions, onActionClick)
+    }
+}
+
+// ==================== 13. AppCard ====================
+
+@Composable
+fun AppCard(
+    data: AppCardData,
+    actions: List<CardAction> = emptyList(),
+    onActionClick: (CardAction) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val actionEmoji = when (data.action) {
+        "launch" -> "🚀"
+        "force_stop" -> "⏹️"
+        "uninstall" -> "🗑️"
+        else -> "📱"
+    }
+
+    CardContainer(modifier = modifier) {
+        // 头部
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                modifier = Modifier.size(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "📱",
+                        fontSize = 18.sp
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = data.appName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                data.packageName?.let { pkg ->
+                    Text(
+                        text = pkg,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 操作类型
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = actionEmoji,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = when (data.action) {
+                        "launch" -> "启动应用"
+                        "force_stop" -> "强制停止"
+                        "uninstall" -> "卸载应用"
+                        else -> data.action
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+
+        // 操作按钮
+        CardActionButtons(actions, onActionClick)
+    }
+}
+
+// ==================== 14. SettingsCard ====================
+
+@Composable
+fun SettingsCard(
+    data: SettingsCardData,
+    actions: List<CardAction> = emptyList(),
+    onActionClick: (CardAction) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    CardContainer(modifier = modifier) {
+        // 头部
+        CardHeader(icon = "⚙️", title = "设置变更")
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 设置名称
+        Text(
+            text = data.settingName,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 旧值 → 新值
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            // 旧值
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Text(
+                    text = data.oldValue ?: "无",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+            Icon(
+                imageVector = Icons.Default.ArrowForward,
+                contentDescription = "变为",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // 新值
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            ) {
+                Text(
+                    text = data.newValue,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
+        }
+
+        // 操作按钮
+        CardActionButtons(actions, onActionClick)
+    }
+}
+
+// ==================== FallbackCard ====================
+
+@Composable
+fun FallbackCard(
+    card: A2UICard,
+    onActionClick: (CardAction) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    CardContainer(modifier = modifier) {
+        CardHeader(icon = "❓", title = "未知卡片")
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "类型: ${card.type}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        CardActionButtons(card.actions, onActionClick)
+    }
+}
+
+// ==================== A2UICardRouter — 完整实现（14 种类型） ====================
 
 @Composable
 fun A2UICardRouter(
@@ -969,6 +1456,7 @@ fun A2UICardRouter(
     modifier: Modifier = Modifier
 ) {
     when (card.type) {
+        // P0 核心卡片（Task 3）
         "weather" -> WeatherCard(card.asWeatherCard()!!, card.actions, onActionClick, modifier)
         "search_result" -> SearchResultCard(card.asSearchResultCard()!!, card.actions, onActionClick, modifier)
         "translation" -> TranslationCard(card.asTranslationCard()!!, card.actions, onActionClick, modifier)
@@ -976,17 +1464,16 @@ fun A2UICardRouter(
         "calendar" -> CalendarCard(card.asCalendarCard()!!, card.actions, onActionClick, modifier)
         "location" -> LocationCard(card.asLocationCard()!!, card.actions, onActionClick, modifier)
         "action_confirm" -> ActionConfirmCard(card.asActionConfirmCard()!!, card.actions, onActionClick, modifier)
-        else -> InfoCard(
-            card.asInfoCard() ?: InfoCardData(
-                title = "未知卡片",
-                icon = "info",
-                content = "类型: ${card.type}",
-                summary = null
-            ),
-            card.actions,
-            onActionClick,
-            modifier
-        )
+        // 全局卡片（Task 4）
+        "error" -> ErrorCard(card.asErrorCard()!!, card.actions, onActionClick, modifier)
+        "info" -> InfoCard(card.asInfoCard()!!, card.actions, onActionClick, modifier)
+        "summary" -> SummaryCard(card.asSummaryCard()!!, card.actions, onActionClick, modifier)
+        "contact" -> ContactCard(card.asContactCard()!!, card.actions, onActionClick, modifier)
+        "sms" -> SMSCard(card.asSMSCard()!!, card.actions, onActionClick, modifier)
+        "app" -> AppCard(card.asAppCard()!!, card.actions, onActionClick, modifier)
+        "settings" -> SettingsCard(card.asSettingsCard()!!, card.actions, onActionClick, modifier)
+        // 未知类型 → 回退
+        else -> FallbackCard(card, onActionClick, modifier)
     }
 }
 

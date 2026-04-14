@@ -271,4 +271,264 @@ class A2UICardRendererTest {
         assertNotNull(cancelAction)
         assertEquals("❌ 取消", cancelAction!!.label)
     }
+
+    // ==================== Global Card Tests ====================
+
+    @Test
+    fun `error card data parsing`() {
+        val json = """{
+            "type":"error",
+            "data":{
+                "icon":"error",
+                "title":"连接失败",
+                "message":"无法连接到服务器，请检查网络设置",
+                "suggestion":"尝试切换网络后重试"
+            },
+            "actions":[
+                {"label":"🔄 重试","action":"retry","style":"Primary"},
+                {"label":"⚙️ 设置","action":"open_settings","style":"Secondary"}
+            ]
+        }"""
+        val card = A2UICardParser.parse("[A2UI]$json[/A2UI]")[0] as MessageSegment.A2UICard
+        val error = card.card.asErrorCard()
+
+        assertNotNull(error)
+        assertEquals("error", error!!.icon)
+        assertEquals("连接失败", error.title)
+        assertEquals("无法连接到服务器，请检查网络设置", error.message)
+        assertEquals("尝试切换网络后重试", error.suggestion)
+        assertEquals(2, card.card.actions.size)
+        assertEquals("🔄 重试", card.card.actions[0].label)
+        assertEquals(ButtonStyle.Primary, card.card.actions[0].style)
+    }
+
+    @Test
+    fun `error card icon variants`() {
+        // warning icon
+        val warnJson = """{"type":"error","data":{"icon":"warning","title":"警告","message":"存储空间不足"}}"""
+        val warnCard = (A2UICardParser.parse("[A2UI]$warnJson[/A2UI]")[0] as MessageSegment.A2UICard).card
+        val warn = warnCard.asErrorCard()
+        assertNotNull(warn)
+        assertEquals("warning", warn!!.icon)
+        assertNull(warn.suggestion)
+
+        // info icon
+        val infoJson = """{"type":"error","data":{"icon":"info","title":"提示","message":"新版本可用"}}"""
+        val infoCard = (A2UICardParser.parse("[A2UI]$infoJson[/A2UI]")[0] as MessageSegment.A2UICard).card
+        val info = infoCard.asErrorCard()
+        assertNotNull(info)
+        assertEquals("info", info!!.icon)
+    }
+
+    @Test
+    fun `info card data parsing`() {
+        val json = """{
+            "type":"info",
+            "data":{
+                "title":"使用提示",
+                "icon":"lightbulb",
+                "content":"长按消息可以复制或删除",
+                "summary":"操作指南"
+            },
+            "actions":[
+                {"label":"📋 复制全文","action":"copy","style":"Secondary"},
+                {"label":"🔊 朗读","action":"speak","style":"Secondary"}
+            ]
+        }"""
+        val card = A2UICardParser.parse("[A2UI]$json[/A2UI]")[0] as MessageSegment.A2UICard
+        val info = card.card.asInfoCard()
+
+        assertNotNull(info)
+        assertEquals("使用提示", info!!.title)
+        assertEquals("lightbulb", info.icon)
+        assertEquals("长按消息可以复制或删除", info.content)
+        assertEquals("操作指南", info.summary)
+    }
+
+    @Test
+    fun `info card minimal`() {
+        val json = """{"type":"info","data":{"icon":"info","content":"这是一条通知"}}"""
+        val card = (A2UICardParser.parse("[A2UI]$json[/A2UI]")[0] as MessageSegment.A2UICard).card
+        val info = card.asInfoCard()
+
+        assertNotNull(info)
+        assertEquals(null, info!!.title)
+        assertEquals("info", info.icon)
+        assertEquals("这是一条通知", info.content)
+        assertNull(info.summary)
+    }
+
+    @Test
+    fun `summary card data parsing`() {
+        val json = """{
+            "type":"summary",
+            "data":{
+                "title":"新闻摘要",
+                "icon":"article",
+                "summary":"今日共收到12条新闻，涵盖科技、体育、财经等领域",
+                "fullContent":"科技：OpenAI发布新模型...\n体育：湖人队获胜...\n财经：美联储维持利率不变...\n国际：联合国气候变化大会开幕..."
+            },
+            "actions":[
+                {"label":"📖 阅读全文","action":"expand","style":"Primary"},
+                {"label":"📋 复制","action":"copy","style":"Secondary"},
+                {"label":"🔊 朗读","action":"speak","style":"Secondary"}
+            ]
+        }"""
+        val card = A2UICardParser.parse("[A2UI]$json[/A2UI]")[0] as MessageSegment.A2UICard
+        val summary = card.card.asSummaryCard()
+
+        assertNotNull(summary)
+        assertEquals("新闻摘要", summary!!.title)
+        assertEquals("article", summary.icon)
+        assertEquals("今日共收到12条新闻，涵盖科技、体育、财经等领域", summary.summary)
+        assertTrue(summary.fullContent.contains("科技"))
+        assertEquals(3, card.card.actions.size)
+    }
+
+    @Test
+    fun `contact card data parsing`() {
+        val json = """{
+            "type":"contact",
+            "data":{
+                "name":"张三",
+                "phone":"+86 138 0013 8000",
+                "email":"zhangsan@example.com",
+                "address":"北京市朝阳区建国路88号"
+            },
+            "actions":[
+                {"label":"📞 拨打","action":"call","style":"Primary"},
+                {"label":"✉️ 发邮件","action":"email","style":"Secondary"},
+                {"label":"📍 导航","action":"navigate","style":"Secondary"}
+            ]
+        }"""
+        val card = A2UICardParser.parse("[A2UI]$json[/A2UI]")[0] as MessageSegment.A2UICard
+        val contact = card.card.asContactCard()
+
+        assertNotNull(contact)
+        assertEquals("张三", contact!!.name)
+        assertEquals("+86 138 0013 8000", contact.phone)
+        assertEquals("zhangsan@example.com", contact.email)
+        assertEquals("北京市朝阳区建国路88号", contact.address)
+        assertEquals(3, card.card.actions.size)
+    }
+
+    @Test
+    fun `sms card data parsing`() {
+        val json = """{
+            "type":"sms",
+            "data":{
+                "recipient":"李四",
+                "content":"明天下午3点开会，请准时参加",
+                "status":"pending"
+            },
+            "actions":[
+                {"label":"✅ 确认发送","action":"send","style":"Primary"},
+                {"label":"✏️ 修改","action":"edit","style":"Secondary"},
+                {"label":"❌ 取消","action":"cancel","style":"Secondary"}
+            ]
+        }"""
+        val card = A2UICardParser.parse("[A2UI]$json[/A2UI]")[0] as MessageSegment.A2UICard
+        val sms = card.card.asSMSCard()
+
+        assertNotNull(sms)
+        assertEquals("李四", sms!!.recipient)
+        assertEquals("明天下午3点开会，请准时参加", sms.content)
+        assertEquals("pending", sms.status)
+    }
+
+    @Test
+    fun `app card data parsing`() {
+        val json = """{
+            "type":"app",
+            "data":{
+                "appName":"微信",
+                "packageName":"com.tencent.mm",
+                "action":"launch"
+            },
+            "actions":[
+                {"label":"🚀 启动","action":"launch","style":"Primary"},
+                {"label":"⚙️ 设置","action":"app_settings","style":"Secondary"}
+            ]
+        }"""
+        val card = A2UICardParser.parse("[A2UI]$json[/A2UI]")[0] as MessageSegment.A2UICard
+        val app = card.card.asAppCard()
+
+        assertNotNull(app)
+        assertEquals("微信", app!!.appName)
+        assertEquals("com.tencent.mm", app.packageName)
+        assertEquals("launch", app.action)
+    }
+
+    @Test
+    fun `settings card data parsing`() {
+        val json = """{
+            "type":"settings",
+            "data":{
+                "settingName":"屏幕亮度",
+                "oldValue":"50%",
+                "newValue":"80%"
+            },
+            "actions":[
+                {"label":"✅ 确认","action":"confirm","style":"Primary"},
+                {"label":"❌ 取消","action":"cancel","style":"Secondary"}
+            ]
+        }"""
+        val card = A2UICardParser.parse("[A2UI]$json[/A2UI]")[0] as MessageSegment.A2UICard
+        val settings = card.card.asSettingsCard()
+
+        assertNotNull(settings)
+        assertEquals("屏幕亮度", settings!!.settingName)
+        assertEquals("50%", settings.oldValue)
+        assertEquals("80%", settings.newValue)
+    }
+
+    @Test
+    fun `A2UICardRouter covers all 14 types`() {
+        val types = listOf(
+            "weather", "search_result", "translation", "reminder",
+            "calendar", "location", "action_confirm",
+            "error", "info", "summary",
+            "contact", "sms", "app", "settings"
+        )
+
+        val testCards = mapOf(
+            "weather" to """{"type":"weather","data":{"title":"天气","city":"西安","condition":"晴","temperature":"20°","forecast":[]}}""",
+            "search_result" to """{"type":"search_result","data":{"title":"搜索","query":"test","items":[]}}""",
+            "translation" to """{"type":"translation","data":{"sourceText":"hello","sourceLang":"en","targetText":"你好","targetLang":"zh"}}""",
+            "reminder" to """{"type":"reminder","data":{"title":"提醒","items":[{"id":"1","text":"test","time":"10:00","status":"pending"}]}}""",
+            "calendar" to """{"type":"calendar","data":{"title":"日程","date":"2026-04-14","items":[]}}""",
+            "location" to """{"type":"location","data":{"title":"位置","address":"test","nearby":[]}}""",
+            "action_confirm" to """{"type":"action_confirm","data":{"title":"确认","icon":"check","riskLevel":"low","description":"test","details":{}}}""",
+            "error" to """{"type":"error","data":{"icon":"error","title":"错误","message":"test"}}""",
+            "info" to """{"type":"info","data":{"icon":"info","content":"test"}}""",
+            "summary" to """{"type":"summary","data":{"title":"摘要","icon":"article","summary":"test","fullContent":"test"}}""",
+            "contact" to """{"type":"contact","data":{"name":"张三"}}""",
+            "sms" to """{"type":"sms","data":{"recipient":"李四","content":"test","status":"pending"}}""",
+            "app" to """{"type":"app","data":{"appName":"微信","action":"launch"}}""",
+            "settings" to """{"type":"settings","data":{"settingName":"亮度","newValue":"80%"}}"""
+        )
+
+        for (type in types) {
+            val json = testCards[type] ?: continue
+            val card = A2UICardParser.parse("[A2UI]$json[/A2UI]")[0] as MessageSegment.A2UICard
+            assertEquals(type, card.card.type)
+            // Verify each type has a non-null data accessor
+            when (type) {
+                "weather" -> assertNotNull(card.card.asWeatherCard())
+                "search_result" -> assertNotNull(card.card.asSearchResultCard())
+                "translation" -> assertNotNull(card.card.asTranslationCard())
+                "reminder" -> assertNotNull(card.card.asReminderCard())
+                "calendar" -> assertNotNull(card.card.asCalendarCard())
+                "location" -> assertNotNull(card.card.asLocationCard())
+                "action_confirm" -> assertNotNull(card.card.asActionConfirmCard())
+                "error" -> assertNotNull(card.card.asErrorCard())
+                "info" -> assertNotNull(card.card.asInfoCard())
+                "summary" -> assertNotNull(card.card.asSummaryCard())
+                "contact" -> assertNotNull(card.card.asContactCard())
+                "sms" -> assertNotNull(card.card.asSMSCard())
+                "app" -> assertNotNull(card.card.asAppCard())
+                "settings" -> assertNotNull(card.card.asSettingsCard())
+            }
+        }
+    }
 }
