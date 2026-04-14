@@ -1,6 +1,8 @@
 package ai.openclaw.android.skill.builtin
 
 import ai.openclaw.android.skill.*
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.URLEncoder
@@ -10,7 +12,7 @@ class TranslateSkill : Skill {
     override val id = "translate"
     override val name = "翻译"
     override val description = "多语言翻译服务（MyMemory API，免费无需密钥）"
-    override val version = "1.0.0"
+    override val version = "2.0.0"
     
     override val instructions = """
 # Translate Skill
@@ -43,7 +45,6 @@ class TranslateSkill : Skill {
                 val text = params["text"] as? String
                 if (text.isNullOrBlank()) return SkillResult(false, "", "缺少 text 参数")
                 
-                // Support both "target_lang" and "target" parameter names
                 val targetLang = (params["target_lang"] as? String) 
                     ?: (params["target"] as? String)
                 if (targetLang.isNullOrBlank()) return SkillResult(false, "", "缺少 target_lang 参数")
@@ -68,12 +69,11 @@ class TranslateSkill : Skill {
                     
                     val body = response.body?.string() ?: return SkillResult(false, "", "Empty response")
                     
-                    // Parse JSON response
-                    // Response format: {"responseStatus":200,"responseData":{"translatedText":"..."}}
                     val translatedText = parseTranslationResponse(body)
                     
                     return if (translatedText != null) {
-                        SkillResult(true, translatedText)
+                        val cardJson = buildTranslationCardV2(text, sourceLang, translatedText, targetLang)
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     } else {
                         SkillResult(false, "", "Failed to parse translation response")
                     }
@@ -84,7 +84,6 @@ class TranslateSkill : Skill {
             
             private fun parseTranslationResponse(json: String): String? {
                 return try {
-                    // Simple JSON parsing without external library
                     val translatedTextKey = "\"translatedText\":\""
                     val startIndex = json.indexOf(translatedTextKey)
                     if (startIndex == -1) return null
@@ -109,4 +108,51 @@ class TranslateSkill : Skill {
     }
     
     override fun cleanup() {}
+
+    // ==================== v2 A2UI Card JSON 构建 ====================
+
+    @OptIn(ExperimentalSerializationApi::class)
+    internal fun buildTranslationCardV2(
+        sourceText: String,
+        sourceLang: String,
+        targetText: String,
+        targetLang: String,
+        pronunciation: String? = null
+    ): String {
+        val dataMap = mutableMapOf<String, JsonElement>(
+            "sourceText" to JsonPrimitive(sourceText),
+            "sourceLang" to JsonPrimitive(sourceLang),
+            "targetText" to JsonPrimitive(targetText),
+            "targetLang" to JsonPrimitive(targetLang)
+        )
+        if (pronunciation != null) {
+            dataMap["pronunciation"] = JsonPrimitive(pronunciation)
+        }
+
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("translation"),
+                "data" to JsonObject(dataMap),
+                "actions" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("🔊 朗读"),
+                                "action" to JsonPrimitive("speak_target"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        ),
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("📋 复制"),
+                                "action" to JsonPrimitive("copy_translation"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
 }

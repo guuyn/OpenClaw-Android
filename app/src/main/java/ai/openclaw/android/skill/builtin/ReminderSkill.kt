@@ -5,6 +5,8 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -12,7 +14,7 @@ class ReminderSkill(private val context: Context) : Skill {
     override val id = "reminder"
     override val name = "提醒"
     override val description = "设置和管理提醒事项"
-    override val version = "1.0.0"
+    override val version = "2.0.0"
     
     override val instructions = """
 # Reminder Skill
@@ -50,12 +52,10 @@ class ReminderSkill(private val context: Context) : Skill {
                 val title = params["title"] as? String
                 if (title.isNullOrBlank()) return SkillResult(false, "", "缺少 title 参数")
                 
-                // Support both "time" and "trigger_time" parameter names
                 val timeStr = (params["time"] as? String) 
                     ?: (params["trigger_time"] as? String)
                 if (timeStr.isNullOrBlank()) return SkillResult(false, "", "缺少 time 参数")
                 
-                // Support both "message" and "content" parameter names
                 val message = (params["message"] as? String) 
                     ?: (params["content"] as? String)
                     ?: ""
@@ -67,7 +67,9 @@ class ReminderSkill(private val context: Context) : Skill {
                     scheduleReminder(id, title, message, triggerTime)
                     
                     val timeDisplay = dateFormat.format(Date(triggerTime))
-                    SkillResult(true, "提醒已设置: '$title' 于 $timeDisplay (ID: $id)")
+                    val relativeTime = computeRelativeTime(triggerTime)
+                    val cardJson = buildReminderConfirmCardV2(title, message, timeDisplay, relativeTime)
+                    SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                 } catch (e: Exception) {
                     SkillResult(false, "", "设置提醒失败: ${e.message}")
                 }
@@ -76,7 +78,6 @@ class ReminderSkill(private val context: Context) : Skill {
             private fun parseTime(timeStr: String): Long {
                 val now = System.currentTimeMillis()
                 
-                // Relative time: "in X minutes/hours"
                 val relativeRegex = Regex("in (\\d+) (minute|minutes|hour|hours)", RegexOption.IGNORE_CASE)
                 val relativeMatch = relativeRegex.find(timeStr)
                 if (relativeMatch != null) {
@@ -86,7 +87,6 @@ class ReminderSkill(private val context: Context) : Skill {
                     return now + amount * multiplier
                 }
                 
-                // Absolute time: "2024-01-01 10:00"
                 return try {
                     dateFormat.parse(timeStr)?.time ?: throw IllegalArgumentException("Invalid time format")
                 } catch (e: Exception) {
@@ -115,7 +115,8 @@ class ReminderSkill(private val context: Context) : Skill {
                     pendingIntent
                 )
                 
-                reminders[id] = ReminderInfo(id, title, message, triggerTime)
+                // Use the outer class reminders map
+                this@ReminderSkill.reminders[id] = ReminderInfo(id, title, message, triggerTime)
             }
         },
         
@@ -127,7 +128,7 @@ class ReminderSkill(private val context: Context) : Skill {
             
             override suspend fun execute(params: Map<String, Any>): SkillResult {
                 val now = System.currentTimeMillis()
-                val activeReminders = reminders.values
+                val activeReminders = this@ReminderSkill.reminders.values
                     .filter { it.time > now }
                     .sortedBy { it.time }
                 
@@ -135,12 +136,20 @@ class ReminderSkill(private val context: Context) : Skill {
                     return SkillResult(true, "暂无待处理提醒")
                 }
                 
-                val list = activeReminders.joinToString("\n") { r ->
+                val items = activeReminders.map { r ->
                     val timeDisplay = dateFormat.format(Date(r.time))
-                    "- [${r.id}] ${r.title} ($timeDisplay)"
+                    JsonObject(
+                        mapOf(
+                            "id" to JsonPrimitive(r.id),
+                            "text" to JsonPrimitive(r.title),
+                            "time" to JsonPrimitive(timeDisplay),
+                            "status" to JsonPrimitive("pending")
+                        )
+                    )
                 }
                 
-                return SkillResult(true, "待处理提醒:\n$list")
+                val cardJson = buildReminderListCardV2(items)
+                return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             }
         },
         
@@ -156,7 +165,7 @@ class ReminderSkill(private val context: Context) : Skill {
                 val id = params["id"] as? String
                 if (id.isNullOrBlank()) return SkillResult(false, "", "缺少 id 参数")
                 
-                val reminder = reminders.remove(id)
+                val reminder = this@ReminderSkill.reminders.remove(id)
                 if (reminder == null) {
                     return SkillResult(false, "", "未找到提醒: $id")
                 }
@@ -178,4 +187,103 @@ class ReminderSkill(private val context: Context) : Skill {
     
     override fun initialize(context: SkillContext) {}
     override fun cleanup() {}
+
+    // ==================== v2 A2UI Card JSON 构建 ====================
+
+    /** 计算相对时间描述 */
+    internal fun computeRelativeTime(triggerTime: Long): String {
+        val now = System.currentTimeMillis()
+        val diff = triggerTime - now
+        
+        return when {
+            diff < 0 -> "已过期"
+            diff < 60 * 1000L -> "${diff / 1000}秒后"
+            diff < 60 * 60 * 1000L -> "${diff / (60 * 1000L)}分钟后"
+            diff < 24 * 60 * 60 * 1000L -> {
+                val hours = diff / (60 * 60 * 1000L)
+                val minutes = (diff % (60 * 60 * 1000L)) / (60 * 1000L)
+                if (minutes > 0) "${hours}小时${minutes}分钟后" else "${hours}小时后"
+            }
+            else -> {
+                val days = diff / (24 * 60 * 60 * 1000L)
+                "${days}天后"
+            }
+        }
+    }
+
+    /** 构建提醒确认卡片 v2 */
+    @OptIn(ExperimentalSerializationApi::class)
+    internal fun buildReminderConfirmCardV2(
+        text: String,
+        message: String = "",
+        time: String,
+        relativeTime: String
+    ): String {
+        val dataMap = mutableMapOf<String, JsonElement>(
+            "title" to JsonPrimitive("✅ 已设置提醒"),
+            "text" to JsonPrimitive(text),
+            "time" to JsonPrimitive(time),
+            "relativeTime" to JsonPrimitive(relativeTime)
+        )
+        if (message.isNotBlank()) {
+            dataMap["message"] = JsonPrimitive(message)
+        }
+
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("reminder"),
+                "layout" to JsonPrimitive("reminder_confirm"),
+                "data" to JsonObject(dataMap),
+                "actions" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("✏️ 修改"),
+                                "action" to JsonPrimitive("edit_reminder"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        ),
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("🗑️ 取消"),
+                                "action" to JsonPrimitive("cancel_reminder"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    /** 构建提醒列表卡片 v2 */
+    @OptIn(ExperimentalSerializationApi::class)
+    internal fun buildReminderListCardV2(items: List<JsonObject>): String {
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("reminder"),
+                "layout" to JsonPrimitive("reminder_list"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("提醒列表"),
+                        "count" to JsonPrimitive(items.size),
+                        "items" to JsonArray(items)
+                    )
+                ),
+                "actions" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("➕ 新建提醒"),
+                                "action" to JsonPrimitive("add_reminder"),
+                                "style" to JsonPrimitive("Primary")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
 }
