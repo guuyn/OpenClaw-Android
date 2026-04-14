@@ -22,13 +22,13 @@ class ScriptOrchestrator(private val context: Context) {
     }
 
     /**
-     * 执行脚本
+     * 执行脚本（suspend — QuickJS 需要协程）
      *
      * @param script JS 脚本代码
      * @param capabilities 需要的能力列表（"fs", "http", "memory"）
      * @param customBridges 自定义 Bridge（如 MemoryBridge 实现）
      */
-    fun execute(
+    suspend fun execute(
         script: String,
         capabilities: List<String> = emptyList(),
         customBridges: List<CapabilityBridge> = emptyList()

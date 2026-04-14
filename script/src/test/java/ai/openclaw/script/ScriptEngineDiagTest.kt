@@ -1,5 +1,6 @@
 package ai.openclaw.script
 
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -16,7 +17,7 @@ class ScriptEngineDiagTest {
         println("sandboxDir: $sandboxDir (exists=${sandboxDir.exists()})")
     }
 
-    @Test fun `create engine with null context`() {
+    @Test fun `create engine with null context`() = runTest {
         try {
             val engine = ScriptEngine(null)
             println("Engine created OK")
