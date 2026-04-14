@@ -24,6 +24,7 @@ import ai.openclaw.android.skill.builtin.CalendarSkill
 import ai.openclaw.android.skill.builtin.LocationSkill
 import ai.openclaw.android.skill.builtin.ContactSkill
 import ai.openclaw.android.skill.builtin.SMSSkill
+import ai.openclaw.android.skill.builtin.NotificationSkill
 import ai.openclaw.android.feishu.FeishuClient
 import ai.openclaw.android.feishu.OkHttpFeishuClient
 import ai.openclaw.android.feishu.FeishuEvent
@@ -126,6 +127,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
                 registerSkill(ai.openclaw.android.skill.builtin.LocationSkill(service))
                 registerSkill(ai.openclaw.android.skill.builtin.ContactSkill(service))
                 registerSkill(ai.openclaw.android.skill.builtin.SMSSkill(service))
+                registerSkill(NotificationSkill(service))
             }
         }
 
@@ -258,6 +260,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             registerSkill(LocationSkill(service))
             registerSkill(ContactSkill(service))
             registerSkill(SMSSkill(service))
+            registerSkill(NotificationSkill(service))
         }
 
         // Initialize AgentSession with SkillManager

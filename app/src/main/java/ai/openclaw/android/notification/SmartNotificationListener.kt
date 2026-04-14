@@ -36,6 +36,38 @@ class SmartNotificationListener : NotificationListenerService() {
         fun getImportantCount(): Int = _notifications.value.count { it.category == NotificationCategory.IMPORTANT && !it.isRead }
         fun getNormalCount(): Int = _notifications.value.count { it.category == NotificationCategory.NORMAL && !it.isRead }
         fun getNoiseCount(): Int = _notifications.value.count { it.category == NotificationCategory.NOISE }
+
+        // 后台作用域（供 companion 方法使用）
+        private val companionScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
+        /**
+         * 删除通知（companion 方法，供非实例上下文调用）
+         */
+        fun deleteNotification(notificationId: String) {
+            companionScope.launch {
+                _notifications.value = _notifications.value.filter { it.id != notificationId }
+            }
+        }
+
+        /**
+         * 清空所有通知（companion 方法，供非实例上下文调用）
+         */
+        fun clearAll() {
+            companionScope.launch {
+                _notifications.value = emptyList()
+            }
+        }
+
+        /**
+         * 标记通知为已读（companion 方法，供非实例上下文调用）
+         */
+        fun markAsRead(notificationId: String) {
+            companionScope.launch {
+                _notifications.value = _notifications.value.map {
+                    if (it.id == notificationId) it.copy(isRead = true) else it
+                }
+            }
+        }
     }
     
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
