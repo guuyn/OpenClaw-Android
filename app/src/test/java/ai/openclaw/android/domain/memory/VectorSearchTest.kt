@@ -79,8 +79,8 @@ class CosineSimilarityTest {
         val a = floatArrayOf(1f, 1f, 0f, 0f)
         val b = floatArrayOf(1f, 0f, 1f, 0f)
         val sim = MemoryManager.cosineSimilarity(a, b)
-        // cos(45°) = 1/sqrt(2)
-        val expected = 1f / sqrt(2f)
+        // dot=1, |a|=sqrt(2), |b|=sqrt(2), cosine=1/2=0.5
+        val expected = 0.5f
         assertEquals(expected, sim, 0.001f)
     }
 }

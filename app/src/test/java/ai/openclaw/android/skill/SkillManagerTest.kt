@@ -45,7 +45,7 @@ class SkillManagerTest {
 
         // Assert
         val loadedSkills = skillManager.getLoadedSkills()
-        assertEquals(8, loadedSkills.size)
+        assertEquals(11, loadedSkills.size)
 
         assertTrue(loadedSkills.containsKey("weather"))
         assertTrue(loadedSkills.containsKey("search"))
@@ -55,6 +55,9 @@ class SkillManagerTest {
         assertTrue(loadedSkills.containsKey("location"))
         assertTrue(loadedSkills.containsKey("contact"))
         assertTrue(loadedSkills.containsKey("sms"))
+        assertTrue(loadedSkills.containsKey("applauncher"))
+        assertTrue(loadedSkills.containsKey("settings"))
+        assertTrue(loadedSkills.containsKey("script"))
 
         // Verify each skill type
         assertTrue(loadedSkills["weather"] is WeatherSkill)
