@@ -31,6 +31,9 @@ class SmartNotificationListener : NotificationListenerService() {
         // 服务实例（供 companion 方法调用系统 API）
         @Volatile private var instance: SmartNotificationListener? = null
         
+        // 监听器是否已连接（getActiveNotifications() 只在连接后有效）
+        @Volatile private var isConnected = false
+        
         // 获取待处理通知数量
         fun getPendingCount(): Int = _notifications.value.count { !it.isRead }
         
@@ -52,6 +55,14 @@ class SmartNotificationListener : NotificationListenerService() {
                 Log.w(TAG, "getActiveNotificationsList: service not available")
                 return emptyList()
             }
+            
+            // 如果监听器还没连接，getActiveNotifications() 会返回空
+            // 此时回退到内存 StateFlow（由 onNotificationPosted 填充）
+            if (!isConnected) {
+                Log.d(TAG, "getActiveNotificationsList: not connected yet, falling back to StateFlow")
+                return _notifications.value
+            }
+            
             return try {
                 val activeSbns = svc.getActiveNotifications()
                 if (activeSbns.isNullOrEmpty()) {
@@ -145,6 +156,7 @@ class SmartNotificationListener : NotificationListenerService() {
     
     override fun onListenerConnected() {
         super.onListenerConnected()
+        isConnected = true
         Log.d(TAG, "Notification listener connected")
         
         // 检查通知监听权限是否授予
@@ -171,6 +183,7 @@ class SmartNotificationListener : NotificationListenerService() {
     
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        isConnected = false
         Log.d(TAG, "Notification listener disconnected")
     }
     
