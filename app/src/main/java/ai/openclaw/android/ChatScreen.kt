@@ -40,6 +40,7 @@ import ai.openclaw.android.voice.VoiceState
 import ai.openclaw.android.ui.A2UICard
 import ai.openclaw.android.ui.A2UICardParser
 import ai.openclaw.android.ui.A2UICardRouter
+import ai.openclaw.android.ui.CardAction
 import ai.openclaw.android.ui.MessageSegment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -113,6 +114,39 @@ data class ChatMessage(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+// ==================== Card Action Message Mapping ====================
+
+/** Result of mapping a card action to a message action */
+sealed class CardActionResult {
+    object NoOp : CardActionResult()
+    object ResendLast : CardActionResult()
+    data class SendMessage(val text: String) : CardActionResult()
+}
+
+/**
+ * Maps a [CardAction] to the appropriate message action.
+ * Pure function — testable without Compose runtime.
+ */
+fun mapCardActionToMessage(action: CardAction, messages: List<ChatMessage>): CardActionResult {
+    return when (action.action) {
+        "set_reminder" -> CardActionResult.SendMessage("设置提醒")
+        "retry", "resend" -> {
+            val hasUserMessage = messages.any { it.role == "user" }
+            if (hasUserMessage) CardActionResult.ResendLast else CardActionResult.NoOp
+        }
+        "cancel" -> CardActionResult.SendMessage("取消")
+        "confirm" -> CardActionResult.SendMessage("确认")
+        else -> {
+            // Fall back to button label text for unknown actions
+            if (action.label.isNotBlank()) {
+                CardActionResult.SendMessage(action.label)
+            } else {
+                CardActionResult.NoOp
+            }
+        }
+    }
+}
+
 // ==================== Chat Screen ====================
 
 @Composable
@@ -169,6 +203,26 @@ fun ChatScreen(
         }
     }
 
+    // Card action callback: maps button clicks to message text
+    val onCardAction: (CardAction) -> Unit = { action ->
+        val mappedResult = mapCardActionToMessage(action, messages)
+        when (mappedResult) {
+            is CardActionResult.SendMessage -> {
+                if (!isLoading && mappedResult.text.isNotBlank()) {
+                    sendMessage(mappedResult.text)
+                }
+            }
+            is CardActionResult.ResendLast -> {
+                if (!isLoading) {
+                    messages.lastOrNull { it.role == "user" }?.let {
+                        sendMessage(it.content)
+                    }
+                }
+            }
+            CardActionResult.NoOp -> { /* safety: no message for unhandled actions */ }
+        }
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
@@ -193,7 +247,8 @@ fun ChatScreen(
                 ) {
                     MessageBubble(
                         message = message,
-                        dateFormat = dateFormat
+                        dateFormat = dateFormat,
+                        onCardAction = onCardAction
                     )
                 }
             }
@@ -301,7 +356,8 @@ fun ChatScreen(
 @Composable
 fun MessageBubble(
     message: ChatMessage,
-    dateFormat: SimpleDateFormat
+    dateFormat: SimpleDateFormat,
+    onCardAction: (CardAction) -> Unit = {}
 ) {
     val isUser = message.role == "user"
     val clipboardManager = LocalClipboardManager.current
@@ -367,7 +423,11 @@ fun MessageBubble(
                                     )
                                 }
                                 is MessageSegment.A2UICard -> {
-                                    A2UICardRouter(card = segment.card, modifier = Modifier.padding(vertical = 4.dp))
+                                    A2UICardRouter(
+                                        card = segment.card,
+                                        onActionClick = onCardAction,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
                                 }
                             }
                         }
@@ -385,7 +445,11 @@ fun MessageBubble(
                                     )
                                 }
                                 is MessageSegment.A2UICard -> {
-                                    A2UICardRouter(card = segment.card, modifier = Modifier.padding(vertical = 4.dp))
+                                    A2UICardRouter(
+                                        card = segment.card,
+                                        onActionClick = onCardAction,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
                                 }
                             }
                         }
