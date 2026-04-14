@@ -1,6 +1,8 @@
 package ai.openclaw.android.skill.builtin
 
 import ai.openclaw.android.skill.*
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
@@ -122,7 +124,9 @@ class WeatherSkill : Skill {
                     return SkillResult(false, "", "wttr.in: 未找到位置 '$location'")
                 }
                 
-                SkillResult(true, body)
+                // 构建 v2 A2UI 卡片 JSON
+                val cardJson = buildWeatherCardV2(location, wttrText = body)
+                SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             } catch (e: IOException) {
                 android.util.Log.w("WeatherSkill", "wttr.in IOException: ${e.message}")
                 SkillResult(false, "", "wttr.in network error: ${e.message}")
@@ -176,9 +180,12 @@ class WeatherSkill : Skill {
                     else -> "西北风"
                 }
                 
-                val result = "$location：$weatherDesc（$dayNight），气温 ${temp}°C，$windDirDesc ${windSpeed}km/h"
-                android.util.Log.d("WeatherSkill", "Formatted weather: $result")
-                SkillResult(true, result)
+                // 构建 v2 A2UI 卡片 JSON
+                val cardJson = buildWeatherCardV2OpenMeteo(
+                    location, weatherDesc, temp, windDirDesc, windSpeed
+                )
+                android.util.Log.d("WeatherSkill", "Formatted weather v2 card: $cardJson")
+                SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                 
             } catch (e: Exception) {
                 android.util.Log.e("WeatherSkill", "Open-Meteo error: ${e.message}", e)
@@ -235,6 +242,145 @@ class WeatherSkill : Skill {
             httpClient = client
         }
     }
+
+    // ==================== v2 A2UI Card JSON 构建 ====================
+
+    /** 从 wttr.in 响应构建 v2 天气卡片 */
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildWeatherCardV2(location: String, wttrText: String): String {
+        val cityName = parseCityFromWttr(wttrText, location)
+        val (condition, temperature) = parseWttrText(wttrText)
+        val feelsLike = extractExtraFromWttr(wttrText, "FeelsLike")
+        val humidity = extractExtraFromWttr(wttrText, "Humidity")
+        val wind = extractExtraFromWttr(wttrText, "Wind")
+
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("weather"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("$cityName · 天气"),
+                        "city" to JsonPrimitive(cityName),
+                        "condition" to JsonPrimitive(condition),
+                        "temperature" to JsonPrimitive(temperature),
+                        "feelsLike" to (if (feelsLike != null) JsonPrimitive(feelsLike) else JsonPrimitive("N/A")),
+                        "humidity" to (if (humidity != null) JsonPrimitive(humidity) else JsonPrimitive("N/A")),
+                        "wind" to (if (wind != null) JsonPrimitive(wind) else JsonPrimitive("N/A")),
+                        "forecast" to JsonArray(emptyList()),
+                        "alert" to JsonPrimitive(null)
+                    )
+                ),
+                "actions" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("⏰ 降雨提醒"),
+                                "action" to JsonPrimitive("set_rain_reminder"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        ),
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("📅 7天预报"),
+                                "action" to JsonPrimitive("expand_forecast"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        ),
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("📤 分享"),
+                                "action" to JsonPrimitive("share_weather"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    /** 从 Open-Meteo 响应构建 v2 天气卡片 */
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildWeatherCardV2OpenMeteo(
+        location: String,
+        condition: String,
+        temperature: Double,
+        windDirDesc: String,
+        windSpeed: Double
+    ): String {
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("weather"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("$location · 天气"),
+                        "city" to JsonPrimitive(location),
+                        "condition" to JsonPrimitive(condition),
+                        "temperature" to JsonPrimitive("${temperature}°C"),
+                        "feelsLike" to JsonPrimitive("N/A"),
+                        "humidity" to JsonPrimitive("N/A"),
+                        "wind" to JsonPrimitive("$windDirDesc ${windSpeed}km/h"),
+                        "forecast" to JsonArray(emptyList()),
+                        "alert" to JsonPrimitive(null)
+                    )
+                ),
+                "actions" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("⏰ 降雨提醒"),
+                                "action" to JsonPrimitive("set_rain_reminder"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        ),
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("📅 7天预报"),
+                                "action" to JsonPrimitive("expand_forecast"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        ),
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("📤 分享"),
+                                "action" to JsonPrimitive("share_weather"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    /** 从 wttr.in format=3 文本中提取城市名 */
+    private fun parseCityFromWttr(text: String, fallback: String): String {
+        // format=3: "西安：+20°C" 或 "New York: +20°C"
+        val colonIdx = text.indexOfAny(charArrayOf('：', ':'))
+        return if (colonIdx > 0) text.substring(0, colonIdx).trim() else fallback
+    }
+
+    /** 从 wttr.in format=3 文本中提取天气状况和温度 */
+    private fun parseWttrText(text: String): Pair<String, String> {
+        // format=3: "西安：+20°C" 或 "New York: +20°C"
+        val colonIdx = text.indexOfAny(charArrayOf('：', ':'))
+        val valuePart = if (colonIdx > 0) text.substring(colonIdx + 1).trim() else text
+
+        // 尝试提取温度
+        val tempRegex = Regex("([+-]?\\d+)°[CF]")
+        val tempMatch = tempRegex.find(valuePart)
+        val temperature = if (tempMatch != null) "${tempMatch.groupValues[1]}°C" else "N/A"
+
+        // 移除温度后剩余部分作为天气状况
+        val condition = valuePart.replace(tempRegex, "").replace("°", "").trim()
+
+        return condition.ifEmpty { "晴" } to temperature
+    }
+
+    /** 尝试从 wttr.in 响应中提取额外信息（目前 format=3 不包含这些） */
+    private fun extractExtraFromWttr(text: String, key: String): String? = null
     
     override fun initialize(context: SkillContext) {
         android.util.Log.d("WeatherSkill", "initialize called, httpClient from context: ${context.httpClient}")
