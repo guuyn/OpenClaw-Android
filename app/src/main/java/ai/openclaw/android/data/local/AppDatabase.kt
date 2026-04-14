@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import ai.openclaw.android.data.model.DynamicSkillEntity
 import ai.openclaw.android.data.model.MessageEntity
 import ai.openclaw.android.data.model.MemoryEntity
 import ai.openclaw.android.data.model.MemoryVectorEntity
@@ -18,8 +19,8 @@ import ai.openclaw.android.security.SecurityKeyManager
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
-    entities = [SessionEntity::class, MessageEntity::class, SummaryEntity::class, MemoryEntity::class, MemoryVectorEntity::class],
-    version = 3,
+    entities = [SessionEntity::class, MessageEntity::class, SummaryEntity::class, MemoryEntity::class, MemoryVectorEntity::class, DynamicSkillEntity::class],
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -30,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun memoryDao(): MemoryDao
     abstract fun memoryVectorDao(): MemoryVectorDao
     abstract fun memoryFtsDao(): MemoryFtsDao
+    abstract fun dynamicSkillDao(): DynamicSkillDao
 
     companion object {
         const val DATABASE_NAME = "openclaw_database"
@@ -53,6 +55,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS dynamic_skills (" +
+                    "id TEXT PRIMARY KEY, " +
+                    "name TEXT NOT NULL, " +
+                    "description TEXT NOT NULL, " +
+                    "version TEXT NOT NULL, " +
+                    "instructions TEXT NOT NULL, " +
+                    "script TEXT NOT NULL, " +
+                    "toolsJson TEXT NOT NULL, " +
+                    "permissions TEXT NOT NULL DEFAULT '', " +
+                    "createdAt INTEGER NOT NULL, " +
+                    "enabled INTEGER NOT NULL DEFAULT 1)"
+                )
+            }
+        }
+
         private fun buildDatabase(context: Context): AppDatabase {
             val keyManager = SecurityKeyManager(context)
             val passphrase = keyManager.getOrCreateDatabaseKey()
@@ -64,7 +84,7 @@ abstract class AppDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_2_3)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration()
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
