@@ -1,19 +1,34 @@
 package ai.openclaw.android.skill.builtin
 
+import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.skill.*
 import ai.openclaw.script.ScriptOrchestrator
 import ai.openclaw.script.bridge.MemoryBridge
 import ai.openclaw.script.bridge.MemoryProvider
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.int
 
 /**
  * ScriptEngine 技能 — 将 :script 模块接入 Skill 体系
  *
  * 提供一个 execute_script 工具，LLM 生成 JS 脚本后调用此工具执行。
  */
-class ScriptSkill : Skill {
+class ScriptSkill(
+    memoryManager: MemoryManager? = null
+) : Skill {
 
     private var orchestrator: ScriptOrchestrator? = null
-    private var memoryManager: Any? = null // MemoryManager, set via reflection or DI
+    private var memoryManager: MemoryManager? = memoryManager
+
+    /**
+     * 延迟注入 MemoryManager（在 wireMemoryToSession 之后调用）
+     */
+    fun setMemoryManager(manager: MemoryManager?) {
+        memoryManager = manager
+    }
 
     override val id = "script"
     override val name = "Script Engine"
@@ -46,13 +61,6 @@ class ScriptSkill : Skill {
         orchestrator = null
     }
 
-    /**
-     * 注入 MemoryManager（通过 DI 或反射调用）
-     */
-    fun setMemoryManager(manager: Any) {
-        memoryManager = manager
-    }
-
     inner class ExecuteScriptTool : SkillTool {
         override val name = "execute_script"
         override val description = "执行一段 JavaScript 脚本并返回结果"
@@ -80,13 +88,46 @@ class ScriptSkill : Skill {
 
         private fun buildMemoryBridge(): List<ai.openclaw.script.CapabilityBridge> {
             val mm = memoryManager ?: return emptyList()
-            // 简单实现：用反射或接口适配
-            return listOf(
-                MemoryBridge(MemoryProvider { method, args ->
-                    // TODO: 对接 MemoryManager 的 recall/store 方法
-                    """{"error":"Memory not yet integrated"}"""
-                })
-            )
+
+            val provider = MemoryProvider { method, argsJson ->
+                val json = Json { ignoreUnknownKeys = true }
+                val args = json.parseToJsonElement(argsJson).jsonObject
+
+                runBlocking {
+                    when (method) {
+                        "recall" -> {
+                            val query = args["query"]?.jsonPrimitive?.content ?: ""
+                            val limit = args["limit"]?.jsonPrimitive?.int ?: 5
+                            val results = mm.search(query, limit)
+                            val resultArray = results.joinToString(",") { r ->
+                                val content = r.memory.content
+                                    .replace("\\", "\\\\")
+                                    .replace("\"", "\\\"")
+                                    .replace("\n", "\\n")
+                                """{"content":"$content","type":"${r.memory.memoryType}","similarity":${r.similarity}}"""
+                            }
+                            """{"results":[$resultArray]}"""
+                        }
+                        "store" -> {
+                            val content = args["content"]?.jsonPrimitive?.content ?: ""
+                            if (content.isBlank()) {
+                                """{"error":"content is empty"}"""
+                            } else {
+                                try {
+                                    mm.addManual(content)
+                                    """{"success":true}"""
+                                } catch (e: Exception) {
+                                    val msg = e.message?.replace("\"", "\\\"") ?: "Unknown error"
+                                    """{"error":"$msg"}"""
+                                }
+                            }
+                        }
+                        else -> """{"error":"Unknown method: $method"}"""
+                    }
+                }
+            }
+
+            return listOf(MemoryBridge(provider))
         }
     }
 }

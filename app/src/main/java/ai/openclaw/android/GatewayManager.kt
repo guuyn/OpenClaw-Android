@@ -129,6 +129,12 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             }
         }
 
+        // 3.6. Inject MemoryManager into ScriptSkill if available
+        if (memoryManager != null) {
+            val scriptSkill = skillManager?.getLoadedSkills()?.get("script") as? ai.openclaw.android.skill.builtin.ScriptSkill
+            scriptSkill?.setMemoryManager(memoryManager)
+        }
+
         // 4. Rebuild AgentSession (keeping same SkillManager and tools)
         agentSession = AgentSession(
             modelClient = modelClient!!,
@@ -317,6 +323,10 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         agentSession?.setMemoryContextProvider {
             sm.getMemoryContext()
         }
+
+        // 注入 MemoryManager 到 ScriptSkill
+        val scriptSkill = skillManager?.getLoadedSkills()?.get("script") as? ai.openclaw.android.skill.builtin.ScriptSkill
+        scriptSkill?.setMemoryManager(mm)
     }
 
     private fun handleFeishuEvent(event: FeishuEvent) {
