@@ -25,6 +25,10 @@ import ai.openclaw.android.skill.builtin.LocationSkill
 import ai.openclaw.android.skill.builtin.ContactSkill
 import ai.openclaw.android.skill.builtin.SMSSkill
 import ai.openclaw.android.skill.builtin.NotificationSkill
+import ai.openclaw.android.skill.builtin.GenerateSkillTool
+import ai.openclaw.android.skill.builtin.GenerateSkillSkill
+import ai.openclaw.android.skill.DynamicSkillManager
+import ai.openclaw.android.skill.ApprovalDecision
 import ai.openclaw.android.feishu.FeishuClient
 import ai.openclaw.android.feishu.OkHttpFeishuClient
 import ai.openclaw.android.feishu.FeishuEvent
@@ -58,6 +62,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
     private var accessibilityBridge: AccessibilityBridge? = null
     private var skillManager: SkillManager? = null
     private var feishuClient: FeishuClient? = null
+    private var dynamicSkillManager: DynamicSkillManager? = null
 
     // Memory subsystem (moved from Activity)
     private var database: AppDatabase? = null
@@ -206,6 +211,8 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
 
         sessionManager = null
         memoryManager = null
+        dynamicSkillManager?.cleanup()
+        dynamicSkillManager = null
 
         _connectionState.value = ConnectionState.Disconnected
         Log.d(TAG, "Gateway stopped")
@@ -263,6 +270,28 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             registerSkill(NotificationSkill(service))
         }
 
+        // Initialize database first (needed by DynamicSkillManager)
+        database = AppDatabase.getInstance(service)
+
+        // Initialize DynamicSkillManager and register generate_skill tool
+        dynamicSkillManager = DynamicSkillManager(
+            context = service,
+            dynamicSkillDao = database!!.dynamicSkillDao(),
+            skillManager = skillManager!!,
+            orchestrator = ai.openclaw.script.ScriptOrchestrator(service),
+            preferenceManager = ai.openclaw.android.skill.UserPreferenceManager(service),
+            onUserConfirmation = { _, _ ->
+                // TODO: 实际项目中需要弹出确认对话框
+                // 目前默认 ALWAYS_APPROVE（开发阶段）
+                ApprovalDecision.ALWAYS_APPROVE
+            }
+        )
+        dynamicSkillManager!!.loadAllSaved()
+
+        val generateSkillTool = GenerateSkillTool(dynamicSkillManager!!)
+        val generateSkillSkill = GenerateSkillSkill(generateSkillTool)
+        skillManager!!.registerSkill(generateSkillSkill)
+
         // Initialize AgentSession with SkillManager
         agentSession = AgentSession(
             modelClient = modelClient!!,
@@ -277,8 +306,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             )
         }
 
-        // Initialize database and memory subsystem
-        database = AppDatabase.getInstance(service)
+        // Initialize memory subsystem
         embeddingService = TfLiteEmbeddingService(service)
         embeddingService!!.initialize()
 
