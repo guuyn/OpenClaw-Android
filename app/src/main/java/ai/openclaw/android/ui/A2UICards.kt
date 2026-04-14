@@ -19,9 +19,29 @@ import androidx.compose.ui.unit.sp
 
 /**
  * 根据 A2UI 卡片类型渲染对应风格的卡片
+ * 新版本：接收 A2UICard 对象
  */
 @Composable
 fun A2UICardRouter(
+    card: A2UICard,
+    modifier: Modifier = Modifier
+) {
+    val data = card.rawData.mapValues { it.value?.toString() ?: "" }
+    when (card.type) {
+        "weather" -> WeatherCard(data, modifier)
+        "location" -> LocationCard(data, modifier)
+        "search" -> SearchCard(data, modifier)
+        "translation" -> TranslationCard(data, modifier)
+        "reminder" -> ReminderCard(data, modifier)
+        else -> GenericA2UICard(card.type, data, modifier)
+    }
+}
+
+/**
+ * 旧版本路由（向后兼容）
+ */
+@Composable
+fun A2UICardRouterLegacy(
     type: String,
     data: Map<String, String>,
     modifier: Modifier = Modifier

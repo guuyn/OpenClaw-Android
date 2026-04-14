@@ -37,6 +37,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ai.openclaw.android.voice.VoiceInteractionManager
 import ai.openclaw.android.voice.VoiceState
+import ai.openclaw.android.ui.A2UICard
+import ai.openclaw.android.ui.A2UICardParser
+import ai.openclaw.android.ui.A2UICardRouter
+import ai.openclaw.android.ui.MessageSegment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -46,145 +50,10 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Thermostat
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.text.SimpleDateFormat
 import java.util.*
 import org.a2ui.compose.rendering.A2UIRenderer
 import org.a2ui.compose.rendering.rememberA2UIRenderer
-
-// ==================== A2UI Parsing ====================
-
-sealed class MessageSegment {
-    data class Text(val text: String) : MessageSegment()
-    data class A2UICard(val type: String, val data: Map<String, String>) : MessageSegment()
-}
-
-internal fun parseMessageContent(content: String): List<MessageSegment> {
-    val segments = mutableListOf<MessageSegment>()
-    val startTag = "[A2UI]"
-    val endTag = "[/A2UI]"
-    var cursor = 0
-
-    while (cursor < content.length) {
-        val startIdx = content.indexOf(startTag, cursor)
-        if (startIdx == -1) break
-
-        // Text before [A2UI]
-        if (startIdx > cursor) {
-            val textBefore = content.substring(cursor, startIdx).trim()
-            if (textBefore.isNotEmpty()) {
-                segments.add(MessageSegment.Text(textBefore))
-            }
-        }
-
-        val jsonStart = startIdx + startTag.length
-        val endIdx = content.indexOf(endTag, jsonStart)
-        if (endIdx == -1) break
-
-        val jsonStr = content.substring(jsonStart, endIdx).trim()
-        try {
-            val json = Json { ignoreUnknownKeys = true }
-            val element = json.parseToJsonElement(jsonStr).jsonObject
-            val type = element["type"]?.jsonPrimitive?.content ?: "generic"
-            val dataObj = element["data"]?.jsonObject
-            val data = dataObj?.mapValues { it.value.jsonPrimitive.content } ?: emptyMap()
-            segments.add(MessageSegment.A2UICard(type, data))
-        } catch (e: Exception) {
-            segments.add(MessageSegment.Text(jsonStr))
-        }
-
-        cursor = endIdx + endTag.length
-    }
-
-    // Remaining text after last [/A2UI]
-    if (cursor < content.length) {
-        val remaining = content.substring(cursor).trim()
-        if (remaining.isNotEmpty()) {
-            segments.add(MessageSegment.Text(remaining))
-        }
-    }
-
-    if (segments.isEmpty()) {
-        segments.add(MessageSegment.Text(content))
-    }
-
-    return segments
-}
-
-@Composable
-private fun A2UICardView(card: MessageSegment.A2UICard) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        ),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            // Header row with icon and type
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val icon = when (card.type) {
-                    "weather" -> Icons.Default.Thermostat
-                    "location" -> Icons.Default.LocationOn
-                    "search" -> Icons.Default.Search
-                    "translation" -> Icons.Default.Translate
-                    "reminder" -> Icons.Default.Notifications
-                    else -> Icons.Default.Search
-                }
-                val label = when (card.type) {
-                    "weather" -> "天气"
-                    "location" -> "位置"
-                    "search" -> "搜索"
-                    "translation" -> "翻译"
-                    "reminder" -> "提醒"
-                    else -> card.type
-                }
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = label,
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier
-                            .size(16.dp)
-                            .padding(4.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Data rows
-            card.data.forEach { (key, value) ->
-                Row(modifier = Modifier.padding(vertical = 2.dp)) {
-                    Text(
-                        text = "${key}: ",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = value,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
 
 // ==================== A2UI Protocol Bridge ====================
 
@@ -193,9 +62,10 @@ private fun A2UICardView(card: MessageSegment.A2UICard) {
  * that the A2UI component library can render. Returns null if the card data
  * cannot be converted to a valid A2UI message.
  */
-private fun tryBuildA2UIMessage(card: MessageSegment.A2UICard): String? {
+private fun tryBuildA2UIMessage(card: A2UICard): String? {
     val surfaceId = "msg_card_${card.type}"
-    val children = card.data.entries.mapIndexed { idx, (key, value) ->
+    val data = card.rawData.mapValues { it.value?.toString() ?: "" }
+    val children = data.entries.mapIndexed { idx, (key, value) ->
         """{"id":"row_$idx","component":"Row","children":{"array":["label_$idx","value_$idx"]}}""" + "\n" +
         """{"id":"label_$idx","component":"Text","text":"$key: ","variant":"body"}""" + "\n" +
         """{"id":"value_$idx","component":"Text","text":"$value","variant":"body"}"""
@@ -467,7 +337,7 @@ fun MessageBubble(
         ) {
             Box {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    val segments = remember(message.content) { parseMessageContent(message.content) }
+                    val segments = remember(message.content) { A2UICardParser.parse(message.content) }
                     val a2uiRenderer = rememberA2UIRenderer()
 
                     // Collect A2UI content and process with renderer
@@ -476,8 +346,8 @@ fun MessageBubble(
                         // Process A2UI segments with the library renderer (fire-and-forget)
                         LaunchedEffect(message.id) {
                             try {
-                                for (card in a2uiSegments) {
-                                    val a2uiMessage = tryBuildA2UIMessage(card)
+                                for (cardSegment in a2uiSegments) {
+                                    val a2uiMessage = tryBuildA2UIMessage(cardSegment.card)
                                     if (a2uiMessage != null) {
                                         a2uiRenderer.processMessage(a2uiMessage)
                                     }
@@ -497,7 +367,7 @@ fun MessageBubble(
                                     )
                                 }
                                 is MessageSegment.A2UICard -> {
-                                    A2UICardView(segment)
+                                    A2UICardRouter(card = segment.card, modifier = Modifier.padding(vertical = 4.dp))
                                 }
                             }
                         }
@@ -515,7 +385,7 @@ fun MessageBubble(
                                     )
                                 }
                                 is MessageSegment.A2UICard -> {
-                                    A2UICardView(segment)
+                                    A2UICardRouter(card = segment.card, modifier = Modifier.padding(vertical = 4.dp))
                                 }
                             }
                         }

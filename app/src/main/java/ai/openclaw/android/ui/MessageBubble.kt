@@ -1,8 +1,8 @@
 package ai.openclaw.android.ui
 
 import ai.openclaw.android.ChatMessage
-import ai.openclaw.android.MessageSegment
-import ai.openclaw.android.parseMessageContent
+import ai.openclaw.android.ui.A2UICardParser
+import ai.openclaw.android.ui.MessageSegment
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.background
@@ -111,7 +111,7 @@ fun EnhancedMessageBubble(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         // 消息内容
-                        val segments = remember(message.content) { parseMessageContent(message.content) }
+                        val segments = remember(message.content) { A2UICardParser.parse(message.content) }
                         val contentColor = if (isUser)
                             MaterialTheme.colorScheme.onPrimary
                         else
@@ -128,10 +128,7 @@ fun EnhancedMessageBubble(
                                 }
                                 is MessageSegment.A2UICard -> {
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    A2UICardRouter(
-                                        type = segment.type,
-                                        data = segment.data
-                                    )
+                                    A2UICardRouter(card = segment.card)
                                     Spacer(modifier = Modifier.height(4.dp))
                                 }
                             }
