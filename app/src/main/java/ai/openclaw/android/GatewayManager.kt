@@ -25,6 +25,10 @@ import ai.openclaw.android.skill.builtin.LocationSkill
 import ai.openclaw.android.skill.builtin.ContactSkill
 import ai.openclaw.android.skill.builtin.SMSSkill
 import ai.openclaw.android.skill.builtin.NotificationSkill
+import ai.openclaw.android.skill.builtin.GenerateSkillTool
+import ai.openclaw.android.skill.builtin.GenerateSkillSkill
+import ai.openclaw.android.skill.DynamicSkillManager
+import ai.openclaw.android.skill.ApprovalDecision
 import ai.openclaw.android.feishu.FeishuClient
 import ai.openclaw.android.feishu.OkHttpFeishuClient
 import ai.openclaw.android.feishu.FeishuEvent
@@ -58,6 +62,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
     private var accessibilityBridge: AccessibilityBridge? = null
     private var skillManager: SkillManager? = null
     private var feishuClient: FeishuClient? = null
+    private var dynamicSkillManager: DynamicSkillManager? = null
 
     // Memory subsystem (moved from Activity)
     private var database: AppDatabase? = null
@@ -127,12 +132,37 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
                 registerSkill(ai.openclaw.android.skill.builtin.LocationSkill(service))
                 registerSkill(ai.openclaw.android.skill.builtin.ContactSkill(service))
                 registerSkill(ai.openclaw.android.skill.builtin.SMSSkill(service))
-                registerSkill(NotificationSkill(service))
+                registerSkill(ai.openclaw.android.skill.builtin.AppLauncherSkill())
+                registerSkill(ai.openclaw.android.skill.builtin.SettingsSkill())
+                registerSkill(ai.openclaw.android.skill.builtin.FileSkill(service))
                 registerSkill(ai.openclaw.android.skill.builtin.ScriptSkill())
+                registerSkill(NotificationSkill(service))
             }
         }
 
-        // 3.6. Inject MemoryManager into ScriptSkill if available
+        // 3.6. Ensure DynamicSkillManager is initialized (for generate_skill tool)
+        if (dynamicSkillManager == null) {
+            database = AppDatabase.getInstance(service)
+            dynamicSkillManager = DynamicSkillManager(
+                context = service,
+                dynamicSkillDao = database!!.dynamicSkillDao(),
+                skillManager = skillManager!!,
+                orchestrator = ai.openclaw.script.ScriptOrchestrator(service),
+                preferenceManager = ai.openclaw.android.skill.UserPreferenceManager(service),
+                onUserConfirmation = { _, _ ->
+                    ApprovalDecision.ALWAYS_APPROVE
+                }
+            )
+            dynamicSkillManager!!.loadAllSaved()
+            dynamicSkillManager!!.setToolsChangedListener {
+                agentSession?.refreshTools()
+            }
+            val generateSkillTool = GenerateSkillTool(dynamicSkillManager!!)
+            val generateSkillSkill = GenerateSkillSkill(generateSkillTool)
+            skillManager!!.registerSkill(generateSkillSkill)
+        }
+
+        // 3.7. Inject MemoryManager into ScriptSkill if available
         if (memoryManager != null) {
             val scriptSkill = skillManager?.getLoadedSkills()?.get("script") as? ai.openclaw.android.skill.builtin.ScriptSkill
             scriptSkill?.setMemoryManager(memoryManager)
@@ -145,7 +175,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             maxContextTokens = 4000
         ).apply {
             setToolsWithSkills(
-                accessibilityTools = accessibilityBridge?.getTools() ?: emptyList(),
+                accessTools = accessibilityBridge?.getTools() ?: emptyList(),
                 executor = { toolCall ->
                     accessibilityBridge?.execute(toolCall) ?: "Accessibility not available"
                 }
@@ -207,6 +237,8 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
 
         sessionManager = null
         memoryManager = null
+        dynamicSkillManager?.cleanup()
+        dynamicSkillManager = null
 
         _connectionState.value = ConnectionState.Disconnected
         Log.d(TAG, "Gateway stopped")
@@ -262,8 +294,39 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             registerSkill(ContactSkill(service))
             registerSkill(SMSSkill(service))
             registerSkill(NotificationSkill(service))
-            registerSkill(ai.openclaw.android.skill.builtin.ScriptSkill())
         }
+
+        // Initialize database first (needed by DynamicSkillManager)
+        database = AppDatabase.getInstance(service)
+
+        // Initialize DynamicSkillManager and register generate_skill tool
+        dynamicSkillManager = DynamicSkillManager(
+            context = service,
+            dynamicSkillDao = database!!.dynamicSkillDao(),
+            skillManager = skillManager!!,
+            orchestrator = ai.openclaw.script.ScriptOrchestrator(service),
+            preferenceManager = ai.openclaw.android.skill.UserPreferenceManager(service),
+            onUserConfirmation = { _, _ ->
+                // TODO: 实际项目中需要弹出确认对话框
+                // 目前默认 ALWAYS_APPROVE（开发阶段）
+                ApprovalDecision.ALWAYS_APPROVE
+            }
+        )
+        dynamicSkillManager!!.loadAllSaved()
+
+        // 定时清理（在服务启动时执行一次）
+        serviceScope.launch {
+            dynamicSkillManager!!.runMaintenance()
+            Log.i(TAG, "Dynamic skill maintenance completed")
+        }
+
+        dynamicSkillManager!!.setToolsChangedListener {
+            agentSession?.refreshTools()
+        }
+
+        val generateSkillTool = GenerateSkillTool(dynamicSkillManager!!)
+        val generateSkillSkill = GenerateSkillSkill(generateSkillTool)
+        skillManager!!.registerSkill(generateSkillSkill)
 
         // Initialize AgentSession with SkillManager
         agentSession = AgentSession(
@@ -272,15 +335,14 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             maxContextTokens = 4000
         ).apply {
             setToolsWithSkills(
-                accessibilityTools = accessibilityBridge!!.getTools(),
+                accessTools = accessibilityBridge!!.getTools(),
                 executor = { toolCall ->
                     accessibilityBridge!!.execute(toolCall)
                 }
             )
         }
 
-        // Initialize database and memory subsystem
-        database = AppDatabase.getInstance(service)
+        // Initialize memory subsystem
         embeddingService = TfLiteEmbeddingService(service)
         embeddingService!!.initialize()
 

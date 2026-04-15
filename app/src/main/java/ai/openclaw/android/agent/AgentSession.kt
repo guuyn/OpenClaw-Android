@@ -57,12 +57,36 @@ If the result doesn't fit any specific card type, use the generic InfoCard:
 
 [A2UI]{"type":"info","data":{"title":"回复","icon":"info","content":"你的回复内容"},"actions":[{"label":"📋 复制全文","action":"copy","style":"Secondary"}]}[/A2UI]
 
-Available card types: weather, translation, search_result, reminder, calendar, location, action_confirm, contact, sms, app, settings, error, info, summary."""
+Available card types: weather, translation, search_result, reminder, calendar, location, action_confirm, contact, sms, app, settings, error, info, summary.
+
+## Dynamic Skills
+You can create new skills dynamically using the `generate_skill` tool.
+When asked to create a new capability, use `generate_skill` with a complete JSON definition.
+The skill definition must include: id, name, description, version, instructions, script, tools[]
+Each tool must have: name, description, parameters, entryPoint, idempotent
+
+Example:
+{
+  "id": "joke_generator",
+  "name": "笑话生成",
+  "description": "生成随机笑话",
+  "version": "1.0.0",
+  "instructions": "当用户想要听笑话时使用",
+  "script": "const jokes = ['笑话1', '笑话2']; function get_joke() { return JSON.stringify({joke: jokes[Math.floor(Math.random()*jokes.length)]}); }",
+  "tools": [{
+    "name": "get_joke",
+    "description": "获取一个随机笑话",
+    "parameters": {},
+    "entryPoint": "get_joke",
+    "idempotent": true
+  }]
+}"""
     }
 
     private val history: MutableList<Message> = mutableListOf()
     private var tools: List<Tool> = emptyList()
     private var toolExecutor: (suspend (ToolCall) -> String)? = null
+    private var accessibilityTools: List<Tool> = emptyList()
 
     // Memory & persistence hooks (set via setters)
     private var memoryContextProvider: (suspend () -> String?)? = null
@@ -76,7 +100,8 @@ Available card types: weather, translation, search_result, reminder, calendar, l
         this.toolExecutor = executor
     }
 
-    fun setToolsWithSkills(accessibilityTools: List<Tool>, executor: suspend (ToolCall) -> String) {
+    fun setToolsWithSkills(accessTools: List<Tool>, executor: suspend (ToolCall) -> String) {
+        this.accessibilityTools = accessTools
         val skillTools = skillManager.getAllTools().map { toolDef ->
             Tool(
                 type = "function",
@@ -87,9 +112,30 @@ Available card types: weather, translation, search_result, reminder, calendar, l
                 )
             )
         }
-        this.tools = accessibilityTools + skillTools
+        this.tools = accessTools + skillTools
         this.toolExecutor = executor
-        Log.d(TAG, "Loaded ${accessibilityTools.size} accessibility + ${skillTools.size} skill = ${this.tools.size} tools")
+        Log.d(TAG, "Loaded ${accessTools.size} accessibility + ${skillTools.size} skill = ${this.tools.size} tools")
+    }
+
+    /**
+     * 刷新工具列表（当动态技能注册后调用）
+     * 重新从 SkillManager 获取最新工具列表，保留已有的 accessibility tools
+     */
+    fun refreshTools() {
+        val executor = this.toolExecutor ?: return
+        val skillTools = skillManager.getAllTools().map { toolDef ->
+            Tool(
+                type = "function",
+                function = ToolFunction(
+                    name = toolDef.name,
+                    description = toolDef.description,
+                    parameters = convertSkillParams(toolDef.parameters)
+                )
+            )
+        }
+        val allTools = accessibilityTools + skillTools
+        setTools(allTools, executor)
+        Log.d(TAG, "Tools refreshed: ${allTools.size} total (${skillTools.size} skill tools)")
     }
 
     // ==================== Memory & Persistence Setup ====================

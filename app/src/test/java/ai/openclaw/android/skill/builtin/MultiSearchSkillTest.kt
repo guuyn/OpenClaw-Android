@@ -73,7 +73,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "Kotlin")) }
+        val result = searchTool.execute(mapOf("query" to "Kotlin"))
 
         assertTrue(result.success)
         assertTrue(result.output.contains("Kotlin"))
@@ -94,7 +94,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "test")) }
+        val result = searchTool.execute(mapOf("query" to "test"))
 
         assertTrue(result.success)
         assertTrue(result.output.contains("R1"))
@@ -114,7 +114,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "test")) }
+        val result = searchTool.execute(mapOf("query" to "test"))
 
         assertFalse(result.success)
         assertTrue(result.error?.contains("所有搜索实例均不可用") == true)
@@ -129,7 +129,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "test")) }
+        val result = searchTool.execute(mapOf("query" to "test"))
 
         assertFalse(result.success)
         assertTrue(result.error?.contains("Timeout") == true)
@@ -140,7 +140,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = kotlinx.coroutines.runBlocking { searchTool.execute(emptyMap()) }
+        val result = searchTool.execute(emptyMap())
 
         assertFalse(result.success)
         assertTrue(result.error?.contains("缺少 query 参数") == true)
@@ -151,7 +151,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "")) }
+        val result = searchTool.execute(mapOf("query" to ""))
 
         assertFalse(result.success)
         assertTrue(result.error?.contains("缺少 query 参数") == true)
@@ -162,7 +162,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "   ")) }
+        val result = searchTool.execute(mapOf("query" to "   "))
 
         assertFalse(result.success)
         assertTrue(result.error?.contains("缺少 query 参数") == true)
@@ -197,7 +197,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "test")) }
+        val result = searchTool.execute(mapOf("query" to "test"))
 
         assertTrue(result.success)
         // 验证 A2UI 使用 flat-key 格式，匹配现有 SearchCard renderer
