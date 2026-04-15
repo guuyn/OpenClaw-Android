@@ -1,6 +1,7 @@
 package ai.openclaw.android.agent
 
 import android.util.Log
+import ai.openclaw.android.data.model.AgentConfig
 import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.domain.session.HybridSessionManager
 import ai.openclaw.android.model.*
@@ -26,6 +27,28 @@ class AgentSession(
     private val permissionManager: PermissionManager? = null,
     private val maxContextTokens: Int = 4000
 ) {
+    // Agent-specific fields (mutable backing, exposed via factory constructor)
+    private var _agentConfig: AgentConfig? = null
+    // Tool prefixes to allow (e.g. ["weather", "script"]), null = all tools allowed
+    private var _allowedToolPrefixes: List<String>? = null
+
+    /**
+     * Factory constructor — creates an AgentSession with agent-specific config.
+     * Supports tool filtering and custom system prompt prepending.
+     */
+    constructor(
+        modelClient: ModelClient,
+        skillManager: SkillManager,
+        agentConfig: AgentConfig,
+        permissionManager: PermissionManager? = null,
+        maxContextTokens: Int = 4000
+    ) : this(modelClient, skillManager, permissionManager, maxContextTokens) {
+        // Tool filtering: null means all tools allowed, otherwise store prefixes
+        _allowedToolPrefixes = if (agentConfig.tools.contains("all")) null else {
+            agentConfig.tools
+        }
+        _agentConfig = agentConfig
+    }
     companion object {
         private const val TAG = "AgentSession"
         private const val MAX_TOOL_ROUNDS = 5
@@ -102,7 +125,7 @@ Example:
 
     fun setToolsWithSkills(accessTools: List<Tool>, executor: suspend (ToolCall) -> String) {
         this.accessibilityTools = accessTools
-        val skillTools = skillManager.getAllTools().map { toolDef ->
+        val allSkillTools = skillManager.getAllTools().map { toolDef ->
             Tool(
                 type = "function",
                 function = ToolFunction(
@@ -111,6 +134,15 @@ Example:
                     parameters = convertSkillParams(toolDef.parameters)
                 )
             )
+        }
+        // Apply tool filtering based on allowed prefixes
+        val prefixes = _allowedToolPrefixes
+        val skillTools = if (prefixes == null) {
+            allSkillTools
+        } else {
+            allSkillTools.filter { tool ->
+                prefixes.any { prefix -> tool.function.name.startsWith("${prefix}_") }
+            }
         }
         this.tools = accessTools + skillTools
         this.toolExecutor = executor
@@ -123,7 +155,7 @@ Example:
      */
     fun refreshTools() {
         val executor = this.toolExecutor ?: return
-        val skillTools = skillManager.getAllTools().map { toolDef ->
+        val allSkillTools = skillManager.getAllTools().map { toolDef ->
             Tool(
                 type = "function",
                 function = ToolFunction(
@@ -132,6 +164,15 @@ Example:
                     parameters = convertSkillParams(toolDef.parameters)
                 )
             )
+        }
+        // Apply tool filtering based on allowed prefixes
+        val prefixes = _allowedToolPrefixes
+        val skillTools = if (prefixes == null) {
+            allSkillTools
+        } else {
+            allSkillTools.filter { tool ->
+                prefixes.any { prefix -> tool.function.name.startsWith("${prefix}_") }
+            }
         }
         val allTools = accessibilityTools + skillTools
         setTools(allTools, executor)
@@ -377,8 +418,11 @@ Example:
     // ==================== History Management ====================
 
     private fun buildMessages(): List<Message> {
+        val systemPrompt = _agentConfig?.systemPrompt?.takeIf { it.isNotBlank() }
+            ?.let { customPrompt -> "$customPrompt\n\n---\n$BASE_SYSTEM_PROMPT" }
+            ?: BASE_SYSTEM_PROMPT
         return mutableListOf<Message>().apply {
-            add(Message(role = "system", content = BASE_SYSTEM_PROMPT))
+            add(Message(role = "system", content = systemPrompt))
             memoryContextText?.let { context ->
                 add(Message(role = "system", content = "用户的重要记忆：\n$context"))
             }
