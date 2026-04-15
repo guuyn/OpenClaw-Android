@@ -1,0 +1,28 @@
+{
+  "agents": [
+    {
+      "id": "main",
+      "name": "OpenClaw",
+      "model": "bailian/qwen3.5-plus",
+      "systemPrompt": "你是一个 Android 设备上的 AI 助手，拥有设备控制、技能调用和记忆检索能力。",
+      "tools": ["all"],
+      "isDefault": true
+    },
+    {
+      "id": "coder",
+      "name": "Coder",
+      "model": "bailian/qwen3.5-coder",
+      "systemPrompt": "你是一个 Android 开发助手，精通 Kotlin、Jetpack Compose、Gradle 构建系统和 Android SDK。回答问题时要给出具体代码示例。",
+      "tools": ["script", "search", "file"],
+      "keywords": ["代码", "java", "kotlin", "build", "gradle", "pr", "commit", "bug", "debug", "编译", "构建", "apk", "compose", "android"]
+    },
+    {
+      "id": "security",
+      "name": "Security",
+      "model": "bailian/qwen3.5-plus",
+      "systemPrompt": "你是一个 Android 安全审计专家，负责检测应用的安全漏洞、权限配置问题和数据泄露风险。",
+      "tools": ["search", "audit"],
+      "keywords": ["安全", "漏洞", "审计", "权限", "加密", "injection", "xss", "csrf", "token", "key"]
+    }
+  ]
+}
