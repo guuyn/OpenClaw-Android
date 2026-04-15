@@ -83,8 +83,10 @@ If the result doesn't fit any specific card type, use the generic InfoCard:
 Available card types: weather, translation, search_result, reminder, calendar, location, action_confirm, contact, sms, app, settings, error, info, summary.
 
 ## Dynamic Skills
-You can create new skills dynamically using the `generate_skill` tool.
-When asked to create a new capability, use `generate_skill` with a complete JSON definition.
+You can create new skills dynamically using the `dynamic_skill_generator_generate_skill` tool.
+When a user asks you to create a game, utility, or new capability, use this tool.
+The tool accepts a single `skillJson` parameter with the skill definition.
+When asked to create a new capability, use `dynamic_skill_generator_generate_skill` with a complete JSON definition.
 The skill definition must include: id, name, description, version, instructions, script, tools[]
 Each tool must have: name, description, parameters, entryPoint, idempotent
 
@@ -376,9 +378,12 @@ Example:
             val toolName = toolCall.function.name
 
             if (toolName.contains("_") && toolName.split("_").size >= 2) {
-                // Skill tool
+                // Skill tool — find matching skill by longest prefix
                 val params = parseToolCallParams(toolCall)
-                val skillId = toolName.substringBefore('_')
+                val skillId = skillManager.getLoadedSkills().keys
+                    .filter { toolName.startsWith("${it}_") }
+                    .maxByOrNull { it.length }
+                    ?: toolName.substringBefore('_')
 
                 val permCheck = skillManager.checkSkillPermissions(skillId)
                 if (!permCheck.first) {
