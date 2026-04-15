@@ -22,6 +22,7 @@ class SkillManager(private val context: Context) {
         registerSkill(LocationSkill(context))
         registerSkill(ContactSkill(context))
         registerSkill(SMSSkill(context))
+        registerSkill(NotificationSkill(context))
         registerSkill(AppLauncherSkill())
         registerSkill(SettingsSkill())
         registerSkill(ScriptSkill())

@@ -128,6 +128,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
                 registerSkill(ai.openclaw.android.skill.builtin.ContactSkill(service))
                 registerSkill(ai.openclaw.android.skill.builtin.SMSSkill(service))
                 registerSkill(NotificationSkill(service))
+                registerSkill(ai.openclaw.android.skill.builtin.ScriptSkill())
             }
         }
 
@@ -261,6 +262,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             registerSkill(ContactSkill(service))
             registerSkill(SMSSkill(service))
             registerSkill(NotificationSkill(service))
+            registerSkill(ai.openclaw.android.skill.builtin.ScriptSkill())
         }
 
         // Initialize AgentSession with SkillManager

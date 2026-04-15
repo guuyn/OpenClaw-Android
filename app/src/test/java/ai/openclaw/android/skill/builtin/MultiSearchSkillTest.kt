@@ -4,6 +4,7 @@ import ai.openclaw.android.skill.SkillContext
 import ai.openclaw.script.ScriptOrchestrator
 import ai.openclaw.script.ScriptResult
 import io.mockk.MockKAnnotations
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
@@ -63,7 +64,7 @@ class MultiSearchSkillTest {
 
     @Test
     fun `search valid query returns success with results`() = runTest {
-        every {
+        coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.success(
             """{"success":true,"results":[{"title":"Kotlin","snippet":"A modern language","url":"https://kotlinlang.org"}]}"""
@@ -72,7 +73,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = searchTool.execute(mapOf("query" to "Kotlin"))
+        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "Kotlin")) }
 
         assertTrue(result.success)
         assertTrue(result.output.contains("Kotlin"))
@@ -84,7 +85,7 @@ class MultiSearchSkillTest {
 
     @Test
     fun `search multiple results all included in output`() = runTest {
-        every {
+        coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.success(
             """{"success":true,"results":[{"title":"R1","snippet":"S1","url":"https://a.com"},{"title":"R2","snippet":"S2","url":"https://b.com"}]}"""
@@ -93,7 +94,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = searchTool.execute(mapOf("query" to "test"))
+        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "test")) }
 
         assertTrue(result.success)
         assertTrue(result.output.contains("R1"))
@@ -104,7 +105,7 @@ class MultiSearchSkillTest {
 
     @Test
     fun `search script returns failure`() = runTest {
-        every {
+        coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.success(
             """{"success":false,"error":"所有搜索实例均不可用"}"""
@@ -113,7 +114,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = searchTool.execute(mapOf("query" to "test"))
+        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "test")) }
 
         assertFalse(result.success)
         assertTrue(result.error?.contains("所有搜索实例均不可用") == true)
@@ -121,14 +122,14 @@ class MultiSearchSkillTest {
 
     @Test
     fun `search orchestrator execution fails`() = runTest {
-        every {
+        coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.failure("Timeout (10000ms)")
 
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = searchTool.execute(mapOf("query" to "test"))
+        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "test")) }
 
         assertFalse(result.success)
         assertTrue(result.error?.contains("Timeout") == true)
@@ -139,7 +140,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = searchTool.execute(emptyMap())
+        val result = kotlinx.coroutines.runBlocking { searchTool.execute(emptyMap()) }
 
         assertFalse(result.success)
         assertTrue(result.error?.contains("缺少 query 参数") == true)
@@ -150,7 +151,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = searchTool.execute(mapOf("query" to ""))
+        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "")) }
 
         assertFalse(result.success)
         assertTrue(result.error?.contains("缺少 query 参数") == true)
@@ -161,7 +162,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = searchTool.execute(mapOf("query" to "   "))
+        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "   ")) }
 
         assertFalse(result.success)
         assertTrue(result.error?.contains("缺少 query 参数") == true)
@@ -187,7 +188,7 @@ class MultiSearchSkillTest {
 
     @Test
     fun `search A2UI card uses flat key format`() = runTest {
-        every {
+        coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.success(
             """{"success":true,"results":[{"title":"T1","snippet":"S1","url":"https://a.com"}]}"""
@@ -196,7 +197,7 @@ class MultiSearchSkillTest {
         initWithMockOrchestrator()
 
         val searchTool = multiSearchSkill.tools[0]
-        val result = searchTool.execute(mapOf("query" to "test"))
+        val result = kotlinx.coroutines.runBlocking { searchTool.execute(mapOf("query" to "test")) }
 
         assertTrue(result.success)
         // 验证 A2UI 使用 flat-key 格式，匹配现有 SearchCard renderer
