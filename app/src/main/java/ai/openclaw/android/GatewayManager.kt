@@ -32,6 +32,10 @@ import ai.openclaw.android.skill.ApprovalDecision
 import ai.openclaw.android.feishu.FeishuClient
 import ai.openclaw.android.feishu.OkHttpFeishuClient
 import ai.openclaw.android.feishu.FeishuEvent
+import ai.openclaw.android.permission.PermissionManager
+import ai.openclaw.android.domain.agent.AgentConfigManager
+import ai.openclaw.android.domain.agent.AgentRouter
+import ai.openclaw.android.domain.agent.AgentSessionManager
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +68,11 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
     private var feishuClient: FeishuClient? = null
     private var dynamicSkillManager: DynamicSkillManager? = null
 
+    // Multi-agent routing subsystem (Tasks 1-6)
+    private var agentConfigManager: AgentConfigManager? = null
+    private var agentRouter: AgentRouter? = null
+    private var agentSessionManager: AgentSessionManager? = null
+
     // Memory subsystem (moved from Activity)
     private var database: AppDatabase? = null
     private var embeddingService: TfLiteEmbeddingService? = null
@@ -87,9 +96,19 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
 
     override fun getModelLoadState(): LocalLLMClient.LoadState? = localLLMClient?.getState()
 
-    override fun sendMessage(text: String): Flow<SessionEvent> =
-        agentSession?.handleMessageStream(text)
+    override fun sendMessage(text: String): Flow<SessionEvent> {
+        // Multi-agent routing path (primary)
+        val router = agentRouter
+        val sessionManager = agentSessionManager
+        if (router != null && sessionManager != null) {
+            val agentId = router.route(text)
+            val session = sessionManager.getOrCreate(agentId)
+            return session.handleMessageStream(text)
+        }
+        // Backward compatibility: single-agent fallback
+        return agentSession?.handleMessageStream(text)
             ?: flow { emit(SessionEvent.Error("AgentSession not ready")) }
+    }
 
     override suspend fun reconfigureModel(config: ModelConfig): Boolean {
         Log.d(TAG, "Reconfiguring model: provider=${config.provider}")
@@ -168,7 +187,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             scriptSkill?.setMemoryManager(memoryManager)
         }
 
-        // 4. Rebuild AgentSession (keeping same SkillManager and tools)
+        // 4. Rebuild AgentSession for backward compatibility
         agentSession = AgentSession(
             modelClient = modelClient!!,
             skillManager = skillManager!!,
@@ -182,6 +201,19 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             )
         }
 
+        // 4.5. Evict cached default agent session from AgentSessionManager so the next
+        //      multi-agent sendMessage creates a new session with the reconfigured model.
+        //      Also update backward-compatible agentSession reference.
+        agentSessionManager?.let { manager ->
+            val configManager = agentConfigManager
+            if (configManager != null) {
+                val defaultAgentId = configManager.getDefaultAgent().id
+                manager.evict(defaultAgentId)
+                val defaultSession = manager.getOrCreate(defaultAgentId)
+                agentSession = defaultSession
+            }
+        }
+
         // 5. Rewire memory subsystem
         wireMemoryToSession()
 
@@ -193,6 +225,22 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         skillManager?.getLoadedSkills()?.map { (id, skill) ->
             SkillInfo(id, skill.name, skill.description)
         } ?: emptyList()
+
+    override fun getAvailableAgents(): List<AgentInfo> {
+        val configManager = agentConfigManager ?: return emptyList()
+        val defaultAgent = try {
+            configManager.getDefaultAgent()
+        } catch (e: IllegalStateException) {
+            null
+        }
+        return configManager.getAllAgents().map { agent ->
+            AgentInfo(
+                id = agent.id,
+                name = agent.name,
+                isDefault = defaultAgent?.id == agent.id
+            )
+        }
+    }
 
     // ========== Lifecycle ==========
 
@@ -234,6 +282,11 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
 
         agentSession = null
         accessibilityBridge = null
+
+        agentConfigManager = null
+        agentRouter = null
+        agentSessionManager?.cleanup()
+        agentSessionManager = null
 
         sessionManager = null
         memoryManager = null
@@ -328,7 +381,19 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         val generateSkillSkill = GenerateSkillSkill(generateSkillTool)
         skillManager!!.registerSkill(generateSkillSkill)
 
-        // Initialize AgentSession with SkillManager
+        // Initialize multi-agent routing subsystem
+        agentConfigManager = AgentConfigManager(service)
+        agentConfigManager!!.loadFromAssets()
+        agentRouter = AgentRouter(agentConfigManager!!)
+        agentSessionManager = AgentSessionManager(
+            context = service,
+            configManager = agentConfigManager!!,
+            skillManager = skillManager!!,
+            accessibilityBridge = accessibilityBridge,
+            permissionManager = null
+        )
+
+        // Initialize AgentSession with SkillManager (backward compat)
         agentSession = AgentSession(
             modelClient = modelClient!!,
             skillManager = skillManager!!,
@@ -346,6 +411,14 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         embeddingService = TfLiteEmbeddingService(service)
         embeddingService!!.initialize()
 
+        wireMemoryToSession()
+
+        // Wire memory to multi-agent default session and update backward compat reference
+        agentSessionManager?.let { manager ->
+            val defaultAgentId = agentConfigManager!!.getDefaultAgent().id
+            val defaultSession = manager.getOrCreate(defaultAgentId)
+            agentSession = defaultSession
+        }
         wireMemoryToSession()
 
         // Initialize FeishuClient
@@ -386,9 +459,23 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         sessionManager = sm
         sm.initialize()
 
+        // Wire memory to backward-compatible agentSession
         agentSession?.setSessionManager(sm)
         agentSession?.setMemoryContextProvider {
             sm.getMemoryContext()
+        }
+
+        // Wire memory to multi-agent default session
+        agentSessionManager?.let { manager ->
+            val configManager = agentConfigManager ?: return@let
+            val defaultAgentId = configManager.getDefaultAgent().id
+            val defaultSession = manager.getOrCreate(defaultAgentId)
+            defaultSession.setSessionManager(sm)
+            defaultSession.setMemoryContextProvider {
+                sm.getMemoryContext()
+            }
+            // Update backward-compat reference
+            agentSession = defaultSession
         }
 
         // 注入 MemoryManager 到 ScriptSkill

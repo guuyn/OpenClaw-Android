@@ -18,6 +18,7 @@ interface GatewayContract {
     fun sendMessage(text: String): Flow<SessionEvent>
     suspend fun reconfigureModel(config: ModelConfig): Boolean
     fun getAvailableSkills(): List<SkillInfo>
+    fun getAvailableAgents(): List<AgentInfo>
 }
 
 data class ModelConfig(
@@ -30,4 +31,10 @@ data class SkillInfo(
     val id: String,
     val name: String,
     val description: String
+)
+
+data class AgentInfo(
+    val id: String,
+    val name: String,
+    val isDefault: Boolean
 )
