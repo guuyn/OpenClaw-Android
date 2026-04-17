@@ -51,6 +51,24 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Thermostat
+import ai.openclaw.android.ui.theme.SciFiUserBubbleStart
+import ai.openclaw.android.ui.theme.SciFiUserBubbleEnd
+import ai.openclaw.android.ui.theme.SciFiAiBubbleBg
+import ai.openclaw.android.ui.theme.SciFiAiBubbleBorder
+import ai.openclaw.android.ui.theme.SciFiBackground
+import ai.openclaw.android.ui.theme.SciFiSurfaceVariant
+import ai.openclaw.android.ui.theme.SciFiOnSurfaceVariant
+import ai.openclaw.android.ui.theme.SciFiPrimary
+import ai.openclaw.android.ui.theme.SciFiOutlineVariant
+import ai.openclaw.android.ui.theme.SciFiGlow
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import java.text.SimpleDateFormat
 import java.util.*
 import org.a2ui.compose.rendering.A2UIRenderer
@@ -280,52 +298,75 @@ fun ChatScreen(
             )
         }
 
+        // 输入区
         Surface(
             modifier = Modifier.fillMaxWidth(),
+            color = SciFiBackground,
             tonalElevation = 8.dp
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
                     .imePadding(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = { inputText = it },
+                // 轻量级输入框
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .focusRequester(focusRequester),
-                    placeholder = { Text("输入消息...") },
-                    singleLine = false,
-                    minLines = 1,
-                    maxLines = 4,
-                    shape = RoundedCornerShape(24.dp),
-                    trailingIcon = {
-                        IconButton(
-                            onClick = {
-                                if (inputText.isNotBlank() && !isLoading) {
-                                    sendMessage(inputText)
-                                    inputText = ""
-                                }
-                            },
-                            enabled = inputText.isNotBlank() && !isLoading,
-                            interactionSource = sendInteraction,
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Send,
-                                contentDescription = "发送",
-                                modifier = Modifier.scale(sendScale),
-                                tint = if (inputText.isNotBlank() && !isLoading)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                            )
-                        }
+                        .heightIn(min = 36.dp, max = 120.dp)
+                        .background(SciFiSurfaceVariant, RoundedCornerShape(24.dp))
+                        .border(
+                            width = 1.dp,
+                            color = SciFiOutlineVariant,
+                            shape = RoundedCornerShape(24.dp)
+                        )
+                        .focusRequester(focusRequester)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (inputText.isEmpty()) {
+                        Text(
+                            text = "输入消息...",
+                            color = SciFiOnSurfaceVariant.copy(alpha = 0.6f)
+                        )
                     }
-                )
+                    BasicTextField(
+                        value = inputText,
+                        onValueChange = { inputText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        textStyle = LocalTextStyle.current.copy(
+                            color = SciFiOnSurfaceVariant
+                        ),
+                        maxLines = 4
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // 发送按钮
+                IconButton(
+                    onClick = {
+                        if (inputText.isNotBlank() && !isLoading) {
+                            sendMessage(inputText)
+                            inputText = ""
+                        }
+                    },
+                    enabled = inputText.isNotBlank() && !isLoading,
+                    interactionSource = sendInteraction,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = "发送",
+                        modifier = Modifier.scale(sendScale),
+                        tint = if (inputText.isNotBlank() && !isLoading)
+                            SciFiPrimary
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    )
+                }
 
                 // Voice button
                 if (voiceSessionHandler != null && voiceManager != null) {
@@ -367,126 +408,227 @@ fun MessageBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = if (isUser)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.surfaceVariant
-            ),
-            shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isUser) 16.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 16.dp
-            ),
+        if (isUser) {
+            // 用户消息：青蓝渐变气泡
+            UserMessageBubble(
+                message = message,
+                dateFormat = dateFormat,
+                onCardAction = onCardAction,
+                onLongClick = { showMenu = true },
+                showMenu = showMenu,
+                onShowMenuChange = { showMenu = it }
+            )
+        } else {
+            // AI 消息：暗色背景 + 青色左边框
+            AiMessageBubble(
+                message = message,
+                dateFormat = dateFormat,
+                onCardAction = onCardAction,
+                onLongClick = { showMenu = true },
+                showMenu = showMenu,
+                onShowMenuChange = { showMenu = it }
+            )
+        }
+    }
+}
+
+/** 用户消息气泡 — 青蓝渐变 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun UserMessageBubble(
+    message: ChatMessage,
+    dateFormat: SimpleDateFormat,
+    onCardAction: (CardAction) -> Unit,
+    onLongClick: () -> Unit,
+    showMenu: Boolean,
+    onShowMenuChange: (Boolean) -> Unit
+) {
+    val gradientBrush = Brush.horizontalGradient(
+        colors = listOf(SciFiUserBubbleStart, SciFiUserBubbleEnd)
+    )
+    val clipboard = LocalClipboardManager.current
+
+    Box {
+        Box(
             modifier = Modifier
                 .animateContentSize(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy
-                    )
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
                 )
                 .combinedClickable(
                     onClick = { },
-                    onLongClick = { showMenu = true }
+                    onLongClick = onLongClick
                 )
+                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp))
+                .background(gradientBrush)
+                .padding(12.dp)
         ) {
-            Box {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    val segments = remember(message.content) { A2UICardParser.parse(message.content) }
-                    val a2uiRenderer = rememberA2UIRenderer()
-
-                    // Collect A2UI content and process with renderer
-                    val a2uiSegments = segments.filterIsInstance<MessageSegment.A2UICard>()
-                    if (!isUser && a2uiSegments.isNotEmpty()) {
-                        // Process A2UI segments with the library renderer (fire-and-forget)
-                        LaunchedEffect(message.id) {
-                            try {
-                                for (cardSegment in a2uiSegments) {
-                                    val a2uiMessage = tryBuildA2UIMessage(cardSegment.card)
-                                    if (a2uiMessage != null) {
-                                        a2uiRenderer.processMessage(a2uiMessage)
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Log.e("ChatScreen", "A2UI processMessage failed, falling back to legacy render", e)
-                            }
+            Column {
+                val segments = remember(message.content) { A2UICardParser.parse(message.content) }
+                for (segment in segments) {
+                    when (segment) {
+                        is MessageSegment.Text -> {
+                            Text(
+                                text = segment.text,
+                                color = Color.White
+                            )
                         }
-
-                        // Render all segments using legacy A2UICardView (crash-safe)
-                        for (segment in segments) {
-                            when (segment) {
-                                is MessageSegment.Text -> {
-                                    Text(
-                                        text = segment.text,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                is MessageSegment.A2UICard -> {
-                                    A2UICardRouter(
-                                        card = segment.card,
-                                        onActionClick = onCardAction,
-                                        modifier = Modifier.padding(vertical = 4.dp)
-                                    )
-                                }
-                            }
+                        is MessageSegment.A2UICard -> {
+                            A2UICardRouter(
+                                card = segment.card,
+                                onActionClick = onCardAction,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
                         }
-                    } else {
-                        // Original rendering for user messages or messages without A2UI
-                        for (segment in segments) {
-                            when (segment) {
-                                is MessageSegment.Text -> {
-                                    Text(
-                                        text = segment.text,
-                                        color = if (isUser)
-                                            MaterialTheme.colorScheme.onPrimary
-                                        else
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                is MessageSegment.A2UICard -> {
-                                    A2UICardRouter(
-                                        card = segment.card,
-                                        onActionClick = onCardAction,
-                                        modifier = Modifier.padding(vertical = 4.dp)
-                                    )
+                    }
+                }
+                Text(
+                    text = dateFormat.format(Date(message.timestamp)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { onShowMenuChange(false) }
+        ) {
+            DropdownMenuItem(
+                text = { Text("复制") },
+                leadingIcon = { Icon(Icons.Default.ContentCopy, "复制") },
+                onClick = {
+                    clipboard.setText(AnnotatedString(message.content))
+                    onShowMenuChange(false)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("删除") },
+                leadingIcon = { Icon(Icons.Default.Delete, "删除") },
+                onClick = { onShowMenuChange(false) }
+            )
+        }
+    }
+}
+
+/** AI 消息气泡 — 暗色背景 + 青色左边框 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun AiMessageBubble(
+    message: ChatMessage,
+    dateFormat: SimpleDateFormat,
+    onCardAction: (CardAction) -> Unit,
+    onLongClick: () -> Unit,
+    showMenu: Boolean,
+    onShowMenuChange: (Boolean) -> Unit
+) {
+    val clipboard = LocalClipboardManager.current
+
+    Box {
+        Box(
+            modifier = Modifier
+                .animateContentSize(
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                )
+                .combinedClickable(
+                    onClick = { },
+                    onLongClick = onLongClick
+                )
+                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 16.dp))
+                .background(SciFiAiBubbleBg)
+                .drawBehind {
+                    // 青色左边框
+                    drawLine(
+                        color = SciFiAiBubbleBorder,
+                        start = Offset(0f, 8.dp.toPx()),
+                        end = Offset(0f, size.height - 8.dp.toPx()),
+                        strokeWidth = 2.dp.toPx()
+                    )
+                }
+                .padding(start = 14.dp, top = 12.dp, end = 12.dp, bottom = 12.dp)
+        ) {
+            Column {
+                val segments = remember(message.content) { A2UICardParser.parse(message.content) }
+                val a2uiRenderer = rememberA2UIRenderer()
+
+                val a2uiSegments = segments.filterIsInstance<MessageSegment.A2UICard>()
+                if (a2uiSegments.isNotEmpty()) {
+                    LaunchedEffect(message.id) {
+                        try {
+                            for (cardSegment in a2uiSegments) {
+                                val a2uiMessage = tryBuildA2UIMessage(cardSegment.card)
+                                if (a2uiMessage != null) {
+                                    a2uiRenderer.processMessage(a2uiMessage)
                                 }
                             }
+                        } catch (e: Exception) {
+                            Log.e("ChatScreen", "A2UI processMessage failed", e)
                         }
                     }
 
-                    Text(
-                        text = dateFormat.format(Date(message.timestamp)),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isUser)
-                            MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+                    for (segment in segments) {
+                        when (segment) {
+                            is MessageSegment.Text -> {
+                                Text(
+                                    text = segment.text,
+                                    color = SciFiOnSurfaceVariant
+                                )
+                            }
+                            is MessageSegment.A2UICard -> {
+                                A2UICardRouter(
+                                    card = segment.card,
+                                    onActionClick = onCardAction,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    for (segment in segments) {
+                        when (segment) {
+                            is MessageSegment.Text -> {
+                                Text(
+                                    text = segment.text,
+                                    color = SciFiOnSurfaceVariant
+                                )
+                            }
+                            is MessageSegment.A2UICard -> {
+                                A2UICardRouter(
+                                    card = segment.card,
+                                    onActionClick = onCardAction,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("复制") },
-                        leadingIcon = { Icon(Icons.Default.ContentCopy, "复制") },
-                        onClick = {
-                            clipboardManager.setText(AnnotatedString(message.content))
-                            showMenu = false
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("删除") },
-                        leadingIcon = { Icon(Icons.Default.Delete, "删除") },
-                        onClick = {
-                            showMenu = false
-                        }
-                    )
-                }
+                Text(
+                    text = dateFormat.format(Date(message.timestamp)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SciFiOnSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
+        }
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { onShowMenuChange(false) }
+        ) {
+            DropdownMenuItem(
+                text = { Text("复制") },
+                leadingIcon = { Icon(Icons.Default.ContentCopy, "复制") },
+                onClick = {
+                    clipboard.setText(AnnotatedString(message.content))
+                    onShowMenuChange(false)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("删除") },
+                leadingIcon = { Icon(Icons.Default.Delete, "删除") },
+                onClick = { onShowMenuChange(false) }
+            )
         }
     }
 }

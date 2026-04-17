@@ -174,6 +174,9 @@ dependencies {
     // A2UI Component Library
     implementation(project(":android_compose"))
 
+    // YAML parsing for agent configuration
+    implementation("org.yaml:snakeyaml:2.2")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.2")

@@ -109,11 +109,25 @@ class ReminderSkill(private val context: Context) : Skill {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerTime,
-                    pendingIntent
-                )
+                // Android 13+ requires SCHEDULE_EXACT_ALARM permission
+                // Fallback to setAndAllowWhileIdle if permission not granted
+                val canScheduleExact = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S ||
+                    alarmManager.canScheduleExactAlarms()
+                
+                if (canScheduleExact) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerTime,
+                        pendingIntent
+                    )
+                } else {
+                    // Fallback: inexact alarm but still works in Doze mode
+                    alarmManager.setAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerTime,
+                        pendingIntent
+                    )
+                }
                 
                 // Use the outer class reminders map
                 this@ReminderSkill.reminders[id] = ReminderInfo(id, title, message, triggerTime)

@@ -22,7 +22,8 @@
 |---|------|------|------|
 | 1 | ~~拆分 MainActivity~~ | ✅ **已完成** | GatewayContract 接口 + ChatViewModel/SettingsViewModel |
 | 2 | ~~A2UI 解析逻辑独立~~ | ✅ **已完成** | A2UICardParser 独立类，ChatScreen 纯 UI |
-| 3 | 多 Agent 路由 | 未开始 | main/coder/security 路由机制 |
+| 3 | 多 Agent 配置系统 | **✅ 已完成 2026-04-16** | AgentRegistry + AgentPromptLoader + AgentConfig + AgentManagementSkill（7 个工具），真机验证通过 |
+| 4 | 多 Agent 消息路由 | 未开始 | 收到消息后如何路由到对应 Agent（关键词匹配、内容分类），配置层已完成，路由层待做 |
 | 4 | 会话压缩质量提升 | 基础实现 | SessionCompressor 已实现，摘要缓存、跨会话记忆关联待做 |
 | 5 | 补充测试覆盖 | 部分完成 | **158 测试全部通过**；LLM 客户端 mock、Compose UI 测试缺失 |
 | 6 | ScriptSkill MemoryBridge 对接 | **未对接** | 代码已集成但返回 `{"error":"Memory not yet integrated"}` |

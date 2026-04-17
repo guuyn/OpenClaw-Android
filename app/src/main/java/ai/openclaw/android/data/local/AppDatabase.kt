@@ -16,11 +16,15 @@ import ai.openclaw.android.data.model.SummaryEntity
 import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.data.model.SessionStatus
 import ai.openclaw.android.security.SecurityKeyManager
+import ai.openclaw.android.trigger.models.TriggerRule
+import ai.openclaw.android.trigger.models.TriggerLog
+import ai.openclaw.android.trigger.dao.TriggerRuleDao
+import ai.openclaw.android.trigger.dao.TriggerLogDao
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
-    entities = [SessionEntity::class, MessageEntity::class, SummaryEntity::class, MemoryEntity::class, MemoryVectorEntity::class, DynamicSkillEntity::class],
-    version = 5,
+    entities = [SessionEntity::class, MessageEntity::class, SummaryEntity::class, MemoryEntity::class, MemoryVectorEntity::class, DynamicSkillEntity::class, TriggerRule::class, TriggerLog::class],
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -32,6 +36,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun memoryVectorDao(): MemoryVectorDao
     abstract fun memoryFtsDao(): MemoryFtsDao
     abstract fun dynamicSkillDao(): DynamicSkillDao
+    abstract fun triggerRuleDao(): TriggerRuleDao
+    abstract fun triggerLogDao(): TriggerLogDao
 
     companion object {
         const val DATABASE_NAME = "openclaw_database"
@@ -85,6 +91,44 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Create trigger_rules table
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS trigger_rules (" +
+                    "id TEXT PRIMARY KEY NOT NULL, " +
+                    "name TEXT NOT NULL, " +
+                    "enabled INTEGER NOT NULL DEFAULT 1, " +
+                    "source TEXT NOT NULL, " +
+                    "filtersJson TEXT NOT NULL DEFAULT '[]', " +
+                    "actionJson TEXT NOT NULL, " +
+                    "cooldownMs INTEGER NOT NULL DEFAULT 300000, " +
+                    "scheduleCron TEXT, " +
+                    "createdAt INTEGER NOT NULL DEFAULT 0, " +
+                    "updatedAt INTEGER NOT NULL DEFAULT 0" +
+                    ")"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_trigger_rules_source ON trigger_rules(source)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_trigger_rules_enabled ON trigger_rules(enabled)")
+
+                // Create trigger_logs table
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS trigger_logs (" +
+                    "id TEXT PRIMARY KEY NOT NULL, " +
+                    "ruleId TEXT NOT NULL, " +
+                    "eventId TEXT NOT NULL, " +
+                    "executedAt INTEGER NOT NULL DEFAULT 0, " +
+                    "actionType TEXT NOT NULL, " +
+                    "success INTEGER NOT NULL, " +
+                    "error TEXT, " +
+                    "result TEXT" +
+                    ")"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_trigger_logs_ruleId ON trigger_logs(ruleId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_trigger_logs_executedAt ON trigger_logs(executedAt)")
+            }
+        }
+
         private fun buildDatabase(context: Context): AppDatabase {
             val keyManager = SecurityKeyManager(context)
             val passphrase = keyManager.getOrCreateDatabaseKey()
@@ -96,7 +140,7 @@ abstract class AppDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .fallbackToDestructiveMigration()
                 .addCallback(object : RoomDatabase.Callback() {

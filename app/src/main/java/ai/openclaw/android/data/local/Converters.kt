@@ -4,6 +4,8 @@ import androidx.room.TypeConverter
 import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.data.model.MemoryType
 import ai.openclaw.android.data.model.SessionStatus
+import ai.openclaw.android.trigger.models.EventSource
+import ai.openclaw.android.trigger.models.MatchMode
 
 class Converters {
     @TypeConverter
@@ -46,4 +48,18 @@ class Converters {
     fun toFloatArray(value: String): FloatArray = 
         if (value.isEmpty()) floatArrayOf() 
         else value.split(",").map { it.toFloat() }.toFloatArray()
+
+    // EventSource
+    @TypeConverter
+    fun fromEventSource(source: EventSource): String = source.name
+
+    @TypeConverter
+    fun toEventSource(value: String): EventSource = EventSource.valueOf(value)
+
+    // MatchMode
+    @TypeConverter
+    fun fromMatchMode(mode: MatchMode): String = mode.name
+
+    @TypeConverter
+    fun toMatchMode(value: String): MatchMode = MatchMode.valueOf(value)
 }

@@ -192,6 +192,26 @@ class SmartNotificationListener : NotificationListenerService() {
         if (notification != null) {
             scope.launch {
                 processNotification(notification)
+                
+                // 发布到 EventBus 供触发规则使用
+                try {
+                    val eventBus = ai.openclaw.android.trigger.EventBus.instance
+                    if (eventBus != null) {
+                        val event = ai.openclaw.android.trigger.models.TriggerEvent(
+                            source = ai.openclaw.android.trigger.models.EventSource.NOTIFICATION,
+                            payload = mapOf(
+                                "package" to (sbn.packageName ?: ""),
+                                "title" to (notification.title ?: ""),
+                                "text" to (notification.text ?: ""),
+                                "category" to (notification.category.name)
+                            ),
+                            dedupKey = "${sbn.packageName}:${notification.title}:${notification.text}"
+                        )
+                        eventBus.publish(event)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to publish notification event: ${e.message}")
+                }
             }
         }
     }

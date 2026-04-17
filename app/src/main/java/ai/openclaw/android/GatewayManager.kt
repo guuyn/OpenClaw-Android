@@ -2,8 +2,10 @@ package ai.openclaw.android
 
 import android.util.Log
 import ai.openclaw.android.accessibility.AccessibilityBridge
+import ai.openclaw.android.agent.AgentRegistry
 import ai.openclaw.android.agent.AgentSession
 import ai.openclaw.android.agent.SessionEvent
+import ai.openclaw.android.agent.SystemPromptLoader
 import ai.openclaw.android.data.local.AppDatabase
 import ai.openclaw.android.domain.memory.FallbackMemoryExtractor
 import ai.openclaw.android.domain.memory.LlmMemoryExtractor
@@ -28,6 +30,7 @@ import ai.openclaw.android.skill.builtin.NotificationSkill
 import ai.openclaw.android.skill.builtin.GenerateSkillTool
 import ai.openclaw.android.skill.builtin.GenerateSkillSkill
 import ai.openclaw.android.skill.DynamicSkillManager
+import ai.openclaw.android.config.AgentConfig
 import ai.openclaw.android.skill.ApprovalDecision
 import ai.openclaw.android.feishu.FeishuClient
 import ai.openclaw.android.feishu.OkHttpFeishuClient
@@ -36,6 +39,10 @@ import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.domain.agent.AgentConfigManager
 import ai.openclaw.android.domain.agent.AgentRouter
 import ai.openclaw.android.domain.agent.AgentSessionManager
+import ai.openclaw.android.trigger.EventBus
+import ai.openclaw.android.trigger.ActionExecutor
+import ai.openclaw.android.trigger.scheduler.CronScheduler
+import ai.openclaw.android.trigger.models.EventSource
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +70,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
     private var modelClient: ModelClient? = null
     private var localLLMClient: LocalLLMClient? = null
     private var agentSession: AgentSession? = null
+    private var agentRegistry: AgentRegistry? = null
     private var accessibilityBridge: AccessibilityBridge? = null
     private var skillManager: SkillManager? = null
     private var feishuClient: FeishuClient? = null
@@ -72,6 +80,11 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
     private var agentConfigManager: AgentConfigManager? = null
     private var agentRouter: AgentRouter? = null
     private var agentSessionManager: AgentSessionManager? = null
+
+    // Trigger subsystem
+    // Trigger subsystem
+    private var triggerEventBus: EventBus? = null
+    private var cronScheduler: CronScheduler? = null
 
     // Memory subsystem (moved from Activity)
     private var database: AppDatabase? = null
@@ -109,6 +122,19 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         return agentSession?.handleMessageStream(text)
             ?: flow { emit(SessionEvent.Error("AgentSession not ready")) }
     }
+
+    /**
+     * Send message to a specific agent
+     */
+    fun sendMessageToAgent(agentId: String, text: String): Flow<SessionEvent> =
+        agentRegistry?.getSession(agentId)?.handleMessageStream(text)
+            ?: flow { emit(SessionEvent.Error("AgentRegistry not ready")) }
+
+    /**
+     * List all configured agents
+     */
+    fun listAgents(): List<AgentConfig> =
+        agentRegistry?.listAgents() ?: emptyList()
 
     override suspend fun reconfigureModel(config: ModelConfig): Boolean {
         Log.d(TAG, "Reconfiguring model: provider=${config.provider}")
@@ -193,6 +219,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             skillManager = skillManager!!,
             maxContextTokens = 4000
         ).apply {
+            setSystemPrompt(systemPrompt)
             setToolsWithSkills(
                 accessTools = accessibilityBridge?.getTools() ?: emptyList(),
                 executor = { toolCall ->
@@ -281,6 +308,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         skillManager = null
 
         agentSession = null
+        agentRegistry = null
         accessibilityBridge = null
 
         agentConfigManager = null
@@ -292,6 +320,11 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         memoryManager = null
         dynamicSkillManager?.cleanup()
         dynamicSkillManager = null
+
+        // Cleanup trigger subsystem
+        cronScheduler?.cancelAll()
+        cronScheduler = null
+        triggerEventBus = null
 
         _connectionState.value = ConnectionState.Disconnected
         Log.d(TAG, "Gateway stopped")
@@ -404,7 +437,14 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
                 executor = { toolCall ->
                     accessibilityBridge!!.execute(toolCall)
                 }
-            )
+            },
+            skillManager = skillManager!!,
+            accessibilityBridge = accessibilityBridge!!
+        )
+
+        // Keep backward compat: point agentSession to default agent
+        agentSession = agentRegistry!!.getDefaultAgent().let { config ->
+            agentRegistry!!.getSession(config.id)
         }
 
         // Initialize memory subsystem
@@ -427,6 +467,39 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             connect(ConfigManager.getFeishuAppId(), ConfigManager.getFeishuAppSecret())
             setEventListener { event -> handleFeishuEvent(event) }
         }
+
+        // Initialize Trigger System
+        val actionExecutor = ActionExecutor(
+            context = service,
+            skillManager = skillManager!!,
+            agentSessionFactory = { agentSession }
+        )
+
+        EventBus.initialize(
+            ruleDao = database!!.triggerRuleDao(),
+            logDao = database!!.triggerLogDao(),
+            actionExecutor = actionExecutor
+        )
+        val eventBus = EventBus.instance!!
+
+        cronScheduler = CronScheduler(
+            context = service,
+            eventBus = eventBus
+        )
+
+        // Schedule all CRON rules
+        val cronRules = database!!.triggerRuleDao().getEnabled().filter { it.source == EventSource.CRON }
+        cronScheduler!!.scheduleAllCronRules(cronRules)
+
+        // Register TriggerRuleSkill
+        val triggerRuleSkill = ai.openclaw.android.trigger.skill.TriggerRuleSkill(
+            ruleDao = database!!.triggerRuleDao(),
+            logDao = database!!.triggerLogDao(),
+            cronScheduler = cronScheduler!!
+        )
+        skillManager!!.registerSkill(triggerRuleSkill)
+
+        Log.i(TAG, "Trigger system initialized: ${cronRules.size} cron rules scheduled")
 
         Log.d(TAG, "Components initialized")
     }

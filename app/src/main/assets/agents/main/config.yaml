@@ -1,0 +1,10 @@
+id: main
+name: 主助手
+model: bailian/qwen3.6-plus
+maxContextTokens: 4000
+tools:
+  - weather
+  - search
+  - reminder
+  - translate
+  - generate_skill

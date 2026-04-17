@@ -1,5 +1,11 @@
 package ai.openclaw.android.ui
 
+import ai.openclaw.android.ui.theme.SciFiSurfaceVariant
+import ai.openclaw.android.ui.theme.SciFiPrimary
+import ai.openclaw.android.ui.theme.SciFiOnSurfaceVariant
+import ai.openclaw.android.ui.theme.SciFiGlow
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -25,7 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// ==================== 卡片容器 ====================
+// ==================== 卡片容器（科幻风格） ====================
 
 private val CardShape = RoundedCornerShape(16.dp)
 
@@ -36,8 +42,14 @@ private fun CardContainer(
 ) {
     Card(
         shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = modifier.fillMaxWidth()
+        colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = SciFiGlow,
+                shape = CardShape
+            )
     ) {
         Column(modifier = Modifier.padding(16.dp), content = content)
     }
@@ -57,7 +69,7 @@ private fun CardHeader(
     ) {
         Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+            color = SciFiPrimary.copy(alpha = 0.15f),
             modifier = Modifier.size(36.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -72,7 +84,7 @@ private fun CardHeader(
             text = title,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
+            color = SciFiOnSurfaceVariant
         )
     }
 }
@@ -91,22 +103,24 @@ fun CardActionButtons(
     val secondaryActions = actions.filter { it.style == ButtonStyle.Secondary }
 
     Spacer(modifier = Modifier.height(12.dp))
-    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+    HorizontalDivider(color = SciFiPrimary.copy(alpha = 0.2f))
     Spacer(modifier = Modifier.height(8.dp))
 
     Column(modifier = modifier) {
-        // Primary actions: full-width, filled buttons
+        // Primary actions: full-width, outlined buttons with neon border
         primaryActions.forEach { action ->
-            Button(
+            OutlinedButton(
                 onClick = { onActionClick(action) },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.dp)
             ) {
                 Text(
                     text = action.label,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    color = SciFiPrimary
                 )
             }
             if (primaryActions.indexOf(action) < primaryActions.size - 1) {
@@ -134,7 +148,8 @@ fun CardActionButtons(
                             text = action.label,
                             style = MaterialTheme.typography.labelLarge,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            color = SciFiOnSurfaceVariant
                         )
                     }
                 }
@@ -166,7 +181,7 @@ fun WeatherCard(
             // 天气图标
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                color = SciFiPrimary.copy(alpha = 0.15f),
                 modifier = Modifier.size(64.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -185,12 +200,12 @@ fun WeatherCard(
                     text = data.temperature,
                     style = MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = SciFiOnSurfaceVariant
                 )
                 Text(
                     text = "${data.city} · ${data.condition}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = SciFiOnSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
         }

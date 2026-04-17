@@ -1,7 +1,7 @@
 package ai.openclaw.android.agent
 
 import android.util.Log
-import ai.openclaw.android.data.model.AgentConfig
+import ai.openclaw.android.config.AgentConfig
 import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.domain.session.HybridSessionManager
 import ai.openclaw.android.model.*
@@ -112,6 +112,33 @@ Example:
     private var tools: List<Tool> = emptyList()
     private var toolExecutor: (suspend (ToolCall) -> String)? = null
     private var accessibilityTools: List<Tool> = emptyList()
+
+    // System prompt — loaded from external file, not hardcoded
+    private var systemPrompt: String = ""
+
+    /**
+     * Set system prompt (called by GatewayManager after loading from file)
+     */
+    fun setSystemPrompt(prompt: String) {
+        systemPrompt = prompt
+        Log.d(TAG, "System prompt set (${prompt.length} chars)")
+    }
+
+    // Agent config (optional, set by AgentRegistry)
+    private var agentConfig: AgentConfig? = null
+
+    /**
+     * Set agent config (optional, called by AgentRegistry)
+     */
+    fun setAgentConfig(config: AgentConfig) {
+        agentConfig = config
+        Log.d(TAG, "AgentConfig set: ${config.id}, maxTokens=${config.maxContextTokens}")
+    }
+
+    /**
+     * Get effective max context tokens (from config or default)
+     */
+    fun getMaxContextTokens(): Int = agentConfig?.maxContextTokens ?: maxContextTokens
 
     // Memory & persistence hooks (set via setters)
     private var memoryContextProvider: (suspend () -> String?)? = null
@@ -428,6 +455,8 @@ Example:
             ?: BASE_SYSTEM_PROMPT
         return mutableListOf<Message>().apply {
             add(Message(role = "system", content = systemPrompt))
+            val prompt = systemPrompt.takeIf { it.isNotBlank() } ?: "You are an AI assistant."
+            add(Message(role = "system", content = prompt))
             memoryContextText?.let { context ->
                 add(Message(role = "system", content = "用户的重要记忆：\n$context"))
             }
@@ -440,7 +469,8 @@ Example:
      * Estimates ~1.3 tokens per CJK character, ~0.25 tokens per ASCII character.
      */
     private fun trimHistoryByTokens() {
-        while (estimateTokens(history) > maxContextTokens && history.size > 2) {
+        val effectiveMaxTokens = getMaxContextTokens()
+        while (estimateTokens(history) > effectiveMaxTokens && history.size > 2) {
             history.removeAt(0)
         }
     }
