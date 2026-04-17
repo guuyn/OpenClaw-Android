@@ -4,6 +4,7 @@ data class AgentConfig(
     val id: String,
     val name: String,
     val model: String = "bailian/qwen3.6-plus",
+    val systemPrompt: String = "",
     val maxContextTokens: Int = 4000,
     val tools: List<String> = emptyList(),
     val routing: RoutingConfig? = null

@@ -455,8 +455,6 @@ Example:
             ?: BASE_SYSTEM_PROMPT
         return mutableListOf<Message>().apply {
             add(Message(role = "system", content = systemPrompt))
-            val prompt = systemPrompt.takeIf { it.isNotBlank() } ?: "You are an AI assistant."
-            add(Message(role = "system", content = prompt))
             memoryContextText?.let { context ->
                 add(Message(role = "system", content = "用户的重要记忆：\n$context"))
             }

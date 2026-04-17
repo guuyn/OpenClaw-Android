@@ -3,7 +3,8 @@ package ai.openclaw.android.domain.agent
 import ai.openclaw.android.ConfigManager
 import ai.openclaw.android.accessibility.AccessibilityBridge
 import ai.openclaw.android.agent.AgentSession
-import ai.openclaw.android.data.model.AgentConfig
+import ai.openclaw.android.data.model.AgentConfig as DataAgentConfig
+import ai.openclaw.android.config.AgentConfig
 import ai.openclaw.android.model.BailianClient
 import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
@@ -34,6 +35,17 @@ open class AgentSessionManager(
     private val maxCachedSessions: Int = 3
 ) {
 
+    private fun toConfigAgent(dataConfig: DataAgentConfig): AgentConfig {
+        return AgentConfig(
+            id = dataConfig.id,
+            name = dataConfig.name,
+            model = dataConfig.model,
+            systemPrompt = dataConfig.systemPrompt ?: "",
+            maxContextTokens = 4000,
+            tools = dataConfig.tools
+        )
+    }
+
     companion object {
         private const val TAG = "AgentSessionManager"
     }
@@ -63,7 +75,7 @@ open class AgentSessionManager(
         val session = AgentSession(
             modelClient = modelClient,
             skillManager = skillManager,
-            agentConfig = config,
+            agentConfig = toConfigAgent(config),
             permissionManager = permissionManager
         )
 
@@ -113,7 +125,7 @@ open class AgentSessionManager(
      * Build a ModelClient configured for the given agent.
      * Marked `protected open` so tests can override with a mock.
      */
-    protected open fun createModelClient(config: AgentConfig): ModelClient {
+    protected open fun createModelClient(config: DataAgentConfig): ModelClient {
         val client = BailianClient()
 
         // Parse model string: "bailian/qwen3.5-plus" → provider=bailian, name=qwen3.5-plus

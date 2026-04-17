@@ -1109,7 +1109,7 @@ fun SummaryCard(
                 text = data.fullContent,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.verticalScroll(rememberScrollState())
+                maxLines = if (expanded) Int.MAX_VALUE else 3
             )
         }
 
