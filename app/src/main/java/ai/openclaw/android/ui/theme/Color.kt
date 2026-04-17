@@ -47,6 +47,8 @@ val SciFiLightOnPrimary   = Color(0xFFFFFFFF)
 val SciFiLightOnSurface   = Color(0xFF0F172A)
 val SciFiLightAiBubbleBg  = Color(0xFFF1F5F9)
 val SciFiLightAiBubbleBorder = Color(0xFF059669)
+val SciFiLightUserBubbleStart = Color(0xFF059669)  // 亮色模式用户气泡起始
+val SciFiLightUserBubbleEnd   = Color(0xFF4CC9F0)  // 亮色模式用户气泡结束
 
 // ==================== 保留旧色值（向后兼容） ====================
 
