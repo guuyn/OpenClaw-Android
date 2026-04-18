@@ -27,9 +27,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import android.content.SharedPreferences
 
 /**
@@ -76,7 +79,10 @@ class LocalLLMClient(private val context: Context) : ModelClient {
         // Backend init timeout (ms)
         private const val TIMEOUT_NPU = 60_000L
         private const val TIMEOUT_GPU = 90_000L
-        private const val TIMEOUT_CPU = 180_000L
+        private const val TIMEOUT_CPU = 60_000L
+        private const val KEY_GPU_CRASH_TIME = "gpu_crash_time"
+        // Auto-retry GPU after this duration
+        private const val GPU_RETRY_INTERVAL_MS = 24 * 60 * 60 * 1000L // 24 hours
 
         fun getBackendPriority(): List<Pair<Backend, String>> {
             val hardware = Build.HARDWARE.lowercase()
@@ -88,11 +94,10 @@ class LocalLLMClient(private val context: Context) : ModelClient {
                 return listOf(Backend.GPU() to "GPU", Backend.CPU() to "CPU")
             }
 
-            // Honor devices: NPU supported (since MagicOS 8+ based on Android 14+)
+            // Honor devices: GPU first (NPU support is unstable)
             if (brand.contains("honor")) {
-                LogManager.shared.log("INFO", TAG, "检测到 Honor，尝试 NPU → GPU → CPU")
+                LogManager.shared.log("INFO", TAG, "检测到 Honor，尝试 GPU → CPU")
                 return listOf(
-                    Backend.NPU() to "NPU",
                     Backend.GPU() to "GPU",
                     Backend.CPU() to "CPU"
                 )
@@ -139,6 +144,7 @@ class LocalLLMClient(private val context: Context) : ModelClient {
                         prefs.edit()
                             .putBoolean(KEY_GPU_INIT_PENDING, false)
                             .putInt(KEY_GPU_CRASH_COUNT, 0)
+                            .putLong(KEY_GPU_CRASH_TIME, 0L)
                             .apply()
                     }
                 }
@@ -184,17 +190,30 @@ class LocalLLMClient(private val context: Context) : ModelClient {
             Engine.setNativeMinLogSeverity(LogSeverity.ERROR)
 
             val gpuCrashedLastTime = prefs.getBoolean(KEY_GPU_INIT_PENDING, false)
+            val gpuCrashTime = prefs.getLong(KEY_GPU_CRASH_TIME, 0L)
+            val timeSinceCrash = System.currentTimeMillis() - gpuCrashTime
+            val autoRetryGpu = timeSinceCrash > GPU_RETRY_INTERVAL_MS
+
             if (gpuCrashedLastTime) {
                 val crashCount = prefs.getInt(KEY_GPU_CRASH_COUNT, 0) + 1
                 prefs.edit()
                     .putBoolean(KEY_GPU_INIT_PENDING, false)
                     .putInt(KEY_GPU_CRASH_COUNT, crashCount)
+                    .putLong(KEY_GPU_CRASH_TIME, System.currentTimeMillis())
                     .apply()
-                LogManager.shared.log("WARN", TAG, "检测到上次 GPU 初始化导致 native crash（第 ${crashCount} 次），本次跳过 GPU")
+                LogManager.shared.log("WARN", TAG, "检测到上次 GPU 初始化导致 native crash（第 ${crashCount} 次）")
+            } else if (prefs.getInt(KEY_GPU_CRASH_COUNT, 0) > 0 && autoRetryGpu) {
+                prefs.edit()
+                    .putInt(KEY_GPU_CRASH_COUNT, 0)
+                    .putLong(KEY_GPU_CRASH_TIME, 0L)
+                    .apply()
+                LogManager.shared.log("INFO", TAG, "GPU crash 标记已过期 (${timeSinceCrash / 3600_000}h)，重新尝试 GPU")
             }
 
+            val shouldSkipGpu = gpuCrashedLastTime ||
+                (prefs.getInt(KEY_GPU_CRASH_COUNT, 0) > 0 && !autoRetryGpu)
             val backends = getBackendPriority().let { list ->
-                if (gpuCrashedLastTime) list.filter { it.second != "GPU" } else list
+                if (shouldSkipGpu) list.filter { it.second != "GPU" } else list
             }
             LogManager.shared.log("INFO", TAG, "Backend 尝试顺序: ${backends.map { it.second }.joinToString(" → ")}")
 
@@ -208,18 +227,31 @@ class LocalLLMClient(private val context: Context) : ModelClient {
                     else -> TIMEOUT_CPU
                 }
 
-                val result = withTimeoutOrNull(timeout) {
-                    tryInitEngine(
-                        modelPath = modelFile.absolutePath,
-                        cacheDir = context.cacheDir.path,
-                        backend = backend,
-                        backendName = backendName,
-                        prefs = prefs
-                    ) { logMsg -> LogManager.shared.log("INFO", TAG, logMsg) }
+                // Use real thread-level timeout since Engine.initialize() is a blocking
+                // native call that Kotlin's withTimeoutOrNull cannot cancel.
+                val executor = Executors.newSingleThreadExecutor()
+                val result = try {
+                    executor.submit(Callable {
+                        tryInitEngine(
+                            modelPath = modelFile.absolutePath,
+                            cacheDir = context.cacheDir.path,
+                            backend = backend,
+                            backendName = backendName,
+                            prefs = prefs
+                        ) { logMsg -> LogManager.shared.log("INFO", TAG, logMsg) }
+                    }).get(timeout, TimeUnit.MILLISECONDS)
+                } catch (_: TimeoutException) {
+                    LogManager.shared.log("WARN", TAG, "$backendName 初始化超时 (${timeout / 1000}s)，跳过")
+                    null
+                } catch (e: Exception) {
+                    LogManager.shared.log("WARN", TAG, "$backendName 初始化异常: ${e.message}")
+                    null
+                } finally {
+                    executor.shutdownNow()
                 }
 
                 if (result == null) {
-                    LogManager.shared.log("WARN", TAG, "$backendName 初始化超时 (${timeout / 1000}s)，跳过")
+                    LogManager.shared.log("WARN", TAG, "$backendName 初始化失败，尝试下一个 Backend")
                 } else {
                     engine = result
                     _state.value = LoadState.LOADED
@@ -612,6 +644,7 @@ class LocalLLMClient(private val context: Context) : ModelClient {
         prefs.edit()
             .putBoolean(KEY_GPU_INIT_PENDING, false)
             .putInt(KEY_GPU_CRASH_COUNT, 0)
+            .putLong(KEY_GPU_CRASH_TIME, 0L)
             .apply()
     }
 

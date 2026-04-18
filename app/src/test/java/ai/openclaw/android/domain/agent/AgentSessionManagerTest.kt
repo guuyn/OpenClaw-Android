@@ -381,7 +381,7 @@ class AgentSessionManagerTest {
         private val mockModelClient: ModelClient
     ) : AgentSessionManager(
         context, configManager, skillManager, accessibilityBridge,
-        permissionManager, maxCachedSessions
+        permissionManager, maxCachedSessions, sharedLocalLLMClient = null
     ) {
         override fun createModelClient(config: AgentConfig): ModelClient {
             return mockModelClient

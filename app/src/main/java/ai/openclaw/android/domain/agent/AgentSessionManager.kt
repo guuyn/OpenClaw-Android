@@ -34,7 +34,8 @@ open class AgentSessionManager(
     private val skillManager: SkillManager,
     private val accessibilityBridge: AccessibilityBridge?,
     private val permissionManager: PermissionManager? = null,
-    private val maxCachedSessions: Int = 3
+    private val maxCachedSessions: Int = 3,
+    private val sharedLocalLLMClient: LocalLLMClient? = null
 ) {
 
     private fun toConfigAgent(dataConfig: DataAgentConfig): AgentConfig {
@@ -128,16 +129,22 @@ open class AgentSessionManager(
      * Marked `protected open` so tests can override with a mock.
      */
     protected open fun createModelClient(config: DataAgentConfig): ModelClient {
+        // When user selected LOCAL provider, all agents use on-device model
+        val userProvider = ConfigManager.getModelProvider()
+        if (userProvider == "LOCAL") {
+            val shared = sharedLocalLLMClient
+            if (shared != null && shared.isModelLoaded()) {
+                Log.i(TAG, "Reusing shared LOCAL model for agent '${config.id}'")
+                return shared
+            }
+            Log.i(TAG, "Using LOCAL on-device model for agent '${config.id}' (new instance)")
+            return LocalLLMClient(context)
+        }
+
         // Parse model string: "openai/qwen3.5-plus" → provider=openai, name=qwen3.5-plus
         val parts = config.model.split("/", limit = 2)
         val providerStr = if (parts.size > 1) parts[0] else "openai"
         val modelName = if (parts.size > 1) parts[1] else config.model
-
-        // Local model path
-        if (providerStr.equals("local", ignoreCase = true)) {
-            Log.i(TAG, "Creating LocalLLMClient for agent '${config.id}'")
-            return LocalLLMClient(context)
-        }
 
         val apiKey = ConfigManager.getModelApiKey()
         val baseUrl = ConfigManager.getEffectiveBaseUrl()

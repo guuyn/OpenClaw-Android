@@ -426,7 +426,8 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             configManager = agentConfigManager!!,
             skillManager = skillManager!!,
             accessibilityBridge = accessibilityBridge,
-            permissionManager = null
+            permissionManager = null,
+            sharedLocalLLMClient = localLLMClient
         )
 
         // Initialize AgentSession with SkillManager (backward compat)
@@ -457,11 +458,15 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         }
         wireMemoryToSession()
 
-        // Initialize FeishuClient
-        val httpClient = OkHttpClient()
-        feishuClient = OkHttpFeishuClient(httpClient).apply {
-            connect(ConfigManager.getFeishuAppId(), ConfigManager.getFeishuAppSecret())
-            setEventListener { event -> handleFeishuEvent(event) }
+        // Initialize FeishuClient (only if credentials are configured)
+        if (ConfigManager.hasFeishuCredentials()) {
+            val httpClient = OkHttpClient()
+            feishuClient = OkHttpFeishuClient(httpClient).apply {
+                connect(ConfigManager.getFeishuAppId(), ConfigManager.getFeishuAppSecret())
+                setEventListener { event -> handleFeishuEvent(event) }
+            }
+        } else {
+            Log.i(TAG, "Skipping FeishuClient: no credentials configured")
         }
 
         // Initialize Trigger System
