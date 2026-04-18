@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -20,7 +21,7 @@ fun Modifier.sciFiGlow(
     shape: Shape = RoundedCornerShape(12.dp)
 ): Modifier = this.then(
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        androidx.compose.ui.draw.shadow(
+        shadow(
             elevation = radius,
             shape = shape,
             ambientColor = color.copy(alpha = 0.5f),

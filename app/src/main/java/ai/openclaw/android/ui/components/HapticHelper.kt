@@ -1,10 +1,10 @@
 package ai.openclaw.android.ui.components
 
-import androidx.compose.foundation.LocalHapticFeedback
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 
 class HapticHelper(private val haptic: HapticFeedback) {
     fun sendConfirm() = haptic.performHapticFeedback(HapticFeedbackType.Confirm)
