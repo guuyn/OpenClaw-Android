@@ -16,6 +16,7 @@ import android.content.pm.PackageManager
 import android.content.res.AssetManager
 import androidx.core.content.ContextCompat
 import io.mockk.MockKAnnotations
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
@@ -107,6 +108,42 @@ class SkillManagerTest {
         val toolNames = allTools.map { it.name }
         assertTrue(toolNames.any { it.startsWith("weather_") })
         assertTrue(toolNames.any { it.startsWith("search_") })
+    }
+
+    @Test
+    fun `executeTool_underscoredSkillId_parsesCorrectly`() = runTest {
+        // This verifies the fix for: "Skill not found: dynamic" error
+        // when LLM calls dynamic_skill_generator_generate_skill
+
+        // Arrange: register a skill with underscore in ID
+        val mockSkill = mockk<Skill>(relaxed = true)
+        every { mockSkill.id } returns "dynamic_skill_generator"
+        every { mockSkill.name } returns "动态技能生成"
+        every { mockSkill.tools } returns listOf(
+            mockk<SkillTool>(relaxed = true).also { tool ->
+                every { tool.name } returns "generate_skill"
+                coEvery { tool.execute(any()) } returns SkillResult(true, "skill registered", "")
+            }
+        )
+        every { mockSkill.initialize(any()) } returns Unit
+
+        skillManager.registerSkill(mockSkill)
+
+        // Mock permissions granted
+        mockkStatic(ContextCompat::class)
+        every {
+            ContextCompat.checkSelfPermission(any(), any())
+        } returns PackageManager.PERMISSION_GRANTED
+
+        // Act: call the tool with the underscored skill ID
+        val result = skillManager.executeTool(
+            "dynamic_skill_generator_generate_skill",
+            mapOf("skillJson" to "{}")
+        )
+
+        // Assert: should find the skill, not fail with "Skill not found: dynamic"
+        assertFalse("Should not return 'Skill not found: dynamic' error",
+            result.output.contains("Skill not found: dynamic"))
     }
 
     @Test
