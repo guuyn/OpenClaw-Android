@@ -20,6 +20,7 @@ import com.google.ai.edge.litertlm.ToolProvider
 import com.google.ai.edge.litertlm.tool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,6 +54,17 @@ class LocalLLMClient(private val context: Context) : ModelClient {
     private val sessionMutex = Mutex()
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /**
+     * Tool executor bridge — when LiteRT's model calls a tool internally,
+     * this lambda delegates to OpenClaw's skill system.
+     * Called synchronously by LiteRT on a background thread.
+     */
+    private var localToolExecutor: (suspend (toolName: String, argsJson: String) -> String)? = null
+
+    fun setToolExecutor(executor: (suspend (toolName: String, argsJson: String) -> String)) {
+        this.localToolExecutor = executor
+    }
 
     private val _state = MutableStateFlow(LoadState.IDLE)
     val state: StateFlow<LoadState> = _state
@@ -331,11 +343,11 @@ class LocalLLMClient(private val context: Context) : ModelClient {
             return@flow
         }
 
+        val fullText = StringBuilder()
         sessionMutex.withLock {
             try {
                 val startTime = System.currentTimeMillis()
                 val lastContent = messages.last().content
-                val fullText = StringBuilder()
                 var responseMessage: com.google.ai.edge.litertlm.Message? = null
 
                 eng.createConversation(buildConversationConfig(messages, tools)).use { conversation ->
@@ -360,8 +372,17 @@ class LocalLLMClient(private val context: Context) : ModelClient {
 
                 emit(ChatEvent.Complete(wrapResponse(fullText.toString(), openClawToolCalls)))
             } catch (e: Exception) {
-                Log.e(TAG, "Stream failed", e)
-                emit(ChatEvent.Error(e.message ?: "Generation failed"))
+                // LiteRT may fail to parse tool calls from the model's output.
+                // Extract tool call info from the error message as a fallback.
+                val textToolCalls = parseToolCallsFromError(e.message ?: "")
+                if (textToolCalls != null) {
+                    val text = stripToolCallTokens(fullText.toString())
+                    Log.i(TAG, "Extracted ${textToolCalls.size} tool call(s) from text fallback")
+                    emit(ChatEvent.Complete(wrapResponse(text, textToolCalls)))
+                } else {
+                    Log.e(TAG, "Stream failed", e)
+                    emit(ChatEvent.Error(e.message ?: "Generation failed"))
+                }
             }
         }
     }.flowOn(Dispatchers.IO)
@@ -401,6 +422,7 @@ class LocalLLMClient(private val context: Context) : ModelClient {
             initialMessages = initialMessages,
             tools = litertTools,
             samplerConfig = samplerConfig,
+            automaticToolCalling = false,
         )
     }
 
@@ -455,13 +477,15 @@ class LocalLLMClient(private val context: Context) : ModelClient {
 
     private fun convertTools(tools: List<Tool>?): List<ToolProvider> {
         if (tools.isNullOrEmpty()) return emptyList()
+        val executor = localToolExecutor
 
         return tools.map { openClawTool ->
+            val toolName = openClawTool.function.name
             val openApiTool = object : OpenApiTool {
                 override fun getToolDescriptionJsonString(): String {
                     val params = openClawTool.function.parameters
                     val json = JSONObject().apply {
-                        put("name", openClawTool.function.name)
+                        put("name", toolName)
                         put("description", openClawTool.function.description)
                         put("parameters", JSONObject().apply {
                             put("type", "object")
@@ -479,7 +503,22 @@ class LocalLLMClient(private val context: Context) : ModelClient {
                     return json.toString()
                 }
 
-                override fun execute(args: String): String = "{}"
+                override fun execute(args: String): String {
+                    if (executor == null) {
+                        Log.w(TAG, "Tool '$toolName' called but no executor set")
+                        return "{}"
+                    }
+                    return try {
+                        runBlocking {
+                            val result = executor(toolName, args)
+                            Log.d(TAG, "Tool '$toolName' executed: ${result.take(200)}")
+                            result
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Tool '$toolName' execution failed: ${e.message}")
+                        """{"error": "${e.message}"}"""
+                    }
+                }
             }
             tool(openApiTool)
         }
@@ -497,6 +536,90 @@ class LocalLLMClient(private val context: Context) : ModelClient {
                 )
             )
         }
+    }
+
+    /**
+     * Parse tool calls from LiteRT error messages when the model generates
+     * tool calls in a format that LiteRT can't parse.
+     *
+     * Supported patterns:
+     * - call:func_name(param1="val1", param2="val2")
+     * - call:func_name{param1}
+     * - {"name": "func_name", "arguments": {"key": "value"}}
+     */
+    private fun parseToolCallsFromError(errorMsg: String): List<ai.openclaw.android.model.ToolCall>? {
+        val calls = mutableListOf<ai.openclaw.android.model.ToolCall>()
+
+        // Pattern 1: call:func_name(key="value", ...) or call:func_name{key}
+        val callPattern = Regex("""call:(\w+)\s*[\({]([^}\)]*)[}\)]""")
+        callPattern.findAll(errorMsg).forEach { match ->
+            val funcName = match.groupValues[1]
+            val paramsStr = match.groupValues[2]
+            val args = parseCallParams(paramsStr)
+            calls.add(ai.openclaw.android.model.ToolCall(
+                id = "local_tc_${System.nanoTime()}",
+                type = "function",
+                function = ToolCallFunction(name = funcName, arguments = args)
+            ))
+        }
+
+        // Pattern 2: JSON tool calls {"name": "...", "arguments": {...}}
+        if (calls.isEmpty()) {
+            val jsonPattern = Regex("""\{"name"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*(\{[^}]*\})\}""")
+            jsonPattern.findAll(errorMsg).forEach { match ->
+                val funcName = match.groupValues[1]
+                val argsObj = match.groupValues[2]
+                calls.add(ai.openclaw.android.model.ToolCall(
+                    id = "local_tc_${System.nanoTime()}",
+                    type = "function",
+                    function = ToolCallFunction(name = funcName, arguments = argsObj)
+                ))
+            }
+        }
+
+        return if (calls.isNotEmpty()) calls else null
+    }
+
+    private fun parseCallParams(paramsStr: String): String {
+        if (paramsStr.isBlank()) return "{}"
+
+        // Try key="value" format
+        val kvPattern = Regex("""(\w+)\s*=\s*"([^"]*)"""")
+        val kvMatches = kvPattern.findAll(paramsStr).toList()
+        if (kvMatches.isNotEmpty()) {
+            val json = JSONObject()
+            kvMatches.forEach { match ->
+                json.put(match.groupValues[1], match.groupValues[2])
+            }
+            return json.toString()
+        }
+
+        // Try key=value format (no quotes)
+        val bareKvPattern = Regex("""(\w+)\s*=\s*(\S+)""")
+        val bareKvMatches = bareKvPattern.findAll(paramsStr).toList()
+        if (bareKvMatches.isNotEmpty()) {
+            val json = JSONObject()
+            bareKvMatches.forEach { match ->
+                json.put(match.groupValues[1], match.groupValues[2])
+            }
+            return json.toString()
+        }
+
+        // Bare param name (model didn't provide value) — use empty string
+        val bareName = paramsStr.trim()
+        if (bareName.isNotEmpty() && bareName.matches(Regex("""\w+"""))) {
+            return """{"$bareName": ""}"""
+        }
+
+        return "{}"
+    }
+
+    private fun stripToolCallTokens(text: String): String {
+        return text
+            .replace(Regex("""<\|tool_call\|>"""), "")
+            .replace(Regex("""<\|tool_end\|>"""), "")
+            .replace(Regex("""call:\w+\s*[\({][^}\)]*[}\)]"""), "")
+            .trim()
     }
 
     // ==================== Response Wrapping ====================

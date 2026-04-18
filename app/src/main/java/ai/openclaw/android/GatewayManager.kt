@@ -160,6 +160,9 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
                 localLLMClient = null
                 createCloudClient()
             } else {
+                client.setToolExecutor { toolName, argsJson ->
+                    executeLocalTool(toolName, argsJson)
+                }
                 client
             }
         } else {
@@ -385,6 +388,12 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             registerSkill(NotificationSkill(service))
         }
 
+        // Wire LocalLLMClient tool executor to skill system
+        // LiteRT calls execute() internally when the model decides to use a tool
+        localLLMClient?.setToolExecutor { toolName, argsJson ->
+            executeLocalTool(toolName, argsJson)
+        }
+
         // Initialize database first (needed by DynamicSkillManager)
         database = AppDatabase.getInstance(service)
 
@@ -579,5 +588,43 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         }
         client.configure(provider, apiKey, model, baseUrl)
         return client
+    }
+
+    /**
+     * Execute a tool call from the on-device model via the skill system.
+     * Called by LocalLLMClient when LiteRT's model decides to use a tool.
+     */
+    private suspend fun executeLocalTool(toolName: String, argsJson: String): String {
+        val sm = skillManager ?: return "{\"error\": \"SkillManager not ready\"}"
+        val bridge = accessibilityBridge
+
+        // Parse args
+        val params = try {
+            org.json.JSONObject(argsJson).let { json ->
+                val map = mutableMapOf<String, Any>()
+                for (key in json.keys()) map[key] = json.get(key)
+                map
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse tool args: $argsJson")
+            emptyMap<String, Any>()
+        }
+
+        // Skill tools have namespaced names: skillId_toolName
+        if (toolName.contains("_") && toolName.split("_").size >= 2) {
+            val result = sm.executeTool(toolName, params)
+            return if (result.success) result.output else (result.error ?: "Skill error")
+        }
+
+        // Accessibility tools
+        val tc = ai.openclaw.android.model.ToolCall(
+            id = "local_exec_${System.nanoTime()}",
+            type = "function",
+            function = ai.openclaw.android.model.ToolCallFunction(
+                name = toolName,
+                arguments = argsJson
+            )
+        )
+        return bridge?.execute(tc) ?: "Accessibility not available"
     }
 }
