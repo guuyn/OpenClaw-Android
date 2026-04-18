@@ -35,6 +35,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import ai.openclaw.android.voice.VoiceInteractionManager
 import ai.openclaw.android.voice.VoiceState
 import ai.openclaw.android.ui.A2UICard
@@ -61,7 +62,6 @@ import ai.openclaw.android.ui.theme.SciFiOnSurfaceVariant
 import ai.openclaw.android.ui.theme.SciFiPrimary
 import ai.openclaw.android.ui.theme.SciFiOutlineVariant
 import ai.openclaw.android.ui.theme.SciFiGlow
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.draw.clip
@@ -73,6 +73,29 @@ import java.text.SimpleDateFormat
 import java.util.*
 import org.a2ui.compose.rendering.A2UIRenderer
 import org.a2ui.compose.rendering.rememberA2UIRenderer
+import ai.openclaw.android.ui.components.ConnectionState
+import ai.openclaw.android.ui.components.EnergyBar
+import ai.openclaw.android.ui.components.HapticHelper
+import ai.openclaw.android.ui.components.StatusIndicator
+import ai.openclaw.android.ui.components.TypingCursor
+import ai.openclaw.android.ui.components.rememberHapticHelper
+import ai.openclaw.android.ui.theme.MonospaceAccent
+import ai.openclaw.android.ui.theme.gradientDivider
+import ai.openclaw.android.ui.theme.neonBorder
+import ai.openclaw.android.ui.theme.sciFiGlow
+import ai.openclaw.android.ui.theme.SciFiOnBackground
+import ai.openclaw.android.ui.theme.SciFiError
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 
 // ==================== A2UI Protocol Bridge ====================
 
@@ -242,6 +265,44 @@ fun ChatScreen(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
+        // Top bar
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = SciFiBackground.copy(alpha = 0.85f),
+            tonalElevation = 0.dp
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    StatusIndicator(state = ConnectionState.ONLINE)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "OpenClaw",
+                        color = SciFiOnBackground,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "· qwen-plus",
+                        color = SciFiOutlineVariant,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .gradientDivider()
+                )
+            }
+        }
+
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -274,13 +335,14 @@ fun ChatScreen(
             if (isLoading) {
                 item {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 8.dp, top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp
-                        )
+                        Text("🤖", fontSize = 16.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        SciFiThinkingDots()
                     }
                 }
             }
@@ -298,94 +360,107 @@ fun ChatScreen(
             )
         }
 
-        // 输入区
+        // Input area
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = SciFiBackground,
-            tonalElevation = 8.dp
+            color = SciFiBackground.copy(alpha = 0.6f),
+            tonalElevation = 0.dp
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .imePadding(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 轻量级输入框
-                Box(
+            Column {
+                var isInputFocused by remember { mutableStateOf(false) }
+
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 36.dp, max = 120.dp)
-                        .background(SciFiSurfaceVariant, RoundedCornerShape(24.dp))
-                        .border(
-                            width = 1.dp,
-                            color = SciFiOutlineVariant,
-                            shape = RoundedCornerShape(24.dp)
-                        )
-                        .focusRequester(focusRequester)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.CenterStart
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .imePadding(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (inputText.isEmpty()) {
-                        Text(
-                            text = "输入消息...",
-                            color = SciFiOnSurfaceVariant.copy(alpha = 0.6f)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 36.dp, max = 120.dp)
+                            .neonBorder(
+                                focused = isInputFocused,
+                                cornerRadius = 24.dp
+                            )
+                            .background(
+                                SciFiSurfaceVariant.copy(alpha = 0.6f),
+                                RoundedCornerShape(24.dp)
+                            )
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { isInputFocused = it.isFocused }
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (inputText.isEmpty()) {
+                            Text(
+                                text = "输入消息...",
+                                color = SciFiOnSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+                        BasicTextField(
+                            value = inputText,
+                            onValueChange = { inputText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = LocalTextStyle.current.copy(
+                                color = SciFiOnSurfaceVariant
+                            ),
+                            maxLines = 4
                         )
                     }
-                    BasicTextField(
-                        value = inputText,
-                        onValueChange = { inputText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        textStyle = LocalTextStyle.current.copy(
-                            color = SciFiOnSurfaceVariant
-                        ),
-                        maxLines = 4
-                    )
-                }
 
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // 发送按钮
-                IconButton(
-                    onClick = {
-                        if (inputText.isNotBlank() && !isLoading) {
-                            sendMessage(inputText)
-                            inputText = ""
-                        }
-                    },
-                    enabled = inputText.isNotBlank() && !isLoading,
-                    interactionSource = sendInteraction,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Send,
-                        contentDescription = "发送",
-                        modifier = Modifier.scale(sendScale),
-                        tint = if (inputText.isNotBlank() && !isLoading)
-                            SciFiPrimary
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                    )
-                }
-
-                // Voice button
-                if (voiceSessionHandler != null && voiceManager != null) {
                     Spacer(modifier = Modifier.width(4.dp))
-                    VoiceButton(
-                        voiceState = voiceState,
+
+                    val sendEnabled = inputText.isNotBlank() && !isLoading
+                    IconButton(
                         onClick = {
-                            if (voiceState != VoiceState.Idle) {
-                                voiceManager.cancelSession()
-                            } else if (voiceManager.hasRecordAudioPermission()) {
-                                voiceManager.startSession { transcript ->
-                                    voiceSessionHandler.invoke(transcript)
-                                }
-                            } else {
-                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            if (sendEnabled) {
+                                sendMessage(inputText)
+                                inputText = ""
                             }
+                        },
+                        enabled = sendEnabled,
+                        interactionSource = sendInteraction,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .then(
+                                if (sendEnabled) Modifier.sciFiGlow(radius = 4.dp)
+                                else Modifier
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Send,
+                            contentDescription = "发送",
+                            modifier = Modifier.scale(sendScale),
+                            tint = if (sendEnabled) SciFiPrimary
+                            else SciFiOnSurfaceVariant.copy(alpha = 0.38f)
+                        )
+                    }
+
+                    if (voiceManager != null) {
+                        IconButton(
+                            onClick = {
+                                if (voiceManager.hasRecordAudioPermission()) {
+                                    voiceManager.startSession { transcript ->
+                                        voiceSessionHandler?.invoke(transcript)
+                                    }
+                                } else {
+                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "语音输入",
+                                tint = SciFiOnSurfaceVariant
+                            )
                         }
-                    )
+                    }
                 }
+
+                EnergyBar(isFocused = isInputFocused)
             }
         }
     }
@@ -393,7 +468,7 @@ fun ChatScreen(
 
 // ==================== Message Bubble ====================
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MessageBubble(
     message: ChatMessage,
@@ -402,7 +477,37 @@ fun MessageBubble(
 ) {
     val isUser = message.role == "user"
     val clipboardManager = LocalClipboardManager.current
+    val sheetState = rememberModalBottomSheetState()
     var showMenu by remember { mutableStateOf(false) }
+
+    if (showMenu) {
+        ModalBottomSheet(
+            onDismissRequest = { showMenu = false },
+            sheetState = sheetState,
+            containerColor = SciFiSurfaceVariant
+        ) {
+            Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier.width(40.dp).height(4.dp)
+                            .background(SciFiOutlineVariant, RoundedCornerShape(2.dp))
+                    )
+                }
+                BottomMenuOption(Icons.Default.ContentCopy, "复制") {
+                    clipboardManager.setText(AnnotatedString(message.content))
+                    showMenu = false
+                }
+                if (!isUser) {
+                    BottomMenuOption(Icons.Default.Refresh, "重新生成") { showMenu = false }
+                }
+                BottomMenuOption(Icons.Default.Share, "分享") { showMenu = false }
+                BottomMenuOption(Icons.Default.Delete, "删除", tint = SciFiError) { showMenu = false }
+            }
+        }
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -414,9 +519,7 @@ fun MessageBubble(
                 message = message,
                 dateFormat = dateFormat,
                 onCardAction = onCardAction,
-                onLongClick = { showMenu = true },
-                showMenu = showMenu,
-                onShowMenuChange = { showMenu = it }
+                onLongClick = { showMenu = true }
             )
         } else {
             // AI 消息：暗色背景 + 青色左边框
@@ -424,9 +527,7 @@ fun MessageBubble(
                 message = message,
                 dateFormat = dateFormat,
                 onCardAction = onCardAction,
-                onLongClick = { showMenu = true },
-                showMenu = showMenu,
-                onShowMenuChange = { showMenu = it }
+                onLongClick = { showMenu = true }
             )
         }
     }
@@ -439,73 +540,49 @@ private fun UserMessageBubble(
     message: ChatMessage,
     dateFormat: SimpleDateFormat,
     onCardAction: (CardAction) -> Unit,
-    onLongClick: () -> Unit,
-    showMenu: Boolean,
-    onShowMenuChange: (Boolean) -> Unit
+    onLongClick: () -> Unit
 ) {
     val gradientBrush = Brush.horizontalGradient(
         colors = listOf(SciFiUserBubbleStart, SciFiUserBubbleEnd)
     )
-    val clipboard = LocalClipboardManager.current
 
-    Box {
-        Box(
-            modifier = Modifier
-                .animateContentSize(
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                )
-                .combinedClickable(
-                    onClick = { },
-                    onLongClick = onLongClick
-                )
-                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp))
-                .background(gradientBrush)
-                .padding(12.dp)
-        ) {
-            Column {
-                val segments = remember(message.content) { A2UICardParser.parse(message.content) }
-                for (segment in segments) {
-                    when (segment) {
-                        is MessageSegment.Text -> {
-                            Text(
-                                text = segment.text,
-                                color = Color.White
-                            )
-                        }
-                        is MessageSegment.A2UICard -> {
-                            A2UICardRouter(
-                                card = segment.card,
-                                onActionClick = onCardAction,
-                                modifier = Modifier.padding(vertical = 4.dp)
-                            )
-                        }
+    Box(
+        modifier = Modifier
+            .animateContentSize(
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+            )
+            .combinedClickable(
+                onClick = { },
+                onLongClick = onLongClick
+            )
+            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp))
+            .background(gradientBrush)
+            .padding(12.dp)
+    ) {
+        Column {
+            val segments = remember(message.content) { A2UICardParser.parse(message.content) }
+            for (segment in segments) {
+                when (segment) {
+                    is MessageSegment.Text -> {
+                        Text(
+                            text = segment.text,
+                            color = Color.White
+                        )
+                    }
+                    is MessageSegment.A2UICard -> {
+                        A2UICardRouter(
+                            card = segment.card,
+                            onActionClick = onCardAction,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
                     }
                 }
-                Text(
-                    text = dateFormat.format(Date(message.timestamp)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(top = 4.dp)
-                )
             }
-        }
-
-        DropdownMenu(
-            expanded = showMenu,
-            onDismissRequest = { onShowMenuChange(false) }
-        ) {
-            DropdownMenuItem(
-                text = { Text("复制") },
-                leadingIcon = { Icon(Icons.Default.ContentCopy, "复制") },
-                onClick = {
-                    clipboard.setText(AnnotatedString(message.content))
-                    onShowMenuChange(false)
-                }
-            )
-            DropdownMenuItem(
-                text = { Text("删除") },
-                leadingIcon = { Icon(Icons.Default.Delete, "删除") },
-                onClick = { onShowMenuChange(false) }
+            Text(
+                text = dateFormat.format(Date(message.timestamp)),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 4.dp)
             )
         }
     }
@@ -518,116 +595,103 @@ private fun AiMessageBubble(
     message: ChatMessage,
     dateFormat: SimpleDateFormat,
     onCardAction: (CardAction) -> Unit,
-    onLongClick: () -> Unit,
-    showMenu: Boolean,
-    onShowMenuChange: (Boolean) -> Unit
+    onLongClick: () -> Unit
 ) {
-    val clipboard = LocalClipboardManager.current
-
-    Box {
-        Box(
-            modifier = Modifier
-                .animateContentSize(
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-                )
-                .combinedClickable(
-                    onClick = { },
-                    onLongClick = onLongClick
-                )
-                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 16.dp))
-                .background(SciFiAiBubbleBg)
-                .drawBehind {
-                    // 青色左边框
-                    drawLine(
-                        color = SciFiAiBubbleBorder,
-                        start = Offset(0f, 8.dp.toPx()),
-                        end = Offset(0f, size.height - 8.dp.toPx()),
-                        strokeWidth = 2.dp.toPx()
-                    )
-                }
-                .padding(start = 14.dp, top = 12.dp, end = 12.dp, bottom = 12.dp)
-        ) {
-            Column {
-                val segments = remember(message.content) { A2UICardParser.parse(message.content) }
-                val a2uiRenderer = rememberA2UIRenderer()
-
-                val a2uiSegments = segments.filterIsInstance<MessageSegment.A2UICard>()
-                if (a2uiSegments.isNotEmpty()) {
-                    LaunchedEffect(message.id) {
-                        try {
-                            for (cardSegment in a2uiSegments) {
-                                val a2uiMessage = tryBuildA2UIMessage(cardSegment.card)
-                                if (a2uiMessage != null) {
-                                    a2uiRenderer.processMessage(a2uiMessage)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.e("ChatScreen", "A2UI processMessage failed", e)
-                        }
-                    }
-
-                    for (segment in segments) {
-                        when (segment) {
-                            is MessageSegment.Text -> {
-                                Text(
-                                    text = segment.text,
-                                    color = SciFiOnSurfaceVariant
-                                )
-                            }
-                            is MessageSegment.A2UICard -> {
-                                A2UICardRouter(
-                                    card = segment.card,
-                                    onActionClick = onCardAction,
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    for (segment in segments) {
-                        when (segment) {
-                            is MessageSegment.Text -> {
-                                Text(
-                                    text = segment.text,
-                                    color = SciFiOnSurfaceVariant
-                                )
-                            }
-                            is MessageSegment.A2UICard -> {
-                                A2UICardRouter(
-                                    card = segment.card,
-                                    onActionClick = onCardAction,
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Text(
-                    text = dateFormat.format(Date(message.timestamp)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = SciFiOnSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(top = 4.dp)
+    Box(
+        modifier = Modifier
+            .animateContentSize(
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+            )
+            .combinedClickable(
+                onClick = { },
+                onLongClick = onLongClick
+            )
+            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 16.dp))
+            .background(SciFiAiBubbleBg)
+            .drawBehind {
+                // 青色左边框
+                drawLine(
+                    color = SciFiAiBubbleBorder,
+                    start = Offset(0f, 8.dp.toPx()),
+                    end = Offset(0f, size.height - 8.dp.toPx()),
+                    strokeWidth = 2.dp.toPx()
                 )
             }
-        }
+            .padding(start = 14.dp, top = 12.dp, end = 12.dp, bottom = 12.dp)
+    ) {
+        Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 4.dp)
+            ) {
+                Text(
+                    text = "🤖 OpenClaw",
+                    style = MonospaceAccent,
+                    color = SciFiOutlineVariant
+                )
+            }
+            val segments = remember(message.content) { A2UICardParser.parse(message.content) }
+            val a2uiRenderer = rememberA2UIRenderer()
 
-        DropdownMenu(
-            expanded = showMenu,
-            onDismissRequest = { onShowMenuChange(false) }
-        ) {
-            DropdownMenuItem(
-                text = { Text("复制") },
-                leadingIcon = { Icon(Icons.Default.ContentCopy, "复制") },
-                onClick = {
-                    clipboard.setText(AnnotatedString(message.content))
-                    onShowMenuChange(false)
+            val a2uiSegments = segments.filterIsInstance<MessageSegment.A2UICard>()
+            if (a2uiSegments.isNotEmpty()) {
+                LaunchedEffect(message.id) {
+                    try {
+                        for (cardSegment in a2uiSegments) {
+                            val a2uiMessage = tryBuildA2UIMessage(cardSegment.card)
+                            if (a2uiMessage != null) {
+                                a2uiRenderer.processMessage(a2uiMessage)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("ChatScreen", "A2UI processMessage failed", e)
+                    }
                 }
-            )
-            DropdownMenuItem(
-                text = { Text("删除") },
-                leadingIcon = { Icon(Icons.Default.Delete, "删除") },
-                onClick = { onShowMenuChange(false) }
+
+                for (segment in segments) {
+                    when (segment) {
+                        is MessageSegment.Text -> {
+                            Text(
+                                text = segment.text,
+                                color = SciFiOnSurfaceVariant
+                            )
+                        }
+                        is MessageSegment.A2UICard -> {
+                            A2UICardRouter(
+                                card = segment.card,
+                                onActionClick = onCardAction,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            } else {
+                for (segment in segments) {
+                    when (segment) {
+                        is MessageSegment.Text -> {
+                            Text(
+                                text = segment.text,
+                                color = SciFiOnSurfaceVariant
+                            )
+                        }
+                        is MessageSegment.A2UICard -> {
+                            A2UICardRouter(
+                                card = segment.card,
+                                onActionClick = onCardAction,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = dateFormat.format(Date(message.timestamp)),
+                style = MonospaceAccent,
+                color = SciFiOnSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .align(Alignment.End)
             )
         }
     }
@@ -739,5 +803,58 @@ fun VoiceButton(
                 else -> MaterialTheme.colorScheme.primary
             }
         )
+    }
+}
+
+@Composable
+private fun SciFiThinkingDots() {
+    val infiniteTransition = rememberInfiniteTransition()
+    Row(
+        modifier = Modifier.padding(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(3) { index ->
+            val scale by infiniteTransition.animateFloat(
+                initialValue = 0.6f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 600, delayMillis = index * 200),
+                    repeatMode = RepeatMode.Reverse
+                )
+            )
+            val alpha by infiniteTransition.animateFloat(
+                initialValue = 0.3f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 600, delayMillis = index * 200),
+                    repeatMode = RepeatMode.Reverse
+                )
+            )
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(SciFiPrimary.copy(alpha = alpha), CircleShape)
+                    .scale(scale)
+            )
+        }
+    }
+}
+
+@Composable
+private fun BottomMenuOption(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color = SciFiOnBackground,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, label, tint = tint, modifier = Modifier.size(24.dp))
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(label, fontSize = 16.sp, color = tint)
     }
 }
