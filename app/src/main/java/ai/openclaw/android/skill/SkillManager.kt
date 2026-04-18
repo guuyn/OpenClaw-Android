@@ -60,7 +60,7 @@ class SkillManager(private val context: Context) {
     }
     
     suspend fun executeTool(fullName: String, params: Map<String, Any>): SkillResult {
-        val (skillId, toolName) = parseToolName(fullName)
+        val (skillId, toolName) = parseToolName(fullName, loadedSkills.keys)
         val skill = loadedSkills[skillId]
         
         if (skill == null) {
@@ -146,7 +146,14 @@ class SkillManager(private val context: Context) {
         }
     }
     
-    private fun parseToolName(fullName: String): Pair<String, String> {
+    private fun parseToolName(fullName: String, knownSkillIds: Set<String> = emptySet()): Pair<String, String> {
+        // Try to match known skill IDs (longest match first) to handle IDs containing underscores
+        for (skillId in knownSkillIds.sortedByDescending { it.length }) {
+            if (fullName.startsWith("${skillId}_")) {
+                return Pair(skillId, fullName.removePrefix("${skillId}_"))
+            }
+        }
+        // Fallback: split on first underscore
         val parts = fullName.split("_", limit = 2)
         return if (parts.size == 2) {
             Pair(parts[0], parts[1])

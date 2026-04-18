@@ -1,6 +1,6 @@
 package ai.openclaw.android.agent
 
-import ai.openclaw.android.data.model.AgentConfig
+import ai.openclaw.android.config.AgentConfig
 import ai.openclaw.android.model.*
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.skill.SkillManager
