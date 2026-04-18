@@ -26,7 +26,7 @@
 | 4 | 多 Agent 消息路由 | **✅ 已完成** | AgentRouter 关键词匹配路由已在 CLAUDE.md 中记录 |
 | 4 | 会话压缩质量提升 | 基础实现 | SessionCompressor 已实现，摘要缓存、跨会话记忆关联待做 |
 | 5 | 补充测试覆盖 | 部分完成 | **158 测试全部通过**；LLM 客户端 mock、Compose UI 测试缺失 |
-| 6 | ScriptSkill MemoryBridge 对接 | **未对接** | 代码已集成但返回 `{"error":"Memory not yet integrated"}` |
+| 6 | ~~ScriptSkill MemoryBridge 对接~~ | ✅ **已完成 2026-04-18** | MemoryManager 注入 + MemoryBridge 实现 recall/store，代码验证通过 |
 
 ---
 
@@ -40,7 +40,7 @@
 | 4 | ML 通知分类 | 未实现 | `NotificationMLClassifier` 始终返回 null |
 | 5 | 飞书集成 | 骨架代码 | 302 行基础 HTTP 客户端，无实际业务逻辑 |
 | 6 | 国际化 | 未开始 | UI 文案硬编码中文 |
-| 7 | 本地通知发送 | **未实现** | `SmartNotificationListener.kt:155` TODO |
+| 7 | ~~本地通知发送~~ | ✅ **已完成** | NotificationSkill 已实现 5 个工具：list_notifications、send_notification、delete_notification、clear_notifications、mark_notification_read |
 | 8 | ~~A2UI 卡片系统 v2~~ | ✅ **已完成** | 14 种卡片 + 解析器 + 回调机制 + 3 个技能适配 + 兜底机制 |
 | 9 | ScriptEngine 生产化 | **原型阶段** | Rhino 原型 + 9 文件 + 60 测试；待 QuickJS JNI + 安全沙箱完善 |
 
