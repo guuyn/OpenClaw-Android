@@ -14,6 +14,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.unit.dp
+import ai.openclaw.android.ui.theme.SciFiPrimary
+import ai.openclaw.android.ui.theme.SciFiSurfaceVariant
+import ai.openclaw.android.ui.theme.SciFiOnSurfaceVariant
 
 /**
  * AI 打字指示器 - 三个跳动小圆点动画
@@ -28,7 +31,7 @@ fun TypingIndicator(modifier: Modifier = Modifier) {
         // AI 头像
         Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.tertiaryContainer,
+            color = SciFiSurfaceVariant,
             modifier = Modifier.size(28.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -49,7 +52,7 @@ fun TypingIndicator(modifier: Modifier = Modifier) {
                 bottomStart = 4.dp,
                 bottomEnd = 16.dp
             ),
-            color = MaterialTheme.colorScheme.surfaceVariant,
+            color = SciFiSurfaceVariant,
             tonalElevation = 1.dp
         ) {
             Row(
@@ -66,7 +69,7 @@ fun TypingIndicator(modifier: Modifier = Modifier) {
                 Text(
                     text = "正在输入",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = SciFiOnSurfaceVariant
                 )
             }
         }
@@ -100,7 +103,7 @@ private fun DotAnimation(delay: Int) {
             .size(6.dp)
             .scale(scale)
             .background(
-                color = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+                color = SciFiPrimary.copy(alpha = alpha),
                 shape = CircleShape
             )
     )

@@ -21,9 +21,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import ai.openclaw.android.LogManager
 import ai.openclaw.android.permission.PermissionManager
+import ai.openclaw.android.ui.theme.SciFiPrimary
+import ai.openclaw.android.ui.theme.SciFiError
+import ai.openclaw.android.ui.theme.SciFiSurfaceVariant
+import ai.openclaw.android.ui.theme.SciFiOutline
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
@@ -60,7 +66,12 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Gateway 服务状态卡片
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, SciFiOutline)
+        ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -99,7 +110,12 @@ fun SettingsScreen(
         }
 
         // 模型配置卡片
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, SciFiOutline)
+        ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -249,7 +265,12 @@ fun SettingsScreen(
         )
 
         // 日志卡片
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, SciFiOutline)
+        ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -297,7 +318,7 @@ fun SettingsScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = when (log.level) {
                                         "ERROR" -> MaterialTheme.colorScheme.error
-                                        "WARN" -> Color(0xFFFFA500)
+                                        "WARN" -> SciFiError
                                         else -> MaterialTheme.colorScheme.onSurface
                                     }
                                 )
@@ -340,7 +361,12 @@ fun PermissionsCard(
         permissionManager.getAllPermissionGroups()
     }
 
-    Card(modifier = modifier.fillMaxWidth()) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, SciFiOutline)
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -406,7 +432,7 @@ private fun PermissionRow(
         Icon(
             imageVector = if (isGranted) Icons.Default.CheckCircle else Icons.Default.Warning,
             contentDescription = null,
-            tint = if (isGranted) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+            tint = if (isGranted) SciFiPrimary else MaterialTheme.colorScheme.error,
             modifier = Modifier.size(20.dp)
         )
         Spacer(modifier = Modifier.width(12.dp))
@@ -419,7 +445,7 @@ private fun PermissionRow(
             Text(
                 text = "已授权",
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF4CAF50)
+                color = SciFiPrimary
             )
         } else {
             TextButton(onClick = onGrant) {

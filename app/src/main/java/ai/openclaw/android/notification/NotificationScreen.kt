@@ -13,6 +13,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -21,6 +23,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.*
+import ai.openclaw.android.ui.theme.SciFiPrimary
+import ai.openclaw.android.ui.theme.SciFiSurfaceVariant
+import ai.openclaw.android.ui.theme.SciFiOutline
+import ai.openclaw.android.ui.theme.SciFiOnSurfaceVariant
+import ai.openclaw.android.ui.theme.SciFiOutlineVariant
 
 /**
  * 通知管理页面
@@ -198,11 +205,21 @@ fun NotificationItem(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    if (!notification.isRead) Modifier.drawBehind {
+                        drawLine(
+                            color = SciFiPrimary,
+                            start = Offset(0f, 0f),
+                            end = Offset(0f, size.height),
+                            strokeWidth = 4.dp.toPx()
+                        )
+                    } else Modifier
+                )
                 .combinedClickable(
                     onClick = { if (!notification.isRead) onMarkAsRead() },
                     onLongClick = { showMenu = true }
                 ),
-            colors = CardDefaults.cardColors(containerColor = categoryColor),
+            colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant),
             shape = RoundedCornerShape(12.dp)
         ) {
             Box {
@@ -220,17 +237,17 @@ fun NotificationItem(
                             Text(
                                 text = appName,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (notification.isRead) SciFiOutlineVariant else SciFiOnSurfaceVariant
                             )
                         }
-                        
+
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (!notification.isRead) {
                                 Icon(
                                     imageVector = Icons.Default.FiberManualRecord,
                                     contentDescription = "未读",
                                     modifier = Modifier.size(8.dp),
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = SciFiPrimary
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                             }
@@ -241,11 +258,11 @@ fun NotificationItem(
                                     dayFormat.format(Date(notification.timestamp))
                                 },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (notification.isRead) SciFiOutlineVariant else SciFiOnSurfaceVariant
                             )
                         }
                     }
-                    
+
                     // 通知标题
                     if (notification.title.isNotBlank()) {
                         Text(
@@ -254,10 +271,11 @@ fun NotificationItem(
                             fontWeight = FontWeight.Bold,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
+                            color = if (notification.isRead) SciFiOutlineVariant else Color.Unspecified,
                             modifier = Modifier.padding(top = 4.dp)
                         )
                     }
-                    
+
                     // 通知内容
                     if (notification.text.isNotBlank()) {
                         Text(
@@ -265,6 +283,7 @@ fun NotificationItem(
                             style = MaterialTheme.typography.bodyMedium,
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis,
+                            color = if (notification.isRead) SciFiOutlineVariant else Color.Unspecified,
                             modifier = Modifier.padding(top = 4.dp)
                         )
                     }
@@ -346,7 +365,7 @@ fun PermissionRequestCard(onRequestPermission: () -> Unit) {
                 .fillMaxWidth(0.9f)
                 .padding(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                containerColor = SciFiSurfaceVariant
             )
         ) {
             Column(
@@ -357,7 +376,7 @@ fun PermissionRequestCard(onRequestPermission: () -> Unit) {
                     imageVector = Icons.Default.NotificationsActive,
                     contentDescription = "通知权限",
                     modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = SciFiPrimary
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
@@ -375,7 +394,7 @@ fun PermissionRequestCard(onRequestPermission: () -> Unit) {
                 Button(
                     onClick = onRequestPermission,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
+                        containerColor = SciFiPrimary
                     )
                 ) {
                     Icon(Icons.Default.Settings, "设置")

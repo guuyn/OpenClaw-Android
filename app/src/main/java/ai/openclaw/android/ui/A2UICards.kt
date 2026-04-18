@@ -3,6 +3,7 @@ package ai.openclaw.android.ui
 import ai.openclaw.android.ui.theme.SciFiSurfaceVariant
 import ai.openclaw.android.ui.theme.SciFiPrimary
 import ai.openclaw.android.ui.theme.SciFiOnSurfaceVariant
+import ai.openclaw.android.ui.theme.SciFiOutline
 import ai.openclaw.android.ui.theme.SciFiGlow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,12 +46,20 @@ private fun CardContainer(
 ) {
     Card(
         shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant),
+        colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant.copy(alpha = 0.7f)),
         modifier = modifier
             .fillMaxWidth()
+            .drawBehind {
+                drawLine(
+                    color = SciFiPrimary,
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 2.dp.toPx()
+                )
+            }
             .border(
                 width = 1.dp,
-                color = SciFiGlow,
+                color = SciFiOutline,
                 shape = CardShape
             )
     ) {

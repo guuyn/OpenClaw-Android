@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -856,5 +857,86 @@ private fun BottomMenuOption(
         Icon(icon, label, tint = tint, modifier = Modifier.size(24.dp))
         Spacer(modifier = Modifier.width(16.dp))
         Text(label, fontSize = 16.sp, color = tint)
+    }
+}
+
+/** Full-page error card — sci-fi styled with friendly Chinese text */
+@Composable
+fun SciFiErrorCard(
+    title: String,
+    description: String,
+    onRetry: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.padding(16.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = SciFiSurfaceVariant,
+        border = BorderStroke(1.dp, SciFiError)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("⚠", fontSize = 24.sp, color = SciFiError)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(title, color = SciFiOnBackground, fontWeight = FontWeight.Medium)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(description, color = SciFiOnSurfaceVariant, fontSize = 13.sp)
+            if (onRetry != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onRetry,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = SciFiPrimary),
+                    border = BorderStroke(1.dp, SciFiPrimary)
+                ) {
+                    Text("重新连接")
+                }
+            }
+        }
+    }
+}
+
+/** Inline error card for chat stream */
+@Composable
+fun InlineErrorCard(
+    errorCode: String,
+    message: String,
+    onRetry: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.padding(vertical = 4.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = SciFiError.copy(alpha = 0.1f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    drawLine(
+                        color = SciFiError,
+                        start = Offset(0f, 0f),
+                        end = Offset(0f, size.height),
+                        strokeWidth = 2.dp.toPx()
+                    )
+                }
+                .padding(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("⚠", fontSize = 12.sp, color = SciFiError)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(errorCode, style = MonospaceAccent, color = SciFiError)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(message, color = SciFiOnSurfaceVariant, fontSize = 13.sp)
+            }
+            if (onRetry != null) {
+                TextButton(onClick = onRetry) {
+                    Text("重试", color = SciFiPrimary, fontSize = 12.sp)
+                }
+            }
+        }
     }
 }
