@@ -17,6 +17,8 @@ import ai.openclaw.android.model.BailianClient
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
+import ai.openclaw.android.model.OpenAIClient
+import ai.openclaw.android.model.AnthropicClient
 import ai.openclaw.android.skill.SkillManager
 import ai.openclaw.android.skill.builtin.WeatherSkill
 import ai.openclaw.android.skill.builtin.MultiSearchSkill
@@ -147,6 +149,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         ConfigManager.setModelProvider(config.provider.name)
         ConfigManager.setModelApiKey(config.apiKey)
         ConfigManager.setModelName(config.modelName)
+        ConfigManager.setModelBaseUrl(config.baseUrl)
 
         // 3. Create new model client
         modelClient = if (config.provider == ModelProvider.LOCAL) {
@@ -154,7 +157,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             localLLMClient = client
             val loaded = client.initialize()
             if (!loaded) {
-                Log.e(TAG, "Failed to load local model, falling back to BAILIAN")
+                Log.e(TAG, "Failed to load local model, falling back to cloud")
                 localLLMClient = null
                 createCloudClient()
             } else {
@@ -346,8 +349,8 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         val provider = try {
             ModelProvider.valueOf(providerName)
         } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "Unknown provider: $providerName, falling back to BAILIAN")
-            ModelProvider.BAILIAN
+            Log.w(TAG, "Unknown provider: $providerName, falling back to OPENAI")
+            ModelProvider.OPENAI
         }
 
         modelClient = if (provider == ModelProvider.LOCAL) {
@@ -356,7 +359,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             localLLMClient = client
             val loaded = client.initialize()
             if (!loaded) {
-                Log.e(TAG, "Failed to load local model, falling back to BAILIAN")
+                Log.e(TAG, "Failed to load local model, falling back to cloud")
                 localLLMClient = null
                 createCloudClient()
             } else {
@@ -561,13 +564,16 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         }
     }
 
-    private fun createCloudClient(provider: ModelProvider = ModelProvider.BAILIAN): ModelClient {
-        return BailianClient().apply {
-            configure(
-                provider = provider,
-                apiKey = ConfigManager.getModelApiKey(),
-                model = ConfigManager.getModelName()
-            )
+    private fun createCloudClient(provider: ModelProvider = ModelProvider.OPENAI): ModelClient {
+        val baseUrl = ConfigManager.getEffectiveBaseUrl()
+        val apiKey = ConfigManager.getModelApiKey()
+        val model = ConfigManager.getModelName()
+
+        val client: ModelClient = when (provider) {
+            ModelProvider.ANTHROPIC -> AnthropicClient()
+            else -> OpenAIClient() // OPENAI + BAILIAN both use OpenAI-compatible API
         }
+        client.configure(provider, apiKey, model, baseUrl)
+        return client
     }
 }

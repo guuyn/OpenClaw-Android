@@ -334,7 +334,7 @@ class LocalLLMClient(private val context: Context) : ModelClient {
         }
     }.flowOn(Dispatchers.IO)
 
-    override fun configure(provider: ModelProvider, apiKey: String, model: String) {
+    override fun configure(provider: ModelProvider, apiKey: String, model: String, baseUrl: String) {
         // Local model doesn't need API key
     }
 

@@ -20,6 +20,8 @@ import ai.openclaw.android.model.BailianClient
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
+import ai.openclaw.android.model.OpenAIClient
+import ai.openclaw.android.model.AnthropicClient
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.skill.SkillManager
 import androidx.lifecycle.ViewModel
@@ -86,7 +88,7 @@ class ChatViewModel(
                 val modelProvider = try {
                     ConfigManager.getModelProvider()
                 } catch (_: Exception) {
-                    "BAILIAN"
+                    "OPENAI"
                 }
 
                 // 初始化模型客户端
@@ -118,7 +120,7 @@ class ChatViewModel(
         val provider = try {
             ModelProvider.valueOf(modelProvider)
         } catch (_: Exception) {
-            ModelProvider.BAILIAN
+            ModelProvider.OPENAI
         }
 
         if (provider == ModelProvider.LOCAL) {
@@ -126,27 +128,29 @@ class ChatViewModel(
             localLLMClient = client
             val loaded = client.initialize()
             if (!loaded) {
-                Log.e(TAG, "本地模型加载失败，回退到百炼")
+                Log.e(TAG, "本地模型加载失败，回退到云端")
                 localLLMClient = null
-                val cloudClient = BailianClient()
-                cloudClient.configure(
-                    provider = ModelProvider.BAILIAN,
-                    apiKey = ConfigManager.getModelApiKey(),
-                    model = ConfigManager.getModelName()
-                )
+                val cloudClient = createCloudClient(ModelProvider.OPENAI)
                 modelClient = cloudClient
             } else {
                 modelClient = client
             }
         } else {
-            val cloudClient = BailianClient()
-            cloudClient.configure(
-                provider = provider,
-                apiKey = ConfigManager.getModelApiKey(),
-                model = ConfigManager.getModelName()
-            )
-            modelClient = cloudClient
+            modelClient = createCloudClient(provider)
         }
+    }
+
+    private fun createCloudClient(provider: ModelProvider): ModelClient {
+        val baseUrl = ConfigManager.getEffectiveBaseUrl()
+        val apiKey = ConfigManager.getModelApiKey()
+        val model = ConfigManager.getModelName()
+
+        val client: ModelClient = when (provider) {
+            ModelProvider.ANTHROPIC -> AnthropicClient()
+            else -> OpenAIClient()
+        }
+        client.configure(provider, apiKey, model, baseUrl)
+        return client
     }
 
     /**
@@ -301,12 +305,13 @@ class ChatViewModel(
     /**
      * 更新模型配置并重新初始化 AgentSession
      */
-    fun updateConfig(context: Context, provider: String, apiKey: String, modelName: String) {
+    fun updateConfig(context: Context, provider: String, apiKey: String, modelName: String, baseUrl: String = "") {
         viewModelScope.launch {
             try {
                 ConfigManager.setModelApiKey(apiKey)
                 ConfigManager.setModelName(modelName)
                 ConfigManager.setModelProvider(provider)
+                ConfigManager.setModelBaseUrl(baseUrl)
 
                 // 释放旧的本地模型资源
                 localLLMClient?.release()

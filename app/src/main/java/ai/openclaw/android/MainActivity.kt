@@ -108,8 +108,9 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
     var modelApiKey by remember { mutableStateOf("") }
     var modelName by remember { mutableStateOf("qwen-plus") }
     var modelProvider by remember { mutableStateOf(
-        try { ConfigManager.getModelProvider() } catch (_: Exception) { "BAILIAN" }
+        try { ConfigManager.getModelProvider() } catch (_: Exception) { "OPENAI" }
     ) }
+    var modelBaseUrl by remember { mutableStateOf("") }
 
     // UI state
     var serviceRunning by remember { mutableStateOf(false) }
@@ -183,7 +184,8 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
 
         modelApiKey = ConfigManager.getModelApiKey()
         modelName = ConfigManager.getModelName()
-        modelProvider = try { ConfigManager.getModelProvider() } catch (_: Exception) { "BAILIAN" }
+        modelProvider = try { ConfigManager.getModelProvider() } catch (_: Exception) { "OPENAI" }
+        modelBaseUrl = ConfigManager.getModelBaseUrl()
         serviceRunning = ConfigManager.isServiceEnabled()
     }
 
@@ -368,6 +370,8 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                 onModelNameChange = { modelName = it },
                 modelProvider = modelProvider,
                 onModelProviderChange = { modelProvider = it },
+                modelBaseUrl = modelBaseUrl,
+                onModelBaseUrlChange = { modelBaseUrl = it },
                 configExpanded = configExpanded,
                 onConfigExpandedChange = { configExpanded = it },
                 logExpanded = logExpanded,
@@ -380,10 +384,11 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                                 provider = try {
                                     ModelProvider.valueOf(modelProvider)
                                 } catch (_: Exception) {
-                                    ModelProvider.BAILIAN
+                                    ModelProvider.OPENAI
                                 },
                                 apiKey = modelApiKey,
-                                modelName = modelName
+                                modelName = modelName,
+                                baseUrl = modelBaseUrl
                             )
                         )
                         if (success == true) {
@@ -421,6 +426,8 @@ fun SettingsScreen(
     onModelNameChange: (String) -> Unit,
     modelProvider: String,
     onModelProviderChange: (String) -> Unit,
+    modelBaseUrl: String,
+    onModelBaseUrlChange: (String) -> Unit,
     configExpanded: Boolean,
     onConfigExpandedChange: (Boolean) -> Unit,
     logExpanded: Boolean,
@@ -524,9 +531,15 @@ fun SettingsScreen(
                             .padding(top = 8.dp)
                     ) {
                         FilterChip(
-                            selected = modelProvider == "BAILIAN",
-                            onClick = { onModelProviderChange("BAILIAN") },
-                            label = { Text("百炼") }
+                            selected = modelProvider == "OPENAI",
+                            onClick = { onModelProviderChange("OPENAI") },
+                            label = { Text("OpenAI") }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        FilterChip(
+                            selected = modelProvider == "ANTHROPIC",
+                            onClick = { onModelProviderChange("ANTHROPIC") },
+                            label = { Text("Anthropic") }
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         FilterChip(
@@ -550,14 +563,28 @@ fun SettingsScreen(
                                 .padding(top = 8.dp),
                             singleLine = true
                         )
-                    }
 
-                    if (modelProvider != "LOCAL") {
                         OutlinedTextField(
                             value = modelName,
                             onValueChange = onModelNameChange,
                             label = { Text("Model Name") },
                             placeholder = { Text("qwen-plus") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            singleLine = true
+                        )
+
+                        OutlinedTextField(
+                            value = modelBaseUrl,
+                            onValueChange = onModelBaseUrlChange,
+                            label = { Text("Base URL (可选)") },
+                            placeholder = { Text(
+                                when (modelProvider) {
+                                    "ANTHROPIC" -> "https://api.anthropic.com"
+                                    else -> "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                                }
+                            ) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp),

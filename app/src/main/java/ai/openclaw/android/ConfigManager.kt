@@ -17,6 +17,7 @@ object ConfigManager {
     private const val KEY_MODEL_API_KEY = "model_api_key"
     private const val KEY_MODEL_NAME = "model_name"
     private const val KEY_MODEL_PROVIDER = "model_provider"
+    private const val KEY_MODEL_BASE_URL = "model_base_url"
     private const val KEY_SERVICE_ENABLED = "service_enabled"
     private const val KEY_FEISHU_APP_ID = "feishu_app_id"
     private const val KEY_FEISHU_APP_SECRET = "feishu_app_secret"
@@ -69,13 +70,21 @@ object ConfigManager {
     }
     
     fun getModelProvider(): String {
-        return prefs.getString(KEY_MODEL_PROVIDER, "BAILIAN") ?: "BAILIAN"
+        return prefs.getString(KEY_MODEL_PROVIDER, "OPENAI") ?: "OPENAI"
     }
-    
+
     fun setModelProvider(provider: String) {
         prefs.edit().putString(KEY_MODEL_PROVIDER, provider).apply()
     }
-    
+
+    fun getModelBaseUrl(): String {
+        return prefs.getString(KEY_MODEL_BASE_URL, "") ?: ""
+    }
+
+    fun setModelBaseUrl(baseUrl: String) {
+        prefs.edit().putString(KEY_MODEL_BASE_URL, baseUrl).apply()
+    }
+
     fun hasModelCredentials(): Boolean {
         return getModelApiKey().isNotEmpty()
     }
@@ -125,6 +134,19 @@ object ConfigManager {
             hasModelCredentials()
         }
     }
+
+    /**
+     * Get the effective base URL for the current provider.
+     * Returns the user-configured URL or the provider's default.
+     */
+    fun getEffectiveBaseUrl(): String {
+        val custom = getModelBaseUrl()
+        if (custom.isNotEmpty()) return custom
+        return when (getModelProvider()) {
+            "ANTHROPIC" -> "https://api.anthropic.com"
+            else -> "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        }
+    }
     
     /**
      * Clear all configuration
@@ -141,6 +163,7 @@ object ConfigManager {
         return mapOf(
             "model_name" to getModelName(),
             "model_provider" to getModelProvider(),
+            "model_base_url" to getModelBaseUrl(),
             "service_enabled" to isServiceEnabled(),
             "has_model_key" to getModelApiKey().isNotEmpty()
         )

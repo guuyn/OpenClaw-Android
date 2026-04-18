@@ -26,7 +26,7 @@ class OpenAIClient : ModelClient {
 
     companion object {
         private const val TAG = "OpenAIClient"
-        private const val API_URL = "https://api.openai.com/v1/chat/completions"
+        private const val DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
         private const val MEDIA_TYPE_JSON = "application/json; charset=utf-8"
     }
 
@@ -43,11 +43,13 @@ class OpenAIClient : ModelClient {
         .build()
 
     private var apiKey: String = ""
-    private var model: String = "gpt-4o"
+    private var model: String = "MiniMax-M2.5"
+    private var baseUrl: String = DEFAULT_BASE_URL
 
-    override fun configure(provider: ModelProvider, apiKey: String, model: String) {
+    override fun configure(provider: ModelProvider, apiKey: String, model: String, baseUrl: String) {
         this.apiKey = apiKey
         this.model = model
+        this.baseUrl = baseUrl.ifEmpty { DEFAULT_BASE_URL }
     }
 
     override suspend fun chat(
@@ -110,7 +112,7 @@ class OpenAIClient : ModelClient {
         bodyBuilder.append("}")
 
         val httpRequest = Request.Builder()
-            .url(API_URL)
+            .url("$baseUrl/chat/completions")
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
             .apply { if (stream) addHeader("Accept", "text/event-stream") }

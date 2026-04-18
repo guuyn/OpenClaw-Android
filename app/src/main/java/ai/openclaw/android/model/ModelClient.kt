@@ -28,7 +28,7 @@ interface ModelClient {
     /**
      * Set the model provider and API key
      */
-    fun configure(provider: ModelProvider, apiKey: String, model: String)
+    fun configure(provider: ModelProvider, apiKey: String, model: String, baseUrl: String = "")
 }
 
 /**

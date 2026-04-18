@@ -6,6 +6,8 @@ import ai.openclaw.android.agent.AgentSession
 import ai.openclaw.android.data.model.AgentConfig as DataAgentConfig
 import ai.openclaw.android.config.AgentConfig
 import ai.openclaw.android.model.BailianClient
+import ai.openclaw.android.model.OpenAIClient
+import ai.openclaw.android.model.AnthropicClient
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
@@ -127,27 +129,31 @@ open class AgentSessionManager(
      * Marked `protected open` so tests can override with a mock.
      */
     protected open fun createModelClient(config: DataAgentConfig): ModelClient {
-        // Parse model string: "bailian/qwen3.5-plus" → provider=bailian, name=qwen3.5-plus
-        // Also handle "LOCAL" provider for on-device model
+        // Parse model string: "openai/qwen3.5-plus" → provider=openai, name=qwen3.5-plus
         val parts = config.model.split("/", limit = 2)
-        val provider = if (parts.size > 1) parts[0] else "bailian"
+        val providerStr = if (parts.size > 1) parts[0] else "openai"
         val modelName = if (parts.size > 1) parts[1] else config.model
 
         // Local model path
-        if (provider.equals("local", ignoreCase = true)) {
+        if (providerStr.equals("local", ignoreCase = true)) {
             Log.i(TAG, "Creating LocalLLMClient for agent '${config.id}'")
             return LocalLLMClient(context)
         }
 
-        // Cloud model (Bailian, OpenAI, Anthropic, etc.)
-        val client = BailianClient()
         val apiKey = ConfigManager.getModelApiKey()
+        val baseUrl = ConfigManager.getEffectiveBaseUrl()
 
-        client.configure(
-            provider = ModelProvider.valueOf(provider.uppercase()),
-            apiKey = apiKey,
-            model = modelName
-        )
+        val provider = try {
+            ModelProvider.valueOf(providerStr.uppercase())
+        } catch (_: Exception) {
+            ModelProvider.OPENAI
+        }
+
+        val client: ModelClient = when (provider) {
+            ModelProvider.ANTHROPIC -> AnthropicClient()
+            else -> OpenAIClient()
+        }
+        client.configure(provider, apiKey, modelName, baseUrl)
         return client
     }
 

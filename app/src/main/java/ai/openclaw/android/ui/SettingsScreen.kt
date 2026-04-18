@@ -47,6 +47,8 @@ fun SettingsScreen(
     onModelNameChange: (String) -> Unit,
     modelProvider: String,
     onModelProviderChange: (String) -> Unit,
+    modelBaseUrl: String,
+    onModelBaseUrlChange: (String) -> Unit,
     configExpanded: Boolean,
     onConfigExpandedChange: (Boolean) -> Unit,
     logExpanded: Boolean,
@@ -158,9 +160,15 @@ fun SettingsScreen(
                             .padding(top = 8.dp)
                     ) {
                         FilterChip(
-                            selected = modelProvider == "BAILIAN",
-                            onClick = { onModelProviderChange("BAILIAN") },
-                            label = { Text("百炼") }
+                            selected = modelProvider == "OPENAI",
+                            onClick = { onModelProviderChange("OPENAI") },
+                            label = { Text("OpenAI") }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        FilterChip(
+                            selected = modelProvider == "ANTHROPIC",
+                            onClick = { onModelProviderChange("ANTHROPIC") },
+                            label = { Text("Anthropic") }
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         FilterChip(
@@ -184,14 +192,28 @@ fun SettingsScreen(
                                 .padding(top = 8.dp),
                             singleLine = true
                         )
-                    }
 
-                    if (modelProvider != "LOCAL") {
                         OutlinedTextField(
                             value = modelName,
                             onValueChange = onModelNameChange,
                             label = { Text("Model Name") },
                             placeholder = { Text("qwen-plus") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            singleLine = true
+                        )
+
+                        OutlinedTextField(
+                            value = modelBaseUrl,
+                            onValueChange = onModelBaseUrlChange,
+                            label = { Text("Base URL (可选)") },
+                            placeholder = { Text(
+                                when (modelProvider) {
+                                    "ANTHROPIC" -> "https://api.anthropic.com"
+                                    else -> "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                                }
+                            ) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp),

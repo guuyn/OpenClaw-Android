@@ -48,7 +48,7 @@ class BailianClient : ModelClient {
     private var apiKey: String = ""
     private var model: String = "MiniMax-M2.5"
 
-    override fun configure(provider: ModelProvider, apiKey: String, model: String) {
+    override fun configure(provider: ModelProvider, apiKey: String, model: String, baseUrl: String) {
         this.apiKey = apiKey
         this.model = model
     }

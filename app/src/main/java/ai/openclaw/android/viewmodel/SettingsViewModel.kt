@@ -29,8 +29,11 @@ class SettingsViewModel(
     private val _modelName = MutableStateFlow("qwen-plus")
     val modelName: StateFlow<String> = _modelName.asStateFlow()
 
-    private val _modelProvider = MutableStateFlow("BAILIAN")
+    private val _modelProvider = MutableStateFlow("OPENAI")
     val modelProvider: StateFlow<String> = _modelProvider.asStateFlow()
+
+    private val _modelBaseUrl = MutableStateFlow("")
+    val modelBaseUrl: StateFlow<String> = _modelBaseUrl.asStateFlow()
 
     // ==================== UI 状态 ====================
 
@@ -54,8 +57,9 @@ class SettingsViewModel(
         _modelProvider.value = try {
             ConfigManager.getModelProvider()
         } catch (_: Exception) {
-            "BAILIAN"
+            "OPENAI"
         }
+        _modelBaseUrl.value = ConfigManager.getModelBaseUrl()
         _serviceRunning.value = ConfigManager.isServiceEnabled()
     }
 
@@ -64,6 +68,7 @@ class SettingsViewModel(
     fun setModelApiKey(value: String) { _modelApiKey.value = value }
     fun setModelName(value: String) { _modelName.value = value }
     fun setModelProvider(value: String) { _modelProvider.value = value }
+    fun setModelBaseUrl(value: String) { _modelBaseUrl.value = value }
     fun setConfigExpanded(value: Boolean) { _configExpanded.value = value }
     fun setLogExpanded(value: Boolean) { _logExpanded.value = value }
 

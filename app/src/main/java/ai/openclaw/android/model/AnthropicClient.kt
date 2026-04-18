@@ -38,7 +38,7 @@ class AnthropicClient : ModelClient {
 
     companion object {
         private const val TAG = "AnthropicClient"
-        private const val API_URL = "https://api.anthropic.com/v1/messages"
+        private const val DEFAULT_BASE_URL = "https://api.anthropic.com"
         private const val ANTHROPIC_VERSION = "2023-06-01"
         private const val MEDIA_TYPE_JSON = "application/json; charset=utf-8"
     }
@@ -57,10 +57,12 @@ class AnthropicClient : ModelClient {
 
     private var apiKey: String = ""
     private var model: String = "claude-sonnet-4-20250514"
+    private var baseUrl: String = DEFAULT_BASE_URL
 
-    override fun configure(provider: ModelProvider, apiKey: String, model: String) {
+    override fun configure(provider: ModelProvider, apiKey: String, model: String, baseUrl: String) {
         this.apiKey = apiKey
         this.model = model
+        this.baseUrl = baseUrl.ifEmpty { DEFAULT_BASE_URL }
     }
 
     override suspend fun chat(
@@ -138,7 +140,7 @@ class AnthropicClient : ModelClient {
         }
 
         val httpRequest = Request.Builder()
-            .url(API_URL)
+            .url("$baseUrl/v1/messages")
             .addHeader("x-api-key", apiKey)
             .addHeader("anthropic-version", ANTHROPIC_VERSION)
             .addHeader("Content-Type", "application/json")

@@ -24,7 +24,8 @@ interface GatewayContract {
 data class ModelConfig(
     val provider: ModelProvider,
     val apiKey: String,
-    val modelName: String
+    val modelName: String,
+    val baseUrl: String = ""
 )
 
 data class SkillInfo(
