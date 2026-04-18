@@ -1,6 +1,6 @@
 # OpenClaw-Android 待完成项清单
 
-**最后更新**: 2026-04-14
+**最后更新**: 2026-04-18
 
 ---
 
@@ -23,7 +23,7 @@
 | 1 | ~~拆分 MainActivity~~ | ✅ **已完成** | GatewayContract 接口 + ChatViewModel/SettingsViewModel |
 | 2 | ~~A2UI 解析逻辑独立~~ | ✅ **已完成** | A2UICardParser 独立类，ChatScreen 纯 UI |
 | 3 | 多 Agent 配置系统 | **✅ 已完成 2026-04-16** | AgentRegistry + AgentPromptLoader + AgentConfig + AgentManagementSkill（7 个工具），真机验证通过 |
-| 4 | 多 Agent 消息路由 | 未开始 | 收到消息后如何路由到对应 Agent（关键词匹配、内容分类），配置层已完成，路由层待做 |
+| 4 | 多 Agent 消息路由 | **✅ 已完成** | AgentRouter 关键词匹配路由已在 CLAUDE.md 中记录 |
 | 4 | 会话压缩质量提升 | 基础实现 | SessionCompressor 已实现，摘要缓存、跨会话记忆关联待做 |
 | 5 | 补充测试覆盖 | 部分完成 | **158 测试全部通过**；LLM 客户端 mock、Compose UI 测试缺失 |
 | 6 | ScriptSkill MemoryBridge 对接 | **未对接** | 代码已集成但返回 `{"error":"Memory not yet integrated"}` |
@@ -34,7 +34,7 @@
 
 | # | 任务 | 状态 | 说明 |
 |---|------|------|------|
-| 1 | UI 优化 | 部分完成 | MarkdownRenderer 已有基础实现；代码高亮、消息复制、深色模式待做 |
+| 1 | UI 优化 | **✅ 科幻主题已完成 2026-04-18** | 深色科幻主题落地：毛玻璃顶栏、渐变气泡、思考动画、玻璃拟态输入栏、能量条、底部菜单、A2UI 卡片重样式、设置/通知页统一；空状态页、转场动画、声音待做 |
 | 2 | 性能优化 | 部分完成 | 嵌入缓存已实现(LRU)；异步模型加载、语音组件复用待做 |
 | 3 | 安全加固 | 部分完成 | SQLCipher + SecurityKeyManager + AuditLogger 已有；速率限制、日志脱敏待做 |
 | 4 | ML 通知分类 | 未实现 | `NotificationMLClassifier` 始终返回 null |
@@ -51,6 +51,7 @@
 | 功能 | 完成时间 | 备注 |
 |------|---------|------|
 | **A2UI 卡片系统 v2（9 个任务全部完成）** | 2026-04-14 | 14 种卡片 + 解析器 + 回调 + 3 技能适配 + 兜底 |
+| **科幻 UI 重设计（Phase 1-2 + 部分 Phase 3-4）** | 2026-04-18 | 深色科幻主题、6 个新 UI 组件、毛玻璃顶栏、渐变气泡、思考动画、玻璃拟态输入栏+能量条、底部菜单、A2UI 卡片重样式、设置/通知页统一、错误卡片 |
 | Gateway Service 架构重构 | 2026-04-12 | MainActivity 纯 UI 层，GatewayManager 唯一实例 |
 | 记忆优化方案五阶段全部完成 | 2026-04-12 | SensoryBuffer / BM25+向量 / 冲突检测 / 加密 / 冷启动 |
 | Koin DI 框架集成 | 2026-04-12 | `di/AppModule.kt` |
@@ -74,8 +75,9 @@
 
 | 指标 | 值 |
 |------|-----|
-| Kotlin 源文件 | 106 个（app）+ 9 个（:script） |
-| 内置技能 | 12 个（其中 3 个已适配 v2 卡片） |
+| Kotlin 源文件 | 113 个（app）+ 9 个（:script） |
+| 内置技能 | 14 个（AgentManagement + GenerateSkill） |
+| UI 组件 | 6 个自定义科幻组件 + 4 个主题扩展 |
 | ViewModel | 2 个 |
 | LLM Provider | 4 个 |
 | 单元测试 | **158 个（全部通过 ✅）** |
@@ -87,6 +89,9 @@
 
 - [2026-04-14-a2ui-card-system-v2.md](./plans/2026-04-14-a2ui-card-system-v2.md) - A2UI v2 实施计划 ✅已完成
 - [a2ui-card-system-v2.md](./a2ui-card-system-v2.md) - A2UI 卡片系统设计
+- [ui-sci-fi-design.md](./ui-sci-fi-design.md) - 科幻 UI 设计方案（Phase 1-2 已实现）
+- [superpowers/specs/2026-04-18-scifi-ui-redesign.md](./superpowers/specs/2026-04-18-scifi-ui-redesign.md) - 科幻 UI 重设计 Spec
+- [superpowers/plans/2026-04-18-scifi-ui-redesign.md](./superpowers/plans/2026-04-18-scifi-ui-redesign.md) - 科幻 UI 实施计划
 - [gateway-service-architecture.md](./gateway-service-architecture.md) - Gateway 重构设计 ✅已落地
 - [script-engine.md](./script-engine.md) - ScriptEngine 设计
 - [CURRENT-STATUS-2026-04-14.md](./CURRENT-STATUS-2026-04-14.md) - 当前代码状态快照

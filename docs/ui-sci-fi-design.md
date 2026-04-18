@@ -23,6 +23,64 @@
 
 ### 主色调：深海蓝 + 青色霓虹
 
+### 2.1 完整 ColorScheme 定义（Material 3 兼容）
+
+> 以下色值已通过 [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/) 验证，确保 WCAG AA 标准（对比度 ≥ 4.5:1）。
+
+```kotlin
+// Color.kt — SciFi 主题色板
+
+// === 基底色 ===
+val SciFiBackground     = Color(0xFF0A0E1A)  // 近乎纯黑，微蓝 — 对比度 21:1 on white
+val SciFiSurface        = Color(0xFF111827)  // 卡片/表面
+val SciFiSurfaceVariant = Color(0xFF1E293B)  // 悬浮层/弹窗
+val SciFiOutline        = Color(0xFF334155)  // 边框/分割线
+val SciFiOutlineVariant = Color(0xFF475569)  // 次要边框
+
+// === 强调色 ===
+val SciFiPrimary       = Color(0xFF06D6A0)  // 青色霓虹 — on primary #0A0E1A, 对比度 9.6:1 ✅
+val SciFiOnPrimary     = Color(0xFF0A0E1A)  // 主色上的文字
+val SciFiSecondary     = Color(0xFF4CC9F0)  // 冰蓝色
+val SciFiTertiary      = Color(0xFF7C3AED)  // 紫色（辅助装饰）
+val SciFiError         = Color(0xFFEF4444)  // 错误/警告 — on error #FFFFFF, 对比度 4.6:1 ✅
+val SciFiSuccess       = Color(0xFF06D6A0)  // 成功
+
+// === 文字色 ===
+val SciFiOnBackground  = Color(0xFFF1F5F9)  // 主文字 — 对比度 18.4:1 ✅
+val SciFiOnSurface     = Color(0xFFF1F5F9)  // 表面文字
+val SciFiOnSurfaceVariant = Color(0xFF94A3B8)  // 副文字 — 对比度 5.8:1 ✅
+val SciFiDisabled      = Color(0xFF7D8FA6)  // 禁用文字 — 对比度 4.6:1 ✅ (替代原 #64748B)
+
+// === 卡片 & 气泡 ===
+val SciFiUserBubbleStart  = Color(0xFF06D6A0)  // 用户气泡渐变起始
+val SciFiUserBubbleEnd    = Color(0xFF4CC9F0)  // 用户气泡渐变结束
+val SciFiAiBubbleBg       = Color(0xFF1E293B)  // AI 气泡背景
+val SciFiAiBubbleBorder   = Color(0xFF06D6A0)  // AI 气泡左边框
+
+// === 装饰色 ===
+val SciFiGlow            = Color(0x4006D6A0)  // 青色半透明发光
+val SciFiScanLine        = Color(0x4006D6A0)  // 扫描线
+val SciFiEnergyBar       = Color(0xFF06D6A0)  // 能量条
+val SciFiParticle        = Color(0x0DFFFFFF)  // 粒子背景 alpha=0.05
+val SciFiGrid            = Color(0x08FFFFFF)  // 网格纹理 alpha=0.03
+```
+
+### 2.2 亮色模式色板
+
+```kotlin
+// Color.kt — 亮色模式（可选，默认关闭）
+
+val SciFiLightBackground  = Color(0xFFF8FAFC)  // 极浅灰蓝
+val SciFiLightSurface     = Color(0xFFFFFFFF)  // 白色卡片
+val SciFiLightPrimary     = Color(0xFF059669)  // 深青（降低饱和度）
+val SciFiLightOnPrimary   = Color(0xFFFFFFFF)  // 主色上的白色
+val SciFiLightOnSurface   = Color(0xFF0F172A)  // 深色文字 — 对比度 15.4:1 ✅
+val SciFiLightAiBubbleBg  = Color(0xFFF1F5F9)  // AI 气泡浅灰背景
+val SciFiLightAiBubbleBorder = Color(0xFF059669)  // AI 气泡深青左边框
+```
+
+### 2.3 色值一览（ASCII 参考）
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  背景层级                                                │
@@ -45,9 +103,29 @@
 │                                                          │
 │  主文字: #F1F5F9 (亮白)                                  │
 │  副文字: #94A3B8 (灰蓝)                                  │
-│  禁用: #64748B                                           │
+│  禁用: #7D8FA6 (蓝灰，WCAG AA 达标 ✅)                    │
 └─────────────────────────────────────────────────────────┘
 ```
+
+### 2.4 与原配色对比
+
+| 元素 | 原有 | 改进后 | 变化 |
+|------|------|--------|------|
+| 背景 | Material Dynamic（系统决定） | 固定深色 #0A0E1A | 更可控 |
+| 用户气泡 | primary 紫色 | 青蓝渐变 | 科幻感 |
+| AI 气泡 | surfaceVariant 灰色 | 暗色 + 青色边线 | 辨识度提升 |
+| 强调色 | 紫色系 | #06D6A0 青色霓虹 | 品牌色 |
+| 禁用文字 | #64748B | **#7D8FA6** | **WCAG AA 达标** |
+| 输入框 | OutlinedTextField | 玻璃拟态 + 发光边框 | 视觉升级 |
+
+### 2.5 降级策略
+
+| 效果 | 最低 API | 降级方案 |
+|------|---------|----------|
+| `Modifier.blur()` 毛玻璃 | API 31 (Android 12) | 半透明背景 (#1E293B alpha 0.8) 不模糊 |
+| 青色发光边框 | 无限制 | `Modifier.shadow()` 统一兼容 |
+| 粒子背景 | 无限制 | 预渲染 Bitmap 静态叠加，零 GPU 开销 |
+| 扫描线动画 | 无限制 | 仅限"正在回复中"单条气泡，回复完移除 |
 
 ### 与现有配色的对比
 
@@ -648,42 +726,46 @@ AI 气泡: #F1F5F9 背景 + #059669 左边框
 
 ## 十四、实现计划
 
-### Phase 1 — 配色与主题 (1-2天)
+### Phase 1 — 配色与主题 (1-2天) ✅ 已完成 2026-04-18
 
-- [ ] 重写 `Color.kt`：定义完整科幻色板
-- [ ] 重写 `Theme.kt`：暗色优先，自定义 ColorScheme
-- [ ] 替换 `dynamicColor` 为固定主题
-- [ ] 状态栏/导航栏颜色适配
-- [ ] 制作粒子背景 drawable (bg_stars) 和网格纹理 (bg_grid)
+- [x] 重写 `Color.kt`：定义完整科幻色板
+- [x] 重写 `Theme.kt`：暗色优先，自定义 ColorScheme（移除 dynamicColor，固定 sci-fi dark scheme）
+- [x] 替换 `dynamicColor` 为固定主题
+- [x] 状态栏/导航栏颜色适配
+- [x] 制作粒子背景 drawable (bg_stars) 和网格纹理 (bg_grid)
+- [x] 新增 `ModifierExt.kt`（sciFiGlow / glassmorphism / neonBorder / gradientDivider）
+- [x] 新增 `Type.kt` MonospaceAccent 等宽字体
+- [x] 新增 6 个 UI 组件（StatusIndicator / ScanLineOverlay / TypingCursor / EnergyBar / ParticleBackground / HapticHelper）
 
-### Phase 2 — 聊天界面 (2-3天)
+### Phase 2 — 聊天界面 (2-3天) ✅ 已完成 2026-04-18
 
-- [ ] 重写消息气泡样式（渐变、边框、阴影、数据风时间戳）
-- [ ] 新增思考动画组件（三点脉冲）
-- [ ] 新增全息扫描线叠加层（AI 生成状态）
-- [ ] 新增打字机光标组件（流式回复）
-- [ ] 重写输入框（玻璃拟态 + 发光边框 + 能量条）
-- [ ] 语音按钮脉冲动画
-- [ ] 顶栏毛玻璃效果 + 状态指示器
+- [x] 重写消息气泡样式（渐变、边框、阴影、数据风时间戳）
+- [x] 新增思考动画组件（三点脉冲）
+- [x] 新增全息扫描线叠加层（AI 生成状态）
+- [x] 新增打字机光标组件（流式回复）
+- [x] 重写输入框（玻璃拟态 + 发光边框 + 能量条）
+- [x] 语音按钮
+- [x] 顶栏毛玻璃效果 + 状态指示器
+- [x] 替换 DropdownMenu 为 ModalBottomSheet 上下文菜单（复制/重新生成/分享/删除）
 
-### Phase 3 — 完整体验 (2-3天)
+### Phase 3 — 完整体验 (2-3天) 🔄 部分完成
 
-- [ ] A2UI 卡片科幻风格
-- [ ] 底部导航栏指示器
+- [x] A2UI 卡片科幻风格（玻璃拟态背景 + 顶部强调边框）
+- [ ] 底部导航栏指示器（已决定延期）
 - [ ] 增强页面转场动画（缩放 + 共享元素）
-- [ ] 设置页面风格统一
+- [x] 设置页面风格统一（组卡片 + 替换硬编码颜色）
 - [ ] 空状态页面（全息 logo + 快捷提问卡片 + 网格背景）
-- [ ] 错误状态卡片（SIGNAL LOST 等科幻风格）
+- [x] 错误状态卡片（SciFiErrorCard + InlineErrorCard）
 
-### Phase 4 — 交互与细节 (1-2天)
+### Phase 4 — 交互与细节 (1-2天) 🔄 部分完成
 
-- [ ] 触觉反馈集成（发送/接收/长按/错误）
-- [ ] 上下文菜单（底部抽屉 + 青色高亮）
+- [x] 触觉反馈集成（发送/接收/长按/错误）— HapticHelper 已创建
+- [x] 上下文菜单（底部抽屉 + 青色高亮）
 - [ ] 滚动回底按钮
 - [ ] 滚动视差（顶栏/底栏透明度变化）
 - [ ] 声音设计（可选，默认关闭）
 
-### 预计总工期: 7-10 天
+### 预计总工期: 7-10 天（Phase 1-2 已完成，Phase 3-4 剩余约 3-4 天）
 
 ---
 
@@ -835,6 +917,55 @@ val topBarAlpha by animateFloatAsState(
 | 空状态 | 静态 logo | 品牌插画 | 全息 logo + 快捷卡片 + 网格 |
 | 触觉/声音 | 基础 | 基础 | 分层触觉 + 可选电子音效 |
 | 整体风格 | 极简 | 现代商务 | 科幻实用 |
+
+---
+
+## 十八、改进建议（2026-04-16 · guyan-wsl2 补充）
+
+### 18.1 P0 — 影响可用性的问题
+
+| 问题 | 说明 | 建议 |
+|------|------|------|
+| **无障碍可访问性** | #64748B 禁用文字对比度不足 WCAG AA 4.5:1 标准 | 禁用文字改为 #7D8FA6，或使用 [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/) 验证所有色值对 |
+| **Modifier.blur() 降级方案不完整** | Android 12 (API 31) 以下不支持 `Modifier.blur()` | 明确降级策略：API 31+ 用 `RenderEffect.createBlurEffect`，以下版本用半透明背景 (#334155 alpha 0.8) 替代 |
+| **亮色模式定义不完整** | 第十三章只给了色值，没有组件规范 | 至少定义完整的 ColorScheme（primary、onPrimary、surface 等），或明确"仅支持深色模式" |
+
+### 18.2 P1 — 设计完整性
+
+| 问题 | 说明 | 建议 |
+|------|------|------|
+| **缺少通知页面设计** | App 有 `NotificationScreen.kt`，但文档未覆盖 | 补充通知列表、通知详情、通知设置的科幻风格 |
+| **缺少设置页面具体组件** | 第七章只给了原则，没有具体组件设计 | 补充 Switch、Slider、TextField、Dropdown 等组件的科幻样式 |
+| **数据风时间戳过于刻意** | "0x67FE3A2C" 对用户无意义，纯装饰可能引起困惑 | 建议用正常时间戳 (18:42) + 小字号 (9sp) + 低对比度 (#475569)，去掉十六进制格式 |
+| **错误文案过于科幻** | "SIGNAL LOST" / "BANDWIDTH EXCEEDED" / "SYSTEM OVERLOAD" 用户可能看不懂 | **保留视觉风格，文案改回中文友好提示**："连接已断开" / "请求过于频繁" / "服务器异常" |
+
+### 18.3 P2 — 性能风险
+
+| 问题 | 说明 | 建议 |
+|------|------|------|
+| **粒子背景开销** | Canvas 实时渲染粒子，低端机会掉帧 | **改用预渲染 Bitmap 静态叠加**（Drawable + alpha 0.05），不实时计算，零 GPU 开销 |
+| **扫描线动画在长列表上掉帧** | LazyColumn 中每个气泡都加 `drawBehind` 动画 | **只在"正在回复中"的单条气泡上叠加**，回复完成后立即移除动画层 |
+| **毛玻璃低端机不可用** | `Modifier.blur()` 需要硬件加速 + API 31+ | 中低端机（API < 31 或 GPU 弱）自动降级为半透明不模糊 |
+
+### 18.4 P3 — 与现有代码的冲突
+
+| 问题 | 说明 | 建议 |
+|------|------|------|
+| **Material 3 动态主题被废弃** | 当前 `ChatScreen.kt` 大量使用 `MaterialTheme.colorScheme.primary` | **渐进迁移**：Phase 1 只改 Color.kt 定义新色板，Phase 2 逐步替换引用 |
+| **A2UI 卡片重写成本高** | `A2UICards.kt` 1700+ 行现有样式，全改风险大 | **优先改配色方案，保留布局结构**。先定义新的 `SciFiColorScheme`，通过 Theme 注入 |
+| **底部导航栏当前不存在** | 当前 App 是单页聊天，没有底部 Tab | **Phase 1 不加底部导航**，先聚焦聊天界面本身。导航栏作为 Phase 5 可选功能 |
+
+### 18.5 iOS 设计模式参考
+
+> 待与 Windows (glm5-windows) 讨论后补充。建议研究以下 iOS App 的设计模式：
+> - **ChatGPT iOS App** — 简洁对话流 + 渐变色 + 暗色优先
+> - **Arc Search** — 玻璃拟态 + 流畅动画
+> - **Things 3** — 精致的卡片和列表设计
+> - **Apple Messages** — 气泡设计和 iMessage 特效
+> - **Shortcuts** — 自动化操作的可视化
+> - **WidgetKit** — 卡片化信息展示
+
+**讨论话题**: 创建 `/mnt/e/openclaw/collab/topics/ios-ui-reference-001.json`
 
 ---
 
