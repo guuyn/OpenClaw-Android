@@ -6,6 +6,7 @@ import ai.openclaw.android.agent.AgentSession
 import ai.openclaw.android.data.model.AgentConfig as DataAgentConfig
 import ai.openclaw.android.config.AgentConfig
 import ai.openclaw.android.model.BailianClient
+import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
 import ai.openclaw.android.permission.PermissionManager
@@ -126,15 +127,20 @@ open class AgentSessionManager(
      * Marked `protected open` so tests can override with a mock.
      */
     protected open fun createModelClient(config: DataAgentConfig): ModelClient {
-        val client = BailianClient()
-
         // Parse model string: "bailian/qwen3.5-plus" → provider=bailian, name=qwen3.5-plus
+        // Also handle "LOCAL" provider for on-device model
         val parts = config.model.split("/", limit = 2)
         val provider = if (parts.size > 1) parts[0] else "bailian"
         val modelName = if (parts.size > 1) parts[1] else config.model
 
-        // Use API key from ConfigManager (same as main app)
-        // In production, each agent could have its own API key
+        // Local model path
+        if (provider.equals("local", ignoreCase = true)) {
+            Log.i(TAG, "Creating LocalLLMClient for agent '${config.id}'")
+            return LocalLLMClient(context)
+        }
+
+        // Cloud model (Bailian, OpenAI, Anthropic, etc.)
+        val client = BailianClient()
         val apiKey = ConfigManager.getModelApiKey()
 
         client.configure(

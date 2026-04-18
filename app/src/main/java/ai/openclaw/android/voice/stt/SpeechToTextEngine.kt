@@ -6,6 +6,18 @@ import kotlinx.coroutines.flow.Flow
  * Speech-to-text engine interface.
  * Implementations stream partial and final recognition results.
  */
+/**
+ * Check if speech recognition is available on this device.
+ * Returns false when no recognition service is installed (common on Huawei without Google services).
+ */
+fun isSpeechRecognitionAvailable(context: android.content.Context): Boolean {
+    return try {
+        android.speech.SpeechRecognizer.isRecognitionAvailable(context)
+    } catch (e: Exception) {
+        false
+    }
+}
+
 interface SpeechToTextEngine {
     /**
      * Start listening and stream recognition results.
