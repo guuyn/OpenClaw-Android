@@ -13,8 +13,8 @@ data class AgentConfig(
     val id: String,
     /** Display name */
     val name: String,
-    /** Model identifier (e.g. "bailian/qwen3.5-plus") */
-    val model: String = "bailian/qwen3.5-plus",
+    /** Model identifier (e.g. "openai/qwen3.5-plus") */
+    val model: String = "openai/qwen3.5-plus",
     /** Custom system prompt (prepended to BASE_SYSTEM_PROMPT) */
     val systemPrompt: String? = null,
     /** Tool filter — list of tool name prefixes or "all" for no filter */

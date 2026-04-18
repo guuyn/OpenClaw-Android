@@ -59,7 +59,7 @@ class CreateAgentTool(private val registry: AgentRegistry) : SkillTool {
     override val parameters = mapOf(
         "id" to SkillParam("string", "Agent 唯一标识（小写字母+下划线）", true),
         "name" to SkillParam("string", "Agent 显示名称", true),
-        "model" to SkillParam("string", "模型名，如 bailian/qwen3.6-plus", true)
+        "model" to SkillParam("string", "模型名，如 openai/qwen3.6-plus", true)
     )
     override suspend fun execute(params: Map<String, Any>): SkillResult {
         val id = params["id"] as? String ?: return SkillResult(false, "", "缺少参数: id")

@@ -20,7 +20,7 @@ import org.junit.Test
  * Unit tests for AgentSessionManager.
  *
  * Uses a test subclass that overrides createModelClient() to return a mock,
- * avoiding Android runtime dependencies (ConfigManager, BailianClient).
+ * avoiding Android runtime dependencies (ConfigManager, OpenAIClient).
  */
 class AgentSessionManagerTest {
 
@@ -369,7 +369,7 @@ class AgentSessionManagerTest {
 
     /**
      * Test subclass that overrides createModelClient to return a mock.
-     * This avoids Android runtime dependencies (ConfigManager, BailianClient).
+     * This avoids Android runtime dependencies (ConfigManager, OpenAIClient).
      */
     private class TestableAgentSessionManager(
         context: Context,

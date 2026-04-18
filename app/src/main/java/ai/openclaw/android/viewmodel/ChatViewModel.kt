@@ -16,7 +16,6 @@ import ai.openclaw.android.domain.memory.LlmMemoryExtractor
 import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.domain.session.HybridSessionManager
 import ai.openclaw.android.domain.session.TokenCounter
-import ai.openclaw.android.model.BailianClient
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider

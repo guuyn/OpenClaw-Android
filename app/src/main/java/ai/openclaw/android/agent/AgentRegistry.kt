@@ -178,7 +178,7 @@ tools: []
             val parsedConfig = AgentConfig(
                 id = map["id"] as? String ?: agentId,
                 name = map["name"] as? String ?: agentId,
-                model = map["model"] as? String ?: "bailian/qwen3.6-plus",
+                model = map["model"] as? String ?: "openai/qwen3.6-plus",
                 maxContextTokens = (map["maxContextTokens"] as? Number)?.toInt() ?: 4000,
                 tools = (map["tools"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
             )

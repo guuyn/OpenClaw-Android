@@ -13,7 +13,6 @@ import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.domain.session.HybridSessionManager
 import ai.openclaw.android.domain.session.TokenCounter
 import ai.openclaw.android.ml.TfLiteEmbeddingService
-import ai.openclaw.android.model.BailianClient
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
@@ -571,7 +570,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
 
         val client: ModelClient = when (provider) {
             ModelProvider.ANTHROPIC -> AnthropicClient()
-            else -> OpenAIClient() // OPENAI + BAILIAN both use OpenAI-compatible API
+            else -> OpenAIClient()
         }
         client.configure(provider, apiKey, model, baseUrl)
         return client

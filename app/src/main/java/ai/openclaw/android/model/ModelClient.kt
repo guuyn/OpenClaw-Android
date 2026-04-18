@@ -52,8 +52,7 @@ sealed class ChatEvent {
  * Supported model providers
  */
 enum class ModelProvider {
-    BAILIAN,    // 阿里百炼
-    OPENAI,     // OpenAI
+    OPENAI,     // OpenAI-compatible API (also covers Bailian via base URL)
     ANTHROPIC,  // Anthropic
     LOCAL       // 本地端侧推理 (Gemma 4 E4B)
 }

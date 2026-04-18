@@ -5,7 +5,6 @@ import ai.openclaw.android.accessibility.AccessibilityBridge
 import ai.openclaw.android.agent.AgentSession
 import ai.openclaw.android.data.model.AgentConfig as DataAgentConfig
 import ai.openclaw.android.config.AgentConfig
-import ai.openclaw.android.model.BailianClient
 import ai.openclaw.android.model.OpenAIClient
 import ai.openclaw.android.model.AnthropicClient
 import ai.openclaw.android.model.LocalLLMClient
