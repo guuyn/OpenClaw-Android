@@ -83,9 +83,19 @@ class LocalLLMClient(private val context: Context) : ModelClient {
             val board = Build.BOARD.lowercase()
             val brand = Build.BRAND.lowercase()
 
-            if (brand.contains("honor") || brand.contains("huawei")) {
-                LogManager.shared.log("INFO", TAG, "检测到 $brand，跳过 NPU（兼容性限制）")
+            if (brand.contains("huawei")) {
+                LogManager.shared.log("INFO", TAG, "检测到 Huawei，跳过 NPU（兼容性限制）")
                 return listOf(Backend.GPU() to "GPU", Backend.CPU() to "CPU")
+            }
+
+            // Honor devices: NPU supported (since MagicOS 8+ based on Android 14+)
+            if (brand.contains("honor")) {
+                LogManager.shared.log("INFO", TAG, "检测到 Honor，尝试 NPU → GPU → CPU")
+                return listOf(
+                    Backend.NPU() to "NPU",
+                    Backend.GPU() to "GPU",
+                    Backend.CPU() to "CPU"
+                )
             }
 
             if (hardware.contains("qcom") || hardware.contains("sdm") || hardware.contains("sm") ||
