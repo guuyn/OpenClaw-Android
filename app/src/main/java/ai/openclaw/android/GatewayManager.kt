@@ -441,11 +441,6 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             )
         }
 
-        // Keep backward compat: point agentSession to default agent
-        agentSession = agentRegistry!!.getDefaultAgent().let { config ->
-            agentRegistry!!.getSession(config.id)
-        }
-
         // Initialize memory subsystem
         embeddingService = TfLiteEmbeddingService(service)
         embeddingService!!.initialize()
