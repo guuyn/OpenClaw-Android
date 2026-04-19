@@ -105,23 +105,24 @@ class VoiceInteractionManager(
     ) {
         Log.i(TAG, "Initializing voice engines...")
 
-        // --- Initialize STT ---
-        sttManager = SherpaSttManager.getInstance(appContext)
-        sherpaStt = sttManager?.getEngine(sttModelPath)
-
-        if (sherpaStt != null) {
-            sttEngine = sherpaStt
-            Log.i(TAG, "Using SherpaSttEngine for STT")
-        } else if (isSpeechRecognitionAvailable(appContext)) {
-            androidStt = AndroidSpeechRecognizer(appContext)
-            sttEngine = androidStt
-            Log.i(TAG, "Using AndroidSpeechRecognizer for STT (fallback)")
-        } else {
-            Log.w(TAG, "No STT engine available")
-        }
-
-        // --- Initialize TTS on background thread (model loading is slow) ---
+        // --- Initialize both STT and TTS on background thread (model loading blocks) ---
         withContext(Dispatchers.IO) {
+            // --- Initialize STT ---
+            sttManager = SherpaSttManager.getInstance(appContext)
+            sherpaStt = sttManager?.getEngine(sttModelPath)
+
+            if (sherpaStt != null) {
+                sttEngine = sherpaStt
+                Log.i(TAG, "Using SherpaSttEngine for STT")
+            } else if (isSpeechRecognitionAvailable(appContext)) {
+                androidStt = AndroidSpeechRecognizer(appContext)
+                sttEngine = androidStt
+                Log.i(TAG, "Using AndroidSpeechRecognizer for STT (fallback)")
+            } else {
+                Log.w(TAG, "No STT engine available")
+            }
+
+            // --- Initialize TTS ---
             sherpaTts = SherpaTtsEngine(appContext)
             val ttsReady = ttsModelPath?.let { sherpaTts?.initialize(it) } == true
 
