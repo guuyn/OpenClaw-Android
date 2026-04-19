@@ -37,7 +37,7 @@ android {
         
         // 只保留 ARM 架构，移除 x86/x86_64（仅模拟器需要）
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("arm64-v8a")
         }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -110,10 +110,19 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        // Keep both sherpa-onnx and onnxruntime native libs
+        jniLibs {
+            pickFirsts += listOf(
+                "**/libc++_shared.so",
+            )
+        }
     }
 }
 
 dependencies {
+    // Sherpa-ONNX (local AAR — run scripts/download-sherpa-onnx.sh first)
+    implementation(files("libs/sherpa-onnx.aar"))
+
     // AndroidX Core
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")

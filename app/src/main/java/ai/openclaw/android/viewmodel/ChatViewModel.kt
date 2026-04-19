@@ -11,6 +11,12 @@ import ai.openclaw.android.data.local.AppDatabase
 import ai.openclaw.android.domain.memory.EmbeddingService
 import ai.openclaw.android.domain.memory.HybridSearchEngine
 import ai.openclaw.android.ml.EmbeddingServiceFactory
+import ai.openclaw.android.domain.AgentResponse
+import ai.openclaw.android.domain.Deliverable
+import ai.openclaw.android.domain.DeviceCapabilities
+import ai.openclaw.android.domain.ResponseRouter
+import ai.openclaw.android.domain.RichContent
+import ai.openclaw.android.domain.ResponseType
 import ai.openclaw.android.domain.memory.FallbackMemoryExtractor
 import ai.openclaw.android.domain.memory.LlmMemoryExtractor
 import ai.openclaw.android.domain.memory.MemoryManager
@@ -29,6 +35,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 /**
  * 聊天 ViewModel
@@ -58,12 +65,21 @@ class ChatViewModel(
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
+    // ==================== 响应路由状态 ====================
+
+    private val _lastDeliverable = MutableStateFlow<Deliverable?>(null)
+    val lastDeliverable: StateFlow<Deliverable?> = _lastDeliverable.asStateFlow()
+
+    private val _lastRichContent = MutableStateFlow<RichContent?>(null)
+    val lastRichContent: StateFlow<RichContent?> = _lastRichContent.asStateFlow()
+
     // ==================== 内部依赖 ====================
 
     private var agentSession: AgentSession? = null
     private var modelClient: ModelClient? = null
     private var localLLMClient: LocalLLMClient? = null
     private var sessionManager: HybridSessionManager? = null
+    private var responseRouter: ResponseRouter? = null
 
     // ==================== 初始化 ====================
 
@@ -96,6 +112,9 @@ class ChatViewModel(
                 // 初始化 AgentSession
                 agentSession = AgentSession(modelClient!!, skillManager, permManager)
                 agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
+
+                // 初始化设备能力检测与响应路由
+                initResponseRouting(context)
 
                 // 初始化 Embedding 服务
                 val embedding = EmbeddingServiceFactory.create(context)
@@ -150,6 +169,16 @@ class ChatViewModel(
         }
         client.configure(provider, apiKey, model, baseUrl)
         return client
+    }
+
+    /**
+     * 初始化响应路由：检测设备能力并配置到 AgentSession
+     */
+    private fun initResponseRouting(context: Context) {
+        val capabilities = DeviceCapabilities.fromContext(context)
+        responseRouter = ResponseRouter(capabilities)
+        agentSession?.setDeviceCapabilities(capabilities)
+        Log.d(TAG, "Response routing initialized: profile=${capabilities.profile}")
     }
 
     /**
@@ -236,9 +265,32 @@ class ChatViewModel(
                         }
                         is SessionEvent.ToolResult -> { }
                         is SessionEvent.Complete -> {
+                            val parsedResponse = parseAgentResponse(event.fullText)
+                            val deliverable = responseRouter?.route(parsedResponse)
+                                ?: Deliverable.PlainText(parsedResponse.fallbackText)
+
+                            _lastDeliverable.value = deliverable
+                            _lastRichContent.value = when (deliverable) {
+                                is Deliverable.RichText -> deliverable.content
+                                is Deliverable.Mixed -> deliverable.rich
+                                else -> null
+                            }
+
+                            // For UI display, use the routed text content
+                            val displayText = when (deliverable) {
+                                is Deliverable.PlainText -> deliverable.text
+                                is Deliverable.Voice -> deliverable.text
+                                is Deliverable.RichText -> parsedResponse.fallbackText
+                                is Deliverable.Mixed -> {
+                                    // Prefer rich content text if available, else fallback
+                                    deliverable.rich?.let { parsedResponse.fallbackText }
+                                        ?: parsedResponse.fallbackText
+                                }
+                            }
+
                             val updated = _messages.value.toMutableList()
                             updated[responseIndex] = updated[responseIndex].copy(
-                                content = event.fullText
+                                content = displayText
                             )
                             _messages.value = updated
                             _isLoading.value = false
@@ -291,12 +343,26 @@ class ChatViewModel(
             }
         }
 
+        // Parse and route the response for voice session
+        val parsedResponse = parseAgentResponse(fullResponse)
+        val deliverable = responseRouter?.route(parsedResponse)
+            ?: Deliverable.PlainText(parsedResponse.fallbackText)
+        _lastDeliverable.value = deliverable
+
+        // For voice sessions, return the voice text if available
+        val speakText = when (deliverable) {
+            is Deliverable.Voice -> deliverable.text
+            is Deliverable.Mixed -> deliverable.voice ?: parsedResponse.fallbackText
+            is Deliverable.PlainText -> deliverable.text
+            is Deliverable.RichText -> parsedResponse.fallbackText
+        }
+
         // 更新最终响应
         val finalMessages = _messages.value.toMutableList()
-        finalMessages[msgs.lastIndex] = finalMessages[msgs.lastIndex].copy(content = fullResponse)
+        finalMessages[msgs.lastIndex] = finalMessages[msgs.lastIndex].copy(content = speakText)
         _messages.value = finalMessages
 
-        return fullResponse.ifEmpty { "抱歉，我没有理解您的问题" }
+        return speakText.ifEmpty { "抱歉，我没有理解您的问题" }
     }
 
     // ==================== 配置更新 ====================
@@ -340,6 +406,76 @@ class ChatViewModel(
     fun clearHistory() {
         agentSession?.clearHistory()
         _messages.value = emptyList()
+    }
+
+    // ==================== AgentResponse 解析 ====================
+
+    /**
+     * Parse LLM response text into an AgentResponse.
+     *
+     * Attempts to find a JSON object in the response text. If parsing fails
+     * or no JSON is found, falls back to a TEXT response with the full text
+     * as fallback_text.
+     */
+    fun parseAgentResponse(text: String): AgentResponse {
+        // Try to extract JSON from the response
+        val jsonStart = text.indexOf('{')
+        val jsonEnd = text.lastIndexOf('}')
+
+        if (jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart) {
+            // No JSON found — treat as plain text
+            return AgentResponse(
+                type = ResponseType.TEXT,
+                voiceText = text.take(60),
+                richContent = null,
+                fallbackText = text
+            )
+        }
+
+        return try {
+            val jsonStr = text.substring(jsonStart, jsonEnd + 1)
+            val json = JSONObject(jsonStr)
+
+            val typeStr = json.optString("type", "TEXT")
+            val type = when (typeStr.uppercase()) {
+                "VOICE" -> ResponseType.VOICE
+                "BOTH" -> ResponseType.BOTH
+                else -> ResponseType.TEXT
+            }
+
+            val voiceText = json.optString("voice_text").takeIf { it.isNotEmpty() }
+            val fallbackText = json.optString("fallback_text", text)
+
+            // Parse rich_content if present
+            val richContent = if (json.has("rich_content") && !json.isNull("rich_content")) {
+                val rc = json.getJSONObject("rich_content")
+                val rcType = rc.optString("type").takeIf { it.isNotEmpty() }
+                val rcData = if (rc.has("data") && !rc.isNull("data")) {
+                    val dataObj = rc.getJSONObject("data")
+                    val map = mutableMapOf<String, Any>()
+                    for (key in dataObj.keys()) {
+                        map[key] = dataObj.get(key)
+                    }
+                    map
+                } else null
+                RichContent.fromJson(rcType, rcData)
+            } else null
+
+            AgentResponse(
+                type = type,
+                voiceText = voiceText,
+                richContent = richContent,
+                fallbackText = fallbackText.ifBlank { text }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to parse AgentResponse JSON, using fallback", e)
+            AgentResponse(
+                type = ResponseType.TEXT,
+                voiceText = text.take(60),
+                richContent = null,
+                fallbackText = text
+            )
+        }
     }
 
     override fun onCleared() {

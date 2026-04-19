@@ -52,3 +52,10 @@
 # Room
 -keep class androidx.room.** { *; }
 -keep @androidx.room.Entity class * { *; }
+
+# Sherpa-ONNX
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+-dontwarn com.k2fsa.sherpa.onnx.**
+-keepclassmembers class com.k2fsa.sherpa.onnx.** {
+    private native <methods>;
+}

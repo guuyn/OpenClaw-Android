@@ -3,6 +3,9 @@ package ai.openclaw.android.agent
 import android.util.Log
 import ai.openclaw.android.config.AgentConfig
 import ai.openclaw.android.data.model.MessageRole
+import ai.openclaw.android.domain.AgentResponse
+import ai.openclaw.android.domain.DeviceCapabilities
+import ai.openclaw.android.domain.ResponseRouter
 import ai.openclaw.android.domain.session.HybridSessionManager
 import ai.openclaw.android.model.*
 import ai.openclaw.android.permission.PermissionManager
@@ -31,6 +34,26 @@ class AgentSession(
     private var _agentConfig: AgentConfig? = null
     // Tool prefixes to allow (e.g. ["weather", "script"]), null = all tools allowed
     private var _allowedToolPrefixes: List<String>? = null
+
+    // Device capabilities for response routing
+    private var deviceCapabilities: DeviceCapabilities? = null
+    private var responseRouter: ResponseRouter? = null
+
+    /**
+     * Set device capabilities for response routing.
+     * Call this after initialization to enable LLM format decisions.
+     */
+    fun setDeviceCapabilities(capabilities: DeviceCapabilities) {
+        deviceCapabilities = capabilities
+        responseRouter = ResponseRouter(capabilities)
+        Log.d(TAG, "Device capabilities set: profile=${capabilities.profile}")
+    }
+
+    /**
+     * Get the response router (if device capabilities are set).
+     * Returns null if capabilities haven't been configured yet.
+     */
+    fun getResponseRouter(): ResponseRouter? = responseRouter
 
     /**
      * Factory constructor — creates an AgentSession with agent-specific config.
@@ -450,9 +473,16 @@ Example:
     // ==================== History Management ====================
 
     private fun buildMessages(): List<Message> {
-        val systemPrompt = _agentConfig?.systemPrompt?.takeIf { it.isNotBlank() }
+        // Build base system prompt
+        val basePrompt = _agentConfig?.systemPrompt?.takeIf { it.isNotBlank() }
             ?.let { customPrompt -> "$customPrompt\n\n---\n$BASE_SYSTEM_PROMPT" }
             ?: BASE_SYSTEM_PROMPT
+
+        // Prepend device capabilities section if available
+        val systemPrompt = deviceCapabilities?.let { caps ->
+            "${caps.toPromptSection()}\n\n---\n$basePrompt"
+        } ?: basePrompt
+
         return mutableListOf<Message>().apply {
             add(Message(role = "system", content = systemPrompt))
             memoryContextText?.let { context ->

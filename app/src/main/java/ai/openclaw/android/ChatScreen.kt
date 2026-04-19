@@ -37,6 +37,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ai.openclaw.android.domain.Deliverable
+import ai.openclaw.android.domain.RichContent
 import ai.openclaw.android.voice.VoiceInteractionManager
 import ai.openclaw.android.voice.VoiceState
 import ai.openclaw.android.ui.A2UICard
@@ -197,8 +199,22 @@ fun ChatScreen(
     messages: List<ChatMessage>,
     isLoading: Boolean,
     modifier: Modifier = Modifier,
-    voiceSessionHandler: (suspend (String) -> String?)? = null
+    voiceSessionHandler: (suspend (String) -> String?)? = null,
+    lastDeliverable: Deliverable? = null,
+    lastRichContent: RichContent? = null,
+    onSpeakText: ((String) -> Unit)? = null
 ) {
+    var renderedRichContent by remember { mutableStateOf<Map<String, RichContent>>(emptyMap()) }
+
+    // Store rich content against the last assistant message ID
+    LaunchedEffect(messages.size, lastRichContent) {
+        if (lastRichContent != null) {
+            val lastAiIdx = messages.indexOfLast { it.role == "assistant" }
+            if (lastAiIdx >= 0) {
+                renderedRichContent = renderedRichContent + (messages[lastAiIdx].id to lastRichContent)
+            }
+        }
+    }
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -222,7 +238,10 @@ fun ChatScreen(
 
     // Initialize and cleanup voice manager
     LaunchedEffect(voiceManager) {
-        voiceManager?.initialize()
+        // Pass SD card model paths for sherpa-onnx engines
+        val sttPath = "/storage/emulated/0/Android/data/ai.openclaw.android/files/models/stt"
+        val ttsPath = "/storage/emulated/0/Android/data/ai.openclaw.android/files/models/tts"
+        voiceManager?.initialize(sttModelPath = sttPath, ttsModelPath = ttsPath)
     }
     DisposableEffect(voiceManager) {
         onDispose { voiceManager?.destroy() }
@@ -242,6 +261,21 @@ fun ChatScreen(
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    // Handle deliverable: auto-speak voice responses
+    LaunchedEffect(lastDeliverable) {
+        val deliverable = lastDeliverable ?: return@LaunchedEffect
+        when (deliverable) {
+            is Deliverable.Voice -> {
+                onSpeakText?.invoke(deliverable.text)
+            }
+            is Deliverable.Mixed -> {
+                deliverable.voice?.let { onSpeakText?.invoke(it) }
+            }
+            is Deliverable.PlainText -> { /* no special action */ }
+            is Deliverable.RichText -> { /* no special action */ }
         }
     }
 
@@ -328,7 +362,8 @@ fun ChatScreen(
                     MessageBubble(
                         message = message,
                         dateFormat = dateFormat,
-                        onCardAction = onCardAction
+                        onCardAction = onCardAction,
+                        richContent = renderedRichContent[message.id]
                     )
                 }
             }
@@ -474,7 +509,8 @@ fun ChatScreen(
 fun MessageBubble(
     message: ChatMessage,
     dateFormat: SimpleDateFormat,
-    onCardAction: (CardAction) -> Unit = {}
+    onCardAction: (CardAction) -> Unit = {},
+    richContent: RichContent? = null
 ) {
     val isUser = message.role == "user"
     val clipboardManager = LocalClipboardManager.current
@@ -528,7 +564,8 @@ fun MessageBubble(
                 message = message,
                 dateFormat = dateFormat,
                 onCardAction = onCardAction,
-                onLongClick = { showMenu = true }
+                onLongClick = { showMenu = true },
+                richContent = richContent
             )
         }
     }
@@ -596,7 +633,8 @@ private fun AiMessageBubble(
     message: ChatMessage,
     dateFormat: SimpleDateFormat,
     onCardAction: (CardAction) -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    richContent: RichContent? = null
 ) {
     Box(
         modifier = Modifier
@@ -686,6 +724,12 @@ private fun AiMessageBubble(
                 }
             }
 
+            // Render RichContent if available
+            richContent?.let { content ->
+                Spacer(modifier = Modifier.height(8.dp))
+                RichContentCard(content = content)
+            }
+
             Text(
                 text = dateFormat.format(Date(message.timestamp)),
                 style = MonospaceAccent,
@@ -695,6 +739,103 @@ private fun AiMessageBubble(
                     .align(Alignment.End)
             )
         }
+    }
+}
+
+// ==================== Rich Content Components ====================
+
+/** Renders a RichContent object as Compose UI. */
+@Composable
+fun RichContentCard(
+    content: RichContent,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(SciFiSurfaceVariant.copy(alpha = 0.4f))
+            .border(1.dp, SciFiAiBubbleBorder, RoundedCornerShape(12.dp)),
+        color = Color.Transparent
+    ) {
+        when (content) {
+            is RichContent.ListCard -> ListCardContent(content)
+            is RichContent.InfoCard -> InfoCardContent(content)
+            is RichContent.CodeBlock -> CodeBlockContent(content)
+        }
+    }
+}
+
+@Composable
+private fun ListCardContent(card: RichContent.ListCard) {
+    Column(modifier = Modifier.padding(12.dp)) {
+        Text(
+            text = card.title,
+            fontWeight = FontWeight.Bold,
+            color = SciFiOnSurfaceVariant,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        card.items.forEachIndexed { index, item ->
+            Row(
+                modifier = Modifier.padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("• ", color = SciFiPrimary, fontWeight = FontWeight.Bold)
+                Text(item, color = SciFiOnSurfaceVariant, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoCardContent(card: RichContent.InfoCard) {
+    Column(modifier = Modifier.padding(12.dp)) {
+        Text(
+            text = card.title,
+            fontWeight = FontWeight.Bold,
+            color = SciFiOnSurfaceVariant,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+        Text(
+            text = card.body,
+            color = SciFiOnSurfaceVariant,
+            fontSize = 13.sp
+        )
+    }
+}
+
+@Composable
+private fun CodeBlockContent(block: RichContent.CodeBlock) {
+    Column(modifier = Modifier.padding(12.dp)) {
+        Row(
+            modifier = Modifier.padding(bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "📝",
+                fontSize = 12.sp,
+                modifier = Modifier.padding(end = 4.dp)
+            )
+            Text(
+                text = block.language.ifBlank { "code" },
+                style = MonospaceAccent,
+                color = SciFiPrimary,
+                fontSize = 12.sp
+            )
+        }
+        Text(
+            text = block.code,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            color = SciFiOnSurfaceVariant,
+            fontSize = 12.sp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .background(SciFiBackground.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                .padding(8.dp)
+        )
     }
 }
 

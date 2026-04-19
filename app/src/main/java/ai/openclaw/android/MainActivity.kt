@@ -36,6 +36,13 @@ import androidx.compose.ui.unit.dp
 import ai.openclaw.android.ui.theme.OpenClawTheme
 import ai.openclaw.android.model.ModelProvider
 import ai.openclaw.android.agent.SessionEvent
+import ai.openclaw.android.domain.AgentResponse
+import ai.openclaw.android.domain.Deliverable
+import ai.openclaw.android.domain.DeviceCapabilities
+import ai.openclaw.android.domain.ResponseRouter
+import ai.openclaw.android.domain.ResponseType
+import ai.openclaw.android.domain.RichContent
+import ai.openclaw.android.voice.VoiceInteractionManager
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.notification.SmartNotificationListener
 import ai.openclaw.android.notification.NotificationScreen
@@ -103,6 +110,8 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
     // Chat state
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var isLoading by remember { mutableStateOf(false) }
+    var lastDeliverable by remember { mutableStateOf<Deliverable?>(null) }
+    var lastRichContent by remember { mutableStateOf<RichContent?>(null) }
 
     // Configuration state
     var modelApiKey by remember { mutableStateOf("") }
@@ -118,6 +127,30 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
     var logExpanded by remember { mutableStateOf(false) }
 
     val permManager = remember { context.permissionManager() }
+
+    // Response router (initialized once)
+    val responseRouter = remember {
+        val capabilities = DeviceCapabilities.fromContext(context)
+        ResponseRouter(capabilities)
+    }
+
+    // Voice manager for TTS
+    val voiceManager = remember { VoiceInteractionManager(context) }
+    LaunchedEffect(Unit) {
+        val sttPath = "/storage/emulated/0/Android/data/ai.openclaw.android/files/models/stt"
+        val ttsPath = "/storage/emulated/0/Android/data/ai.openclaw.android/files/models/tts"
+        voiceManager.initialize(sttModelPath = sttPath, ttsModelPath = ttsPath)
+    }
+    DisposableEffect(Unit) {
+        onDispose { voiceManager.destroy() }
+    }
+
+    // Parse and route LLM response
+    fun parseAndRoute(text: String): Pair<AgentResponse, Deliverable> {
+        val response = parseAgentResponse(text, responseRouter)
+        val deliverable = responseRouter.route(response)
+        return response to deliverable
+    }
 
     // Permission request launcher for chat-triggered requests
     val chatPermissionLauncher = rememberLauncherForActivityResult(
@@ -225,8 +258,21 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                         }
                         is SessionEvent.ToolResult -> { }
                         is SessionEvent.Complete -> {
+                            val (response, deliverable) = parseAndRoute(event.fullText)
+                            lastDeliverable = deliverable
+                            lastRichContent = when (deliverable) {
+                                is Deliverable.RichText -> deliverable.content
+                                is Deliverable.Mixed -> deliverable.rich
+                                else -> null
+                            }
+                            val displayText = when (deliverable) {
+                                is Deliverable.PlainText -> deliverable.text
+                                is Deliverable.Voice -> deliverable.text
+                                is Deliverable.RichText -> response.fallbackText
+                                is Deliverable.Mixed -> response.fallbackText
+                            }
                             val current = messages[responseIndex]
-                            messages[responseIndex] = current.copy(content = event.fullText)
+                            messages[responseIndex] = current.copy(content = displayText)
                             isLoading = false
                             LogManager.shared.log("INFO", "Chat", "Assistant: ${event.fullText.take(100)}")
                         }
@@ -304,6 +350,13 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                 messages = messages.toList(),
                 isLoading = isLoading,
                 modifier = Modifier.padding(padding),
+                lastDeliverable = lastDeliverable,
+                lastRichContent = lastRichContent,
+                onSpeakText = { text ->
+                    scope.launch {
+                        voiceManager.speak(text)
+                    }
+                },
                 voiceSessionHandler = { userText ->
                     val contract = gatewayContractProvider()
                     if (contract == null || !contract.isReady()) {
@@ -323,14 +376,34 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                                 }
                                 is SessionEvent.Complete -> {
                                     fullResponse = event.fullText
+                                    val (resp, deliverable) = parseAndRoute(fullResponse)
+                                    lastDeliverable = deliverable
+                                    lastRichContent = when (deliverable) {
+                                        is Deliverable.RichText -> deliverable.content
+                                        is Deliverable.Mixed -> deliverable.rich
+                                        else -> null
+                                    }
+                                    val speakText = when (deliverable) {
+                                        is Deliverable.Voice -> deliverable.text
+                                        is Deliverable.Mixed -> deliverable.voice ?: resp.fallbackText
+                                        is Deliverable.PlainText -> deliverable.text
+                                        is Deliverable.RichText -> resp.fallbackText
+                                    }
                                     val idx = messages.indexOfFirst { it.id == responseId }
-                                    if (idx >= 0) messages[idx] = messages[idx].copy(content = fullResponse)
+                                    if (idx >= 0) messages[idx] = messages[idx].copy(content = speakText)
                                 }
                                 else -> {}
                             }
                         }
 
-                        fullResponse.ifEmpty { "抱歉，我没有理解您的问题" }
+                        // Return voice text for TTS
+                        val (resp, deliverable) = parseAndRoute(fullResponse)
+                        when (deliverable) {
+                            is Deliverable.Voice -> deliverable.text
+                            is Deliverable.Mixed -> deliverable.voice ?: resp.fallbackText
+                            is Deliverable.PlainText -> deliverable.text
+                            is Deliverable.RichText -> resp.fallbackText
+                        }
                     }
                 }
             )
@@ -740,6 +813,68 @@ fun openBatteryOptimizationSettings(context: Context) {
     val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
     intent.data = Uri.parse("package:${context.packageName}")
     context.startActivity(intent)
+}
+
+/**
+ * Parse LLM response text into an AgentResponse.
+ * Standalone version for MainActivity (non-ViewModel context).
+ */
+private fun parseAgentResponse(text: String, router: ResponseRouter): AgentResponse {
+    val jsonStart = text.indexOf('{')
+    val jsonEnd = text.lastIndexOf('}')
+
+    if (jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart) {
+        return AgentResponse(
+            type = ResponseType.TEXT,
+            voiceText = text.take(60),
+            richContent = null,
+            fallbackText = text
+        )
+    }
+
+    return try {
+        val jsonStr = text.substring(jsonStart, jsonEnd + 1)
+        val json = org.json.JSONObject(jsonStr)
+
+        val typeStr = json.optString("type", "TEXT")
+        val type = when (typeStr.uppercase()) {
+            "VOICE" -> ResponseType.VOICE
+            "BOTH" -> ResponseType.BOTH
+            else -> ResponseType.TEXT
+        }
+
+        val voiceText = json.optString("voice_text").takeIf { it.isNotEmpty() }
+        val fallbackText = json.optString("fallback_text", text)
+
+        val richContent = if (json.has("rich_content") && !json.isNull("rich_content")) {
+            val rc = json.getJSONObject("rich_content")
+            val rcType = rc.optString("type").takeIf { it.isNotEmpty() }
+            val rcData = if (rc.has("data") && !rc.isNull("data")) {
+                val dataObj = rc.getJSONObject("data")
+                val map = mutableMapOf<String, Any>()
+                for (key in dataObj.keys()) {
+                    map[key] = dataObj.get(key)
+                }
+                map
+            } else null
+            RichContent.fromJson(rcType, rcData)
+        } else null
+
+        AgentResponse(
+            type = type,
+            voiceText = voiceText,
+            richContent = richContent,
+            fallbackText = fallbackText.ifBlank { text }
+        )
+    } catch (e: Exception) {
+        Log.w("MainActivity", "Failed to parse AgentResponse JSON, using fallback", e)
+        AgentResponse(
+            type = ResponseType.TEXT,
+            voiceText = text.take(60),
+            richContent = null,
+            fallbackText = text
+        )
+    }
 }
 
 fun hasNotificationListenerPermission(context: Context): Boolean {
