@@ -19,7 +19,8 @@
 
 | 项 | 值 |
 |---|---|
-| 项目路径 | `/mnt/e/Android/OpenClaw-Android/` |
+| 项目路径 | `~/.openclaw/workspace/openclaw-android/`（WSL2 主副本） |
+| Windows 路径 | `E:\Android\OpenClaw-Android\`（Windows 端开发，定期同步） |
 | 远程仓库 | https://github.com/guuyn/OpenClaw-Android.git |
 | 包名 | `ai.openclaw.android` |
 | compileSdk | 36 (Android 16) |
@@ -33,7 +34,7 @@
 
 ### 编译命令
 ```bash
-cd /mnt/e/Android/OpenClaw-Android
+cd ~/.openclaw/workspace/openclaw-android
 export ANDROID_HOME=/home/guuya/Android/Sdk
 ./gradlew assembleDebug
 ```
