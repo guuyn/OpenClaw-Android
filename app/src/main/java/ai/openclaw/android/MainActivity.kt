@@ -356,55 +356,6 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                     scope.launch {
                         voiceManager.speak(text)
                     }
-                },
-                voiceSessionHandler = { userText ->
-                    val contract = gatewayContractProvider()
-                    if (contract == null || !contract.isReady()) {
-                        "服务未就绪"
-                    } else {
-                        messages.add(ChatMessage(role = "user", content = userText))
-                        val responseId = java.util.UUID.randomUUID().toString()
-                        messages.add(ChatMessage(id = responseId, role = "assistant", content = ""))
-
-                        var fullResponse = ""
-                        contract.sendMessage(userText).collect { event ->
-                            when (event) {
-                                is SessionEvent.Token -> {
-                                    fullResponse += event.text
-                                    val idx = messages.indexOfFirst { it.id == responseId }
-                                    if (idx >= 0) messages[idx] = messages[idx].copy(content = fullResponse)
-                                }
-                                is SessionEvent.Complete -> {
-                                    fullResponse = event.fullText
-                                    val (resp, deliverable) = parseAndRoute(fullResponse)
-                                    lastDeliverable = deliverable
-                                    lastRichContent = when (deliverable) {
-                                        is Deliverable.RichText -> deliverable.content
-                                        is Deliverable.Mixed -> deliverable.rich
-                                        else -> null
-                                    }
-                                    val speakText = when (deliverable) {
-                                        is Deliverable.Voice -> deliverable.text
-                                        is Deliverable.Mixed -> deliverable.voice ?: resp.fallbackText
-                                        is Deliverable.PlainText -> deliverable.text
-                                        is Deliverable.RichText -> resp.fallbackText
-                                    }
-                                    val idx = messages.indexOfFirst { it.id == responseId }
-                                    if (idx >= 0) messages[idx] = messages[idx].copy(content = speakText)
-                                }
-                                else -> {}
-                            }
-                        }
-
-                        // Return voice text for TTS
-                        val (resp, deliverable) = parseAndRoute(fullResponse)
-                        when (deliverable) {
-                            is Deliverable.Voice -> deliverable.text
-                            is Deliverable.Mixed -> deliverable.voice ?: resp.fallbackText
-                            is Deliverable.PlainText -> deliverable.text
-                            is Deliverable.RichText -> resp.fallbackText
-                        }
-                    }
                 }
             )
             1 -> {
