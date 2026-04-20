@@ -7,7 +7,6 @@ import android.media.MediaRecorder
 import android.util.Log
 import com.k2fsa.sherpa.onnx.*
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import java.util.concurrent.atomic.AtomicBoolean
@@ -83,24 +82,15 @@ class SherpaSttEngine(
                         rec.decode(stream)
                     }
 
-                    val isEndpoint = rec.isEndpoint(stream)
                     val text = rec.getResult(stream).text
-
                     if (text.isNotBlank() && text != lastText) {
                         trySend(SttResult(text = text, isFinal = false))
                         lastText = text
                     }
-
-                    if (isEndpoint) {
-                        rec.reset(stream)
-                        if (text.isNotBlank()) {
-                            trySend(SttResult(text = text, isFinal = true))
-                            lastText = ""
-                        }
-                    }
                 }
             }
 
+            // Capture final text when listening stops (user released finger)
             val finalText = rec.getResult(stream).text
             if (finalText.isNotBlank()) {
                 trySend(SttResult(text = finalText, isFinal = true))
@@ -109,14 +99,8 @@ class SherpaSttEngine(
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Recognition error", e)
-            close(e)
         } finally {
             stream.release()
-            releaseAudioRecord()
-            _listening.set(false)
-        }
-
-        awaitClose {
             releaseAudioRecord()
             _listening.set(false)
         }

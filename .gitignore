@@ -100,3 +100,6 @@ local.properties
 model-staging/
 sc/
 .idea/
+
+# Superpowers workflow
+.superpowers/

@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import android.Manifest
+import kotlinx.coroutines.Job
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Send
@@ -72,6 +73,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import org.a2ui.compose.rendering.A2UIRenderer
@@ -199,7 +204,6 @@ fun ChatScreen(
     messages: List<ChatMessage>,
     isLoading: Boolean,
     modifier: Modifier = Modifier,
-    voiceSessionHandler: (suspend (String) -> String?)? = null,
     lastDeliverable: Deliverable? = null,
     lastRichContent: RichContent? = null,
     onSpeakText: ((String) -> Unit)? = null
@@ -220,13 +224,18 @@ fun ChatScreen(
     val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     // Voice interaction
-    val voiceManager = remember { voiceSessionHandler?.let { VoiceInteractionManager(context) } }
-    val voiceState by voiceManager?.sessionState?.collectAsState()
-        ?: remember { mutableStateOf(VoiceState.Idle) }
-    val voiceTranscript by voiceManager?.transcript?.collectAsState()
-        ?: remember { mutableStateOf("") }
+    val voiceManager = remember { VoiceInteractionManager(context) }
+    val voiceState by voiceManager.sessionState.collectAsState()
+    val voiceTranscript by voiceManager.transcript.collectAsState()
+
+    // Voice recording states
+    var isRecording by remember { mutableStateOf(false) }
+    var voiceCollectJob by remember { mutableStateOf<Job?>(null) }
+    var pendingVoiceText by remember { mutableStateOf("") }
+    var showVoiceConfirm by remember { mutableStateOf(false) }
 
     val sendInteraction = remember { MutableInteractionSource() }
     val isSendPressed by sendInteraction.collectIsPressedAsState()
@@ -241,19 +250,53 @@ fun ChatScreen(
         // Pass SD card model paths for sherpa-onnx engines
         val sttPath = "/storage/emulated/0/Android/data/ai.openclaw.android/files/models/stt"
         val ttsPath = "/storage/emulated/0/Android/data/ai.openclaw.android/files/models/tts"
-        voiceManager?.initialize(sttModelPath = sttPath, ttsModelPath = ttsPath)
+        voiceManager.initialize(sttModelPath = sttPath, ttsModelPath = ttsPath)
     }
     DisposableEffect(voiceManager) {
-        onDispose { voiceManager?.destroy() }
+        onDispose { voiceManager.destroy() }
     }
 
     // Audio permission launcher
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted && voiceManager != null) {
-            voiceManager.startSession { transcript ->
-                voiceSessionHandler?.invoke(transcript)
+        if (granted && isRecording && !isLoading) {
+            isRecording = true
+            voiceCollectJob = scope.launch {
+                voiceManager.startListening().collect { result ->
+                    // 实时更新 transcript，已在 VoiceStateIndicator 显示
+                }
+            }
+        }
+    }
+
+    // 监听麦克风按钮的按下/释放事件
+    val micInteractionSource = remember { MutableInteractionSource() }
+    val isMicPressed by micInteractionSource.collectIsPressedAsState()
+
+    LaunchedEffect(isMicPressed) {
+        if (isMicPressed && !isRecording && !isLoading) {
+            if (voiceManager.hasRecordAudioPermission()) {
+                isRecording = true
+                voiceCollectJob = scope.launch {
+                    voiceManager.startListening().collect { result ->
+                        // 实时更新 transcript，已在 VoiceStateIndicator 显示
+                    }
+                }
+            } else {
+                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        } else if (!isMicPressed && isRecording) {
+            // 松手 → 停止识别
+            voiceManager.stopListening()
+            voiceCollectJob?.cancel()
+            voiceCollectJob = null
+            isRecording = false
+            // 如果有识别到文字，弹出确认框
+            val text = voiceManager.finalTranscript.value
+            if (text.isNotBlank()) {
+                pendingVoiceText = text
+                showVoiceConfirm = true
             }
         }
     }
@@ -474,30 +517,89 @@ fun ChatScreen(
                         )
                     }
 
-                    if (voiceManager != null) {
-                        IconButton(
-                            onClick = {
-                                if (voiceManager.hasRecordAudioPermission()) {
-                                    voiceManager.startSession { transcript ->
-                                        voiceSessionHandler?.invoke(transcript)
+                    IconButton(
+                        onClick = {}, // 空操作，使用 pointerInput 处理长按
+                        modifier = Modifier
+                            .size(40.dp)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onPress = {
+                                        if (!isRecording && !isLoading) {
+                                            if (voiceManager.hasRecordAudioPermission()) {
+                                                isRecording = true
+                                                voiceCollectJob = scope.launch {
+                                                    voiceManager.startListening().collect { result ->
+                                                        // 实时更新 transcript，已在 VoiceStateIndicator 显示
+                                                    }
+                                                }
+                                            } else {
+                                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            }
+                                        }
+                                        tryAwaitRelease() // 等待手指抬起
+                                        
+                                        // 手指抬起时停止录音
+                                        if (isRecording) {
+                                            voiceManager.stopListening()
+                                            voiceCollectJob?.cancel()
+                                            voiceCollectJob = null
+                                            isRecording = false
+                                            // 如果有识别到文字，弹出确认框
+                                            val text = voiceManager.finalTranscript.value
+                                            if (text.isNotBlank()) {
+                                                pendingVoiceText = text
+                                                showVoiceConfirm = true
+                                            }
+                                        }
                                     }
-                                } else {
-                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                }
-                            },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "语音输入",
-                                tint = SciFiOnSurfaceVariant
-                            )
-                        }
+                                )
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "长按说话",
+                            tint = if (isRecording) SciFiPrimary else SciFiOnSurfaceVariant
+                        )
                     }
                 }
 
                 EnergyBar(isFocused = isInputFocused)
             }
+        }
+
+        // 语音识别确认弹窗
+        if (showVoiceConfirm) {
+            AlertDialog(
+                onDismissRequest = { 
+                    showVoiceConfirm = false
+                    pendingVoiceText = ""
+                },
+                title = { Text("确认发送") },
+                text = { 
+                    Text(pendingVoiceText) 
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            sendMessage(pendingVoiceText)
+                            showVoiceConfirm = false
+                            pendingVoiceText = ""
+                        }
+                    ) { 
+                        Text("发送") 
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showVoiceConfirm = false
+                            pendingVoiceText = ""
+                        }
+                    ) { 
+                        Text("取消") 
+                    }
+                }
+            )
         }
     }
 }
@@ -1081,3 +1183,5 @@ fun InlineErrorCard(
         }
     }
 }
+
+

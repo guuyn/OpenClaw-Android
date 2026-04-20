@@ -7,6 +7,7 @@ import ai.openclaw.android.voice.stt.AndroidSpeechRecognizer
 import ai.openclaw.android.voice.stt.SherpaSttEngine
 import ai.openclaw.android.voice.stt.SherpaSttManager
 import ai.openclaw.android.voice.stt.SpeechToTextEngine
+import ai.openclaw.android.voice.stt.SttResult
 import ai.openclaw.android.voice.stt.isSpeechRecognitionAvailable
 import ai.openclaw.android.voice.tts.AndroidTTSEngine
 import ai.openclaw.android.voice.tts.SherpaTtsEngine
@@ -16,33 +17,29 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Unified entry point for voice interaction.
  *
- * Supports two STT engines and two TTS engines:
- * - STT: SherpaSttEngine (default, works without GMS) / AndroidSpeechRecognizer (fallback)
- * - TTS: SherpaTtsEngine (default, offline) / AndroidTTSEngine (fallback)
- *
- * The engine selection is automatic based on model availability:
- * - If sherpa-onnx models are downloaded → use Sherpa engines
- * - Otherwise → fall back to Android system engines
- *
- * Usage:
+ * Press-and-hold pattern (like Feishu):
  * ```kotlin
- * val voiceManager = VoiceInteractionManager(context)
- * voiceManager.initialize()  // call once
- *
- * voiceManager.startSession { transcript ->
- *     agentSession.handleMessage(transcript)
+ * // User presses mic button
+ * voiceManager.startListening().collect { result ->
+ *     // result.text has real-time transcript updates
  * }
  *
- * val state by voiceManager.sessionState.collectAsState()
+ * // User releases mic button
+ * voiceManager.stopListening()
+ *
+ * // Get the final transcript
+ * val text = voiceManager.finalTranscript.value
  * ```
  */
 class VoiceInteractionManager(
@@ -61,11 +58,14 @@ class VoiceInteractionManager(
     private var androidTts: AndroidTTSEngine? = null
 
     // --- State ---
-    private val _sessionState = MutableStateFlow(VoiceState.Idle)
+    private val _sessionState = MutableStateFlow<VoiceState>(VoiceState.Idle)
     val sessionState: StateFlow<VoiceState> = _sessionState.asStateFlow()
 
     private val _transcript = MutableStateFlow("")
     val transcript: StateFlow<String> = _transcript.asStateFlow()
+
+    private val _finalTranscript = MutableStateFlow("")
+    val finalTranscript: StateFlow<String> = _finalTranscript.asStateFlow()
 
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
@@ -94,10 +94,6 @@ class VoiceInteractionManager(
 
     /**
      * Initialize STT/TTS engines. Must be called once before any voice session.
-     *
-     * Automatically selects the best available engines:
-     * 1. Tries Sherpa engines first (model path is configurable)
-     * 2. Falls back to Android system engines if Sherpa models not available
      */
     suspend fun initialize(
         sttModelPath: String? = null,
@@ -105,7 +101,6 @@ class VoiceInteractionManager(
     ) {
         Log.i(TAG, "Initializing voice engines...")
 
-        // --- Initialize both STT and TTS on background thread (model loading blocks) ---
         withContext(Dispatchers.IO) {
             // --- Initialize STT ---
             sttManager = SherpaSttManager.getInstance(appContext)
@@ -152,82 +147,48 @@ class VoiceInteractionManager(
     }
 
     /**
-     * Start a voice session: listen → invoke [onTranscript] → speak the response.
+     * Start listening for voice input.
      *
-     * [onTranscript] receives the final recognized text and must return the response
-     * text to be spoken. Return null or empty string to skip TTS.
+     * Returns a Flow that emits real-time transcript updates.
+     * The flow completes when [stopListening] is called.
      */
-    fun startSession(onTranscript: suspend (String) -> String?) {
-        if (sessionJob?.isActive == true) return
-        if (!hasRecordAudioPermission()) {
-            _sessionState.value = VoiceState.Idle
-            return
-        }
-
+    fun startListening(): Flow<SttResult> {
         val stt = sttEngine ?: run {
             Log.w(TAG, "No STT engine available")
-            return
-        }
-        val tts = ttsEngine ?: run {
-            Log.w(TAG, "No TTS engine available")
-            return
+            return kotlinx.coroutines.flow.emptyFlow()
         }
 
-        sessionJob = coroutineScope.launch {
-            val session = VoiceSession()
-            observeSession(session)
+        _transcript.value = ""
+        _finalTranscript.value = ""
+        _sessionState.value = VoiceState.Listening
 
-            try {
-                // --- LISTENING ---
-                session.transitionToListening()
-                val finalText = StringBuilder()
+        return kotlinx.coroutines.flow.channelFlow {
+            withContext(Dispatchers.IO) {
                 stt.startListening().collect { result ->
-                    session.updateTranscript(result.text)
+                    _transcript.value = result.text
                     if (result.isFinal) {
-                        finalText.clear()
-                        finalText.append(result.text)
+                        _finalTranscript.value = result.text
                     }
+                    trySend(result)
                 }
-                val userText = finalText.toString().trim()
-                if (userText.isBlank()) {
-                    session.transitionToIdle()
-                    return@launch
-                }
-
-                // --- PROCESSING ---
-                session.transitionToProcessing()
-                val response = onTranscript(userText)
-                if (response.isNullOrBlank()) {
-                    session.transitionToIdle()
-                    return@launch
-                }
-
-                // --- SPEAKING ---
-                session.transitionToSpeaking(response)
-                tts.speak(response)
-
-                // --- DONE ---
-                session.transitionToIdle()
-            } catch (e: Exception) {
-                session.setError(e)
             }
+            _sessionState.value = VoiceState.Idle
         }
     }
 
-    /** Cancel the current voice session. */
-    fun cancelSession() {
+    /**
+     * Stop the current listening session.
+     * The Flow returned by [startListening] will complete after this.
+     */
+    fun stopListening() {
         sttEngine?.stopListening()
-        (ttsEngine as? AndroidTTSEngine)?.stop()
-        (ttsEngine as? SherpaTtsEngine)?.stop()
         sessionJob?.cancel()
         sessionJob = null
-        _sessionState.value = VoiceState.Idle
-        _transcript.value = ""
     }
 
     /** Release all resources. Call when the host (Activity/Service) is destroyed. */
     fun destroy() {
-        cancelSession()
+        stopListening()
         sherpaStt?.release()
         sherpaTts?.release()
         androidTts?.shutdown()
@@ -259,10 +220,6 @@ class VoiceInteractionManager(
 
     // --- Engine switching ---
 
-    /**
-     * Switch to Sherpa STT engine.
-     * Returns true if successful.
-     */
     fun switchToSherpaStt(modelPath: String? = null): Boolean {
         val path = modelPath ?: SherpaSttManager.defaultModelPath(appContext)
         val manager = SherpaSttManager.getInstance(appContext)
@@ -276,10 +233,6 @@ class VoiceInteractionManager(
         return false
     }
 
-    /**
-     * Switch to Android system STT engine.
-     * Returns true if the system recognizer is available.
-     */
     fun switchToAndroidStt(): Boolean {
         if (!isSpeechRecognitionAvailable(appContext)) return false
         androidStt = AndroidSpeechRecognizer(appContext)
@@ -288,10 +241,6 @@ class VoiceInteractionManager(
         return true
     }
 
-    /**
-     * Switch to Sherpa TTS engine.
-     * Returns true if successful.
-     */
     fun switchToSherpaTts(modelPath: String? = null): Boolean {
         val path = modelPath ?: defaultTtsModelPath()
         val engine = SherpaTtsEngine(appContext)
@@ -304,9 +253,6 @@ class VoiceInteractionManager(
         return false
     }
 
-    /**
-     * Switch to Android system TTS engine.
-     */
     fun switchToAndroidTts() {
         val engine = AndroidTTSEngine(appContext)
         coroutineScope.launch {
@@ -327,15 +273,6 @@ class VoiceInteractionManager(
             "${extDir.absolutePath}/models/tts"
         } else {
             "${appContext.filesDir.absolutePath}/models/tts"
-        }
-    }
-
-    private fun observeSession(session: VoiceSession) {
-        coroutineScope.launch {
-            session.state.collect { _sessionState.value = it }
-        }
-        coroutineScope.launch {
-            session.transcript.collect { _transcript.value = it }
         }
     }
 }
