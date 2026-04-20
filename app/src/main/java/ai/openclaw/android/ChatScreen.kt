@@ -73,8 +73,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.detectTapGestures
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -518,42 +516,9 @@ fun ChatScreen(
                     }
 
                     IconButton(
-                        onClick = {}, // 空操作，使用 pointerInput 处理长按
-                        modifier = Modifier
-                            .size(40.dp)
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onPress = {
-                                        if (!isRecording && !isLoading) {
-                                            if (voiceManager.hasRecordAudioPermission()) {
-                                                isRecording = true
-                                                voiceCollectJob = scope.launch {
-                                                    voiceManager.startListening().collect { result ->
-                                                        // 实时更新 transcript，已在 VoiceStateIndicator 显示
-                                                    }
-                                                }
-                                            } else {
-                                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                            }
-                                        }
-                                        tryAwaitRelease() // 等待手指抬起
-                                        
-                                        // 手指抬起时停止录音
-                                        if (isRecording) {
-                                            voiceManager.stopListening()
-                                            voiceCollectJob?.cancel()
-                                            voiceCollectJob = null
-                                            isRecording = false
-                                            // 如果有识别到文字，弹出确认框
-                                            val text = voiceManager.finalTranscript.value
-                                            if (text.isNotBlank()) {
-                                                pendingVoiceText = text
-                                                showVoiceConfirm = true
-                                            }
-                                        }
-                                    }
-                                )
-                            }
+                        onClick = {},
+                        interactionSource = micInteractionSource,
+                        modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Mic,
