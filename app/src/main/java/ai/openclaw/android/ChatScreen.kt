@@ -518,11 +518,14 @@ fun ChatScreen(
                     IconButton(
                         onClick = {},
                         interactionSource = micInteractionSource,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier
+                            .size(48.dp)
+                            .padding(end = 4.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Mic,
                             contentDescription = "长按说话",
+                            modifier = Modifier.size(28.dp),
                             tint = if (isRecording) SciFiPrimary else SciFiOnSurfaceVariant
                         )
                     }

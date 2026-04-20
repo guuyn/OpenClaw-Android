@@ -184,6 +184,7 @@ class VoiceInteractionManager(
         sttEngine?.stopListening()
         sessionJob?.cancel()
         sessionJob = null
+        _sessionState.value = VoiceState.Idle
     }
 
     /** Release all resources. Call when the host (Activity/Service) is destroyed. */
