@@ -1,6 +1,6 @@
 # OpenClaw-Android 待完成项清单
 
-**最后更新**: 2026-04-18
+**最后更新**: 2026-04-20
 
 ---
 
@@ -75,13 +75,26 @@
 
 | 指标 | 值 |
 |------|-----|
-| Kotlin 源文件 | 113 个（app）+ 9 个（:script） |
+| Kotlin 源文件 | 151 个（app + voice/ui） |
 | 内置技能 | 14 个（AgentManagement + GenerateSkill） |
 | UI 组件 | 6 个自定义科幻组件 + 4 个主题扩展 |
 | ViewModel | 2 个 |
 | LLM Provider | 4 个 |
 | 单元测试 | **158 个（全部通过 ✅）** |
 | A2UI 卡片类型 | **14 种** |
+| 总 Commit | 111+ 个 |
+
+---
+
+## 相关文档
+
+- [PROJECT-CONTEXT.md](./PROJECT-CONTEXT.md) - ⭐ **项目上下文（Coder Agent 必读）**
+- [CURRENT-STATUS-2026-04-20.md](./CURRENT-STATUS-2026-04-20.md) - 当前代码状态
+- [ui-sci-fi-design.md](./ui-sci-fi-design.md) - 科幻 UI 设计（Phase 1-2 已实现）
+- [a2ui-card-system-v2.md](./a2ui-card-system-v2.md) - A2UI 卡片系统设计
+- [gateway-service-architecture.md](./gateway-service-architecture.md) - Gateway 架构
+- [script-engine.md](./script-engine.md) - ScriptEngine 设计
+- [plans/](./plans/) - 实施计划目录
 
 ---
 
