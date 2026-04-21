@@ -257,6 +257,13 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                             )
                         }
                         is SessionEvent.ToolResult -> { }
+                        is SessionEvent.ReflectionStart -> {
+                            val current = messages[responseIndex]
+                            messages[responseIndex] = current.copy(
+                                content = current.content + "\n[🔄 反思中: ${event.role}...]\n"
+                            )
+                        }
+                        is SessionEvent.ReflectionComplete -> { }
                         is SessionEvent.Complete -> {
                             val (response, deliverable) = parseAndRoute(event.fullText)
                             lastDeliverable = deliverable

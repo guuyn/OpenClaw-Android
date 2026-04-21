@@ -1,5 +1,7 @@
 package ai.openclaw.android.config
 
+import ai.openclaw.android.domain.ReflectionStrategy
+
 data class AgentConfig(
     val id: String,
     val name: String,
@@ -7,7 +9,9 @@ data class AgentConfig(
     val systemPrompt: String = "",
     val maxContextTokens: Int = 4000,
     val tools: List<String> = emptyList(),
-    val routing: RoutingConfig? = null
+    val routing: RoutingConfig? = null,
+    /** 自我反思策略（默认自动选择） */
+    val reflectionStrategy: ReflectionStrategy = ReflectionStrategy.SINGLE
 )
 
 data class RoutingConfig(

@@ -264,6 +264,15 @@ class ChatViewModel(
                             _messages.value = updated
                         }
                         is SessionEvent.ToolResult -> { }
+                        is SessionEvent.ReflectionStart -> {
+                            val updated = _messages.value.toMutableList()
+                            val current = updated[responseIndex]
+                            updated[responseIndex] = current.copy(
+                                content = current.content + "\n[🔄 反思中: ${event.role}...]\n"
+                            )
+                            _messages.value = updated
+                        }
+                        is SessionEvent.ReflectionComplete -> { }
                         is SessionEvent.Complete -> {
                             val parsedResponse = parseAgentResponse(event.fullText)
                             val deliverable = responseRouter?.route(parsedResponse)

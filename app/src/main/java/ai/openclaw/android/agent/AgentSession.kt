@@ -5,6 +5,9 @@ import ai.openclaw.android.config.AgentConfig
 import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.domain.AgentResponse
 import ai.openclaw.android.domain.DeviceCapabilities
+import ai.openclaw.android.domain.ReflectionConfig
+import ai.openclaw.android.domain.ReflectionRole
+import ai.openclaw.android.domain.ReflectionStrategy
 import ai.openclaw.android.domain.ResponseRouter
 import ai.openclaw.android.domain.session.HybridSessionManager
 import ai.openclaw.android.model.*
@@ -34,6 +37,8 @@ class AgentSession(
     private var _agentConfig: AgentConfig? = null
     // Tool prefixes to allow (e.g. ["weather", "script"]), null = all tools allowed
     private var _allowedToolPrefixes: List<String>? = null
+    // Reflection config for multi-round self-improvement
+    private var _reflectionConfig: ReflectionConfig? = null
 
     // Device capabilities for response routing
     private var deviceCapabilities: DeviceCapabilities? = null
@@ -71,6 +76,25 @@ class AgentSession(
             agentConfig.tools
         }
         _agentConfig = agentConfig
+        // Auto-select reflection strategy based on agent config
+        _reflectionConfig = ReflectionConfig.defaultFor(agentConfig.reflectionStrategy)
+    }
+
+    /**
+     * Set reflection config for multi-round self-improvement.
+     * Call this to override the auto-selected strategy.
+     */
+    fun setReflectionConfig(config: ReflectionConfig) {
+        _reflectionConfig = config
+        Log.d(TAG, "Reflection config set: strategy=${config.strategy}, roles=${config.roles.size}")
+    }
+
+    /**
+     * Set reflection strategy (shorthand).
+     */
+    fun setReflectionStrategy(strategy: ReflectionStrategy) {
+        _reflectionConfig = ReflectionConfig.defaultFor(strategy)
+        Log.d(TAG, "Reflection strategy set: $strategy")
     }
     companion object {
         private const val TAG = "AgentSession"
@@ -368,8 +392,29 @@ Example:
 
             val toolCalls = response.toolCalls
             if (toolCalls.isNullOrEmpty()) {
-                // Final text response
-                val content = response.content ?: fullText.toString()
+                // Final text response — apply reflection if configured
+                var content = response.content ?: fullText.toString()
+                val reflectionConfig = _reflectionConfig
+                val lastUserMessage = history.lastOrNull { it.role == "user" }?.content ?: ""
+
+                if (reflectionConfig != null && reflectionConfig.strategy != ReflectionStrategy.NONE && content.isNotBlank()) {
+                    Log.d(TAG, "Applying reflection: ${reflectionConfig.strategy} (${reflectionConfig.roles.size} roles)")
+                    emit(SessionEvent.ReflectionStart(reflectionConfig.roles.firstOrNull()?.name ?: "reflection"))
+
+                    for (role in reflectionConfig.roles) {
+                        val reflectionPrompt = role.buildPrompt(lastUserMessage, content)
+                        val refinedContent = runReflectionRound(reflectionPrompt)
+                        if (refinedContent != null) {
+                            content = refinedContent
+                            Log.d(TAG, "Reflection round complete for role: ${role.name}")
+                        } else {
+                            Log.w(TAG, "Reflection round failed for role: ${role.name}, keeping previous answer")
+                        }
+                    }
+
+                    emit(SessionEvent.ReflectionComplete(reflectionConfig.roles.lastOrNull()?.name ?: "reflection"))
+                }
+
                 history.add(Message(role = "assistant", content = content))
                 trimHistoryByTokens()
                 persistMessage("assistant", content)
@@ -544,6 +589,63 @@ Example:
             emptyMap()
         }
     }
+
+    // ==================== Reflection (Multi-round Self-Improvement) ====================
+
+    /**
+     * Run a single reflection round: send reflection prompt to model and get refined answer.
+     * Returns the refined text, or null if the model failed.
+     */
+    private suspend fun runReflectionRound(reflectionPrompt: String): String? {
+        return try {
+            // For reflection, we don't need tools — just pure reasoning
+            val reflectionMessages = buildMessagesForReflection(reflectionPrompt)
+            val fullText = StringBuilder()
+            var completeResponse: ModelResponse? = null
+
+            modelClient.chatStream(reflectionMessages, null).collect { event ->
+                when (event) {
+                    is ChatEvent.Token -> fullText.append(event.text)
+                    is ChatEvent.Complete -> completeResponse = event.response
+                    is ChatEvent.Error -> {
+                        Log.w(TAG, "Reflection stream error: ${event.message}")
+                        return@collect
+                    }
+                    else -> {}
+                }
+            }
+
+            completeResponse?.content ?: fullText.toString().takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            Log.e(TAG, "Reflection round failed: ${e.message}", e)
+            null
+        }
+    }
+
+    /**
+     * Build messages for reflection: use current history + reflection prompt.
+     * The reflection prompt is added as a user message on top of existing history.
+     */
+    private fun buildMessagesForReflection(reflectionPrompt: String): List<Message> {
+        val basePrompt = _agentConfig?.systemPrompt?.takeIf { it.isNotBlank() }
+            ?.let { customPrompt -> "$customPrompt\n\n---\n$BASE_SYSTEM_PROMPT" }
+            ?: BASE_SYSTEM_PROMPT
+
+        val systemPrompt = deviceCapabilities?.let { caps ->
+            "${caps.toPromptSection()}\n\n---\n$basePrompt"
+        } ?: basePrompt
+
+        return mutableListOf<Message>().apply {
+            add(Message(role = "system", content = systemPrompt))
+            memoryContextText?.let { context ->
+                add(Message(role = "system", content = "用户的重要记忆：\n$context"))
+            }
+            // Include conversation history so the model has full context
+            addAll(history)
+            // Add reflection prompt as the last user message
+            add(Message(role = "user", content = reflectionPrompt))
+        }
+    }
 }
 
 // ==================== Session Events (for streaming) ====================
@@ -554,4 +656,8 @@ sealed class SessionEvent {
     data class ToolResult(val name: String, val result: String) : SessionEvent()
     data class Complete(val fullText: String) : SessionEvent()
     data class Error(val message: String) : SessionEvent()
+    /** Reflection phase started */
+    data class ReflectionStart(val role: String) : SessionEvent()
+    /** Reflection phase completed */
+    data class ReflectionComplete(val role: String) : SessionEvent()
 }

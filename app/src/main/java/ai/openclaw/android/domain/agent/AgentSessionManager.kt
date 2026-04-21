@@ -5,6 +5,7 @@ import ai.openclaw.android.accessibility.AccessibilityBridge
 import ai.openclaw.android.agent.AgentSession
 import ai.openclaw.android.data.model.AgentConfig as DataAgentConfig
 import ai.openclaw.android.config.AgentConfig
+import ai.openclaw.android.domain.ReflectionStrategy
 import ai.openclaw.android.model.OpenAIClient
 import ai.openclaw.android.model.AnthropicClient
 import ai.openclaw.android.model.LocalLLMClient
@@ -39,13 +40,18 @@ open class AgentSessionManager(
 ) {
 
     private fun toConfigAgent(dataConfig: DataAgentConfig): AgentConfig {
+        val reflectionStrategy = dataConfig.reflectionStrategy?.let {
+            runCatching { ReflectionStrategy.valueOf(it.uppercase()) }.getOrNull()
+        } ?: ReflectionStrategy.SINGLE
+
         return AgentConfig(
             id = dataConfig.id,
             name = dataConfig.name,
             model = dataConfig.model,
             systemPrompt = dataConfig.systemPrompt ?: "",
             maxContextTokens = 4000,
-            tools = dataConfig.tools
+            tools = dataConfig.tools,
+            reflectionStrategy = reflectionStrategy
         )
     }
 
@@ -75,10 +81,11 @@ open class AgentSessionManager(
         val config = configManager.getAgentById(agentId) ?: configManager.getDefaultAgent()
         val modelClient = createModelClient(config)
 
+        val agentConfig = toConfigAgent(config)
         val session = AgentSession(
             modelClient = modelClient,
             skillManager = skillManager,
-            agentConfig = toConfigAgent(config),
+            agentConfig = agentConfig,
             permissionManager = permissionManager
         )
 
@@ -90,6 +97,10 @@ open class AgentSessionManager(
             }
         )
 
+        // Configure reflection strategy
+        session.setReflectionStrategy(agentConfig.reflectionStrategy)
+        Log.d(TAG, "Reflection strategy for '$agentId': ${agentConfig.reflectionStrategy}")
+
         // Cache with eviction (skip if maxCachedSessions is 0)
         if (maxCachedSessions > 0) {
             evictIfNecessary()
@@ -97,7 +108,7 @@ open class AgentSessionManager(
             accessOrder.add(agentId)
         }
 
-        Log.i(TAG, "Created new session for '$agentId' (model: ${config.model})")
+        Log.i(TAG, "Created new session for '$agentId' (model: ${config.model}, reflection: ${agentConfig.reflectionStrategy})")
         return session
     }
 

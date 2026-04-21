@@ -22,7 +22,9 @@ data class AgentConfig(
     /** Keywords that trigger routing to this agent */
     val keywords: List<String> = emptyList(),
     /** Whether this is the default agent for unmatched messages */
-    val isDefault: Boolean = false
+    val isDefault: Boolean = false,
+    /** Self-reflection strategy: NONE/SINGLE/DOUBLE (auto-select if not specified) */
+    val reflectionStrategy: String? = null
 ) {
     /** Check if a message contains any of this agent's keywords */
     fun matches(message: String): Boolean {
