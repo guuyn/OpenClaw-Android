@@ -1,18 +1,15 @@
 # OpenClaw-Android 待完成项清单
 
-**最后更新**: 2026-04-20
+**最后更新**: 2026-04-21
 
 ---
 
-## P0 - 稳定性（全部完成 ✅）
+## 🔥 P0 - 紧急
 
-| # | 问题 | 状态 | 说明 |
+| # | 任务 | 状态 | 说明 |
 |---|------|------|------|
-| 1 | `vocab.txt` 缺失导致 TfLiteEmbeddingService 初始化失败 | **已解决** | 文件已放到外部存储路径，真机验证通过 |
-| 2 | LiteRT-LM native 库加载失败 | **已解决** | maxNumTokens 调整为 16384，Gemma 4 E4B 支持 128K |
-| 3 | 数据库无 Migration 策略 | **已解决** | v2→v3 迁移已实现（version 字段） |
-| 4 | 记忆系统 P0 优化 | **已完成** | 遗忘曲线、搜索范围限制、LRU缓存、去重 |
-| 5 | Gateway Service 双实例 | **已完成** | MainActivity 0 核心组件引用，GatewayManager 唯一实例 |
+| 1 | ~~语音真机验证~~ | ✅ 已验证 | 语音重构后真机验证通过（2026-04-21） |
+| 2 | 多轮反思真机验证 | ⏳ 待验证 | 2026-04-21 新增，需测试反思功能是否正常工作 |
 
 ---
 
@@ -20,13 +17,10 @@
 
 | # | 任务 | 状态 | 说明 |
 |---|------|------|------|
-| 1 | ~~拆分 MainActivity~~ | ✅ **已完成** | GatewayContract 接口 + ChatViewModel/SettingsViewModel |
-| 2 | ~~A2UI 解析逻辑独立~~ | ✅ **已完成** | A2UICardParser 独立类，ChatScreen 纯 UI |
-| 3 | 多 Agent 配置系统 | **✅ 已完成 2026-04-16** | AgentRegistry + AgentPromptLoader + AgentConfig + AgentManagementSkill（7 个工具），真机验证通过 |
-| 4 | 多 Agent 消息路由 | **✅ 已完成** | AgentRouter 关键词匹配路由已在 CLAUDE.md 中记录 |
-| 4 | 会话压缩质量提升 | 基础实现 | SessionCompressor 已实现，摘要缓存、跨会话记忆关联待做 |
-| 5 | 补充测试覆盖 | 部分完成 | **158 测试全部通过**；LLM 客户端 mock、Compose UI 测试缺失 |
-| 6 | ~~ScriptSkill MemoryBridge 对接~~ | ✅ **已完成 2026-04-18** | MemoryManager 注入 + MemoryBridge 实现 recall/store，代码验证通过 |
+| 1 | 会话压缩质量提升 | 基础实现 | SessionCompressor 已实现，摘要缓存、跨会话记忆关联待做 |
+| 2 | 补充测试覆盖 | 部分完成 | **158 测试全部通过**；LLM 客户端 mock、Compose UI 测试缺失 |
+| 3 | 设备控制 Phase 1 | 待实施 | 待定义具体需求 |
+| 4 | 预采集数据层 | 概念阶段 | 待设计 |
 
 ---
 
@@ -34,40 +28,40 @@
 
 | # | 任务 | 状态 | 说明 |
 |---|------|------|------|
-| 1 | UI 优化 | **✅ 科幻主题已完成 2026-04-18** | 深色科幻主题落地：毛玻璃顶栏、渐变气泡、思考动画、玻璃拟态输入栏、能量条、底部菜单、A2UI 卡片重样式、设置/通知页统一；空状态页、转场动画、声音待做 |
-| 2 | 性能优化 | 部分完成 | 嵌入缓存已实现(LRU)；异步模型加载、语音组件复用待做 |
-| 3 | 安全加固 | 部分完成 | SQLCipher + SecurityKeyManager + AuditLogger 已有；速率限制、日志脱敏待做 |
-| 4 | ML 通知分类 | 未实现 | `NotificationMLClassifier` 始终返回 null |
-| 5 | 飞书集成 | 骨架代码 | 302 行基础 HTTP 客户端，无实际业务逻辑 |
-| 6 | 国际化 | 未开始 | UI 文案硬编码中文 |
-| 7 | ~~本地通知发送~~ | ✅ **已完成** | NotificationSkill 已实现 5 个工具：list_notifications、send_notification、delete_notification、clear_notifications、mark_notification_read |
-| 8 | ~~A2UI 卡片系统 v2~~ | ✅ **已完成** | 14 种卡片 + 解析器 + 回调机制 + 3 个技能适配 + 兜底机制 |
-| 9 | ScriptEngine 生产化 | **原型阶段** | Rhino 原型 + 9 文件 + 60 测试；待 QuickJS JNI + 安全沙箱完善 |
+| 1 | 性能优化 | 部分完成 | 嵌入缓存已实现(LRU)；异步模型加载、语音组件复用待做 |
+| 2 | 安全加固 | 部分完成 | SQLCipher + SecurityKeyManager + AuditLogger 已有；速率限制、日志脱敏待做 |
+| 3 | ML 通知分类 | 未实现 | `NotificationMLClassifier` 始终返回 null |
+| 4 | 飞书集成 | 骨架代码 | 302 行基础 HTTP 客户端，无实际业务逻辑 |
+| 5 | ScriptEngine 生产化 | 原型阶段 | Rhino 原型 + 9 文件 + 60 测试；待 QuickJS JNI + 安全沙箱完善 |
 
 ---
 
-## ✅ 已完成项（截至 2026-04-14）
+## P3 - 体验
 
-| 功能 | 完成时间 | 备注 |
-|------|---------|------|
-| **A2UI 卡片系统 v2（9 个任务全部完成）** | 2026-04-14 | 14 种卡片 + 解析器 + 回调 + 3 技能适配 + 兜底 |
-| **科幻 UI 重设计（Phase 1-2 + 部分 Phase 3-4）** | 2026-04-18 | 深色科幻主题、6 个新 UI 组件、毛玻璃顶栏、渐变气泡、思考动画、玻璃拟态输入栏+能量条、底部菜单、A2UI 卡片重样式、设置/通知页统一、错误卡片 |
-| Gateway Service 架构重构 | 2026-04-12 | MainActivity 纯 UI 层，GatewayManager 唯一实例 |
-| 记忆优化方案五阶段全部完成 | 2026-04-12 | SensoryBuffer / BM25+向量 / 冲突检测 / 加密 / 冷启动 |
-| Koin DI 框架集成 | 2026-04-12 | `di/AppModule.kt` |
-| ViewModel 拆分 | 2026-04-12 | ChatViewModel + SettingsViewModel |
-| :script 模块集成 | 2026-04-13 | 9 个文件，Rhino 原型 + 60 测试 |
-| ScriptSkill 技能 | 2026-04-13 | JS 脚本沙箱执行 |
-| Release 签名配置 | 已完成 | build.gradle.kts 已配置 |
-| CI/CD pipeline | 已完成 | `.github/workflows/android.yml` |
-| 记忆系统 P0 优化 | 2026-04-11 | 遗忘曲线、搜索限制、LRU缓存、去重 |
-| A2UI 富文本修复 + 兜底 | 2026-04-10 | 修复转圈 bug |
-| LocalLLMClient 并发修复 | 2026-04-10 | Mutex 互斥锁 |
-| LocalLLMClient Token 修复 | 2026-04-10 | truncateMessages，maxTokens 2048→16384 |
-| 语音交互模块 | 2026-04-08 | VoiceSession + STT/TTS |
-| AppLauncherSkill + SettingsSkill | 2026-04-08 | 应用启动、系统设置控制 |
-| 12 个内置技能 | 2026-04-13 | 天气/搜索/翻译/提醒/日程/定位/通讯录/短信/启动器/设置/文件/脚本 |
-| APK 大小优化 | 2026-04-06 | 149MB → 46MB |
+| # | 任务 | 状态 | 说明 |
+|---|------|------|------|
+| 1 | 国际化 | 未开始 | UI 文案硬编码中文 |
+| 2 | 空状态页 | 待做 | 聊天列表/设置页空状态美化 |
+| 3 | 转场动画 | 待做 | Activity/Fragment 转场 |
+| 4 | 声音反馈 | 待做 | 按键音效/操作反馈音 |
+
+---
+
+## ✅ 今日完成（2026-04-21）
+
+| 任务 | 提交 | 说明 |
+|------|------|------|
+| 多轮自我反思功能集成 | `4919c13` | ReflectionStrategy + ReflectionRole + 提示词模板 + UI 状态显示 |
+
+---
+
+## ✅ 近期完成（2026-04-20）
+
+| 任务 | 提交 | 说明 |
+|------|------|------|
+| 语音模块重构 | `6bd389d` | 长按模式 + 确认弹窗 + ANR 修复 |
+| 文档体系完善 | `e500daa` | PROJECT-CONTEXT.md + 开发规范 |
+| .gitattributes 强制 LF | `26aabcb` | 换行符污染清理 |
 
 ---
 
@@ -75,36 +69,13 @@
 
 | 指标 | 值 |
 |------|-----|
-| Kotlin 源文件 | 151 个（app + voice/ui） |
-| 内置技能 | 14 个（AgentManagement + GenerateSkill） |
-| UI 组件 | 6 个自定义科幻组件 + 4 个主题扩展 |
-| ViewModel | 2 个 |
-| LLM Provider | 4 个 |
-| 单元测试 | **158 个（全部通过 ✅）** |
+| Kotlin 源文件 | 151+ 个 |
+| 内置技能 | 14 个 + GenerateSkill |
 | A2UI 卡片类型 | **14 种** |
-| 总 Commit | 111+ 个 |
+| 总 Commit | 116+ 个 |
+| 单元测试 | **158 个（全部通过 ✅）** |
+| LLM Provider | 4 个（OpenAI / Anthropic / Bailian / Local） |
 
 ---
 
-## 相关文档
-
-- [PROJECT-CONTEXT.md](./PROJECT-CONTEXT.md) - ⭐ **项目上下文（Coder Agent 必读）**
-- [CURRENT-STATUS-2026-04-20.md](./CURRENT-STATUS-2026-04-20.md) - 当前代码状态
-- [ui-sci-fi-design.md](./ui-sci-fi-design.md) - 科幻 UI 设计（Phase 1-2 已实现）
-- [a2ui-card-system-v2.md](./a2ui-card-system-v2.md) - A2UI 卡片系统设计
-- [gateway-service-architecture.md](./gateway-service-architecture.md) - Gateway 架构
-- [script-engine.md](./script-engine.md) - ScriptEngine 设计
-- [plans/](./plans/) - 实施计划目录
-
----
-
-## 相关文档
-
-- [2026-04-14-a2ui-card-system-v2.md](./plans/2026-04-14-a2ui-card-system-v2.md) - A2UI v2 实施计划 ✅已完成
-- [a2ui-card-system-v2.md](./a2ui-card-system-v2.md) - A2UI 卡片系统设计
-- [ui-sci-fi-design.md](./ui-sci-fi-design.md) - 科幻 UI 设计方案（Phase 1-2 已实现）
-- [superpowers/specs/2026-04-18-scifi-ui-redesign.md](./superpowers/specs/2026-04-18-scifi-ui-redesign.md) - 科幻 UI 重设计 Spec
-- [superpowers/plans/2026-04-18-scifi-ui-redesign.md](./superpowers/plans/2026-04-18-scifi-ui-redesign.md) - 科幻 UI 实施计划
-- [gateway-service-architecture.md](./gateway-service-architecture.md) - Gateway 重构设计 ✅已落地
-- [script-engine.md](./script-engine.md) - ScriptEngine 设计
-- [CURRENT-STATUS-2026-04-14.md](./CURRENT-STATUS-2026-04-14.md) - 当前代码状态快照
+*相关文档: [PROJECT-CONTEXT.md](./PROJECT-CONTEXT.md) | [CURRENT-STATUS-2026-04-20.md](./CURRENT-STATUS-2026-04-20.md)*
