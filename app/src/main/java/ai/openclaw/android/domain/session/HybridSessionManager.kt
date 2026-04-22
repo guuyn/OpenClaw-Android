@@ -3,14 +3,17 @@ package ai.openclaw.android.domain.session
 import ai.openclaw.android.data.local.MessageDao
 import ai.openclaw.android.data.local.SessionDao
 import ai.openclaw.android.data.local.SummaryDao
+import ai.openclaw.android.data.model.MemoryType
 import ai.openclaw.android.data.model.MessageEntity
 import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.domain.model.SessionConfig
 import ai.openclaw.android.data.model.SessionEntity
 import ai.openclaw.android.data.model.SessionStatus
+import ai.openclaw.android.data.model.SummaryEntity
 import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.Message
+import ai.openclaw.android.util.CompressionPrompts
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +22,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import java.util.LinkedHashMap
 import java.util.UUID
 
 /**
@@ -37,9 +41,15 @@ class HybridSessionManager(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var extractionJob: Job? = null
 
+    /** 摘要 LRU 缓存 — 避免每次查 DB */
+    private val summaryCache = object : LinkedHashMap<String, SummaryEntity>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SummaryEntity>): Boolean = size > SUMMARY_CACHE_SIZE
+    }
+
     companion object {
         private const val TAG = "HybridSessionManager"
         private const val EXTRACTION_DELAY_MS = 30_000L
+        private const val SUMMARY_CACHE_SIZE = 10
         private val MANUAL_MEMORY_TRIGGERS = listOf("记住这个", "记住：", "记住:", "请记住")
     }
 
@@ -145,8 +155,8 @@ class HybridSessionManager(
     suspend fun getConversationContext(): List<MessageEntity> {
         val sessionId = currentSession?.sessionId ?: return emptyList()
 
-        // 获取最新的摘要（如果有）
-        val latestSummary = summaryDao.getSummaryBySessionId(sessionId)
+        // 先从缓存获取摘要，缓存未命中再查 DB
+        val latestSummary = getCachedSummary(sessionId)
 
         // 获取最近的消息（根据配置决定保留的数量）
         val allMessages = messageDao.getMessagesBySessionId(sessionId).firstOrNull() ?: emptyList()
@@ -192,6 +202,24 @@ class HybridSessionManager(
     }
 
     /**
+     * 获取摘要（缓存优先，DB 兜底）
+     */
+    private suspend fun getCachedSummary(sessionId: String): SummaryEntity? {
+        return summaryCache[sessionId] ?: run {
+            summaryDao.getSummaryBySessionId(sessionId)?.also {
+                summaryCache[sessionId] = it
+            }
+        }
+    }
+
+    /**
+     * 清空某会话的摘要缓存
+     */
+    fun invalidateSummaryCache(sessionId: String) {
+        summaryCache.remove(sessionId)
+    }
+
+    /**
      * 获取记忆上下文文本（供 AgentSession 注入 system prompt）
      */
     suspend fun getMemoryContext(): String? {
@@ -229,17 +257,18 @@ class HybridSessionManager(
         }
 
         if (messagesToCompress.isNotEmpty()) {
-            // 使用LLM来生成摘要
+            // 增量压缩：如果有旧摘要，合并到新摘要中
+            val existingSummary = getCachedSummary(sessionId)
             val messagesToSummarize = messagesToCompress.map {
                 "${it.role.name}: ${it.content}"
             }.joinToString("\n")
 
-            // 生成摘要
-            val summaryContent = generateSummary(messagesToSummarize)
+            // 生成摘要（传入旧摘要用于增量合并）
+            val summaryContent = generateSummary(messagesToSummarize, existingSummary)
 
             if (summaryContent != null) {
                 // 保存摘要
-                val summaryEntity = ai.openclaw.android.data.model.SummaryEntity(
+                val summaryEntity = SummaryEntity(
                     sessionId = sessionId,
                     content = summaryContent,
                     messageRangeStart = messagesToCompress.firstOrNull()?.timestamp ?: 0,
@@ -247,6 +276,8 @@ class HybridSessionManager(
                     compressedAt = System.currentTimeMillis()
                 )
                 summaryDao.insertSummary(summaryEntity)
+                // 更新缓存
+                summaryCache[sessionId] = summaryEntity
 
                 // 删除已压缩的消息
                 val messageIdsToDelete = messagesToCompress.map { it.id }
@@ -258,26 +289,111 @@ class HybridSessionManager(
 
                 currentSession = currentSession?.copy(tokenCount = newTokenCount)
                 sessionDao.updateSession(currentSession!!)
+
+                Log.d(TAG, "Session compressed: sessionId=$sessionId, summaryLength=${summaryContent.length}")
+
+                // 跨会话记忆关联：从摘要中提取重要事实存入记忆系统
+                extractMemoriesFromSummary(summaryContent, sessionId)
             }
         }
     }
 
     /**
-     * 生成摘要内容
+     * 从压缩摘要中提取重要信息，存入记忆系统（跨会话记忆关联）
      */
-    private suspend fun generateSummary(content: String): String? {
-        // 如果本地LLM可用，使用它来生成摘要
+    private fun extractMemoriesFromSummary(summary: String, sessionId: String) {
+        val mm = memoryManager ?: return
+
+        scope.launch {
+            try {
+                // 基于规则的关键行提取
+                val lines = summary.split("\n")
+                var extractedCount = 0
+
+                for (line in lines) {
+                    val trimmed = line.trim().removePrefix("-").removePrefix("*").trim()
+                    if (trimmed.isBlank() || trimmed.startsWith("##")) continue
+
+                    // 识别用户偏好并存储
+                    val inferredType = when {
+                        trimmed.contains("喜欢") || trimmed.contains("偏好") || trimmed.contains("不要") || trimmed.contains("不用") -> MemoryType.PREFERENCE
+                        trimmed.contains("决定") || trimmed.contains("选择") || trimmed.contains("采用") -> MemoryType.DECISION
+                        trimmed.contains("待办") || trimmed.contains("要完成") || trimmed.contains("记得") -> MemoryType.TASK
+                        else -> null
+                    }
+
+                    if (inferredType != null) {
+                        mm.addManual(trimmed, inferredType)
+                        extractedCount++
+                    }
+                }
+
+                if (extractedCount > 0) {
+                    Log.d(TAG, "Extracted $extractedCount cross-session memories from summary")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Memory extraction from summary failed", e)
+            }
+        }
+    }
+
+    /**
+     * 生成摘要内容（支持增量压缩）
+     * @param messagesText 待压缩的对话消息
+     * @param previousSummary 之前的摘要（如果有，将增量合并）
+     */
+    private suspend fun generateSummary(
+        messagesText: String,
+        previousSummary: SummaryEntity? = null
+    ): String? {
         return if (llmClient != null && llmClient.isModelLoaded()) {
             try {
-                val prompt = "请总结以下对话内容，保持重要信息：\n\n$content"
+                val prompt = if (previousSummary != null) {
+                    // 增量压缩：合并旧摘要和新消息
+                    """你正在压缩一段长对话。以下是之前的摘要（包含早期对话要点）：
+
+${previousSummary.content}
+
+以下是新产生的对话内容：
+
+$messagesText
+
+请将旧摘要和新对话合并为一份完整的摘要：
+1. 保留旧摘要中仍然重要的信息
+2. 添加新对话中的关键决策、用户偏好和待办事项
+3. 删除过时的内容
+4. 控制在 300 字以内
+5. 使用要点列表格式
+
+合并后的摘要：""".trimIndent()
+                } else {
+                    // 首次压缩：直接生成摘要
+                    """请总结以下对话内容，保持重要信息：
+
+$messagesText
+
+要求：
+1. 保留关键决策和结论
+2. 保留用户偏好和重要信息
+3. 保留未完成的任务或待办事项
+4. 使用要点列表格式
+5. 控制在 200 字以内
+
+摘要：""".trimIndent()
+                }
                 llmClient.chat(listOf(Message(role = "user", content = prompt)))
                     .getOrNull()?.content
             } catch (e: Exception) {
+                Log.w(TAG, "LLM summary generation failed", e)
                 null
             }
         } else {
-            // 如果本地LLM不可用，返回原始内容作为占位符
-            "对话摘要: $content".take(500) // 限制长度
+            // LLM 不可用，使用简单摘要
+            if (previousSummary != null) {
+                "${previousSummary.content}\n[新增对话: ${messagesText.take(200)}...]"
+            } else {
+                "对话摘要: ${messagesText.take(300)}"
+            }
         }
     }
 

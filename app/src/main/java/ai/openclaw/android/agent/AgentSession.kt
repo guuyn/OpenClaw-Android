@@ -1,6 +1,7 @@
 package ai.openclaw.android.agent
 
 import android.util.Log
+import ai.openclaw.android.LogManager
 import ai.openclaw.android.config.AgentConfig
 import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.domain.AgentResponse
@@ -399,6 +400,7 @@ Example:
 
                 if (reflectionConfig != null && reflectionConfig.strategy != ReflectionStrategy.NONE && content.isNotBlank()) {
                     Log.d(TAG, "Applying reflection: ${reflectionConfig.strategy} (${reflectionConfig.roles.size} roles)")
+                    LogManager.shared.log("INFO", TAG, "[反思] 开始: strategy=${reflectionConfig.strategy}, roles=${reflectionConfig.roles.map { it.name }}")
                     emit(SessionEvent.ReflectionStart(reflectionConfig.roles.firstOrNull()?.name ?: "reflection"))
 
                     for (role in reflectionConfig.roles) {
@@ -407,12 +409,15 @@ Example:
                         if (refinedContent != null) {
                             content = refinedContent
                             Log.d(TAG, "Reflection round complete for role: ${role.name}")
+                            LogManager.shared.log("INFO", TAG, "[反思] 完成: role=${role.name}")
                         } else {
                             Log.w(TAG, "Reflection round failed for role: ${role.name}, keeping previous answer")
+                            LogManager.shared.log("WARN", TAG, "[反思] 失败: role=${role.name}, 保留原答案")
                         }
                     }
 
                     emit(SessionEvent.ReflectionComplete(reflectionConfig.roles.lastOrNull()?.name ?: "reflection"))
+                    LogManager.shared.log("INFO", TAG, "[反思] 全部完成, 内容长度=${content.length}")
                 }
 
                 history.add(Message(role = "assistant", content = content))
