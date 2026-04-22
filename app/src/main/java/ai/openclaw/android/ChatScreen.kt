@@ -260,7 +260,7 @@ fun ChatScreen(
         if (isMicPressed && !isRecording && !isLoading) {
             if (hasRecordAudioPermission()) {
                 isRecording = true
-                // transcript updates come from voiceState/voiceTranscript params
+                onStartListening?.invoke()
             } else {
                 onRequestAudioPermission?.invoke()
             }
