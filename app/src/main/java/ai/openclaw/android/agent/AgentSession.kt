@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import kotlinx.coroutines.sync.Mutex
 
 /**
  * AgentSession - Manages conversation context and model interactions
@@ -159,6 +160,7 @@ Example:
     private val history: MutableList<Message> = mutableListOf()
     private var tools: List<Tool> = emptyList()
     private var toolExecutor: (suspend (ToolCall) -> String)? = null
+    private val toolExecutionMutex = Mutex()
     private var accessibilityTools: List<Tool> = emptyList()
 
     // System prompt — loaded from external file, not hardcoded
@@ -231,7 +233,11 @@ Example:
      * 重新从 SkillManager 获取最新工具列表，保留已有的 accessibility tools
      */
     fun refreshTools() {
-        val executor = this.toolExecutor ?: return
+        val currentExecutor = this.toolExecutor
+        if (currentExecutor == null) {
+            Log.w(TAG, "Cannot refresh tools: toolExecutor is null")
+            return
+        }
         val allSkillTools = skillManager.getAllTools().map { toolDef ->
             Tool(
                 type = "function",
@@ -252,7 +258,7 @@ Example:
             }
         }
         val allTools = accessibilityTools + skillTools
-        setTools(allTools, executor)
+        setTools(allTools, currentExecutor)
         Log.d(TAG, "Tools refreshed: ${allTools.size} total (${skillTools.size} skill tools)")
     }
 
@@ -474,48 +480,55 @@ Example:
     }
 
     private suspend fun executeToolCall(toolCall: ToolCall): String {
-        return withContext(Dispatchers.IO) {
-            val toolName = toolCall.function.name
+        return toolExecutionMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val toolName = toolCall.function.name
 
-            if (toolName.contains("_") && toolName.split("_").size >= 2) {
-                // Skill tool — find matching skill by longest prefix
-                val params = parseToolCallParams(toolCall)
-                val skillId = skillManager.getLoadedSkills().keys
-                    .filter { toolName.startsWith("${it}_") }
-                    .maxByOrNull { it.length }
-                    ?: toolName.substringBefore('_')
+                if (toolName.contains("_") && toolName.split("_").size >= 2) {
+                    // Skill tool — find matching skill by longest prefix
+                    val params = parseToolCallParams(toolCall)
+                    val skillId = skillManager.getLoadedSkills().keys
+                        .filter { toolName.startsWith("${it}_") }
+                        .maxByOrNull { it.length }
+                        ?: toolName.substringBefore('_')
 
-                val permCheck = skillManager.checkSkillPermissions(skillId)
-                if (!permCheck.first) {
-                    // Try runtime permission request
-                    val permMgr = permissionManager
-                    if (permMgr != null) {
-                        val requiredPerms = PermissionManager.getPermissionsForSkill(skillId)
-                            ?: emptyArray()
-                        val displayName = PermissionManager.getSkillDisplayName(skillId)
-                        val granted = withContext(Dispatchers.Main) {
-                            permMgr.requestPermission(requiredPerms, skillId, displayName)
-                        }
-                        if (!granted) {
+                    val permCheck = skillManager.checkSkillPermissions(skillId)
+                    if (!permCheck.first) {
+                        // Try runtime permission request
+                        val permMgr = permissionManager
+                        if (permMgr != null) {
+                            val requiredPerms = PermissionManager.getPermissionsForSkill(skillId)
+                                ?: emptyArray()
+                            val displayName = PermissionManager.getSkillDisplayName(skillId)
+                            val granted = withContext(Dispatchers.Main) {
+                                permMgr.requestPermission(requiredPerms, skillId, displayName)
+                            }
+                            if (!granted) {
+                                return@withContext "需要权限: ${permCheck.second}。请在设置中授权。"
+                            }
+                        } else {
                             return@withContext "需要权限: ${permCheck.second}。请在设置中授权。"
                         }
+                    }
+
+                    val skillResult = skillManager.executeTool(toolName, params)
+                    if (skillResult.success) {
+                        Log.d(TAG, "Tool $toolName success: ${skillResult.output}")
+                        skillResult.output
                     } else {
-                        return@withContext "需要权限: ${permCheck.second}。请在设置中授权。"
+                        Log.e(TAG, "Tool $toolName failed: ${skillResult.error}")
+                        skillResult.error ?: "Skill error"
+                    }
+                } else {
+                    // Accessibility tool
+                    Log.d(TAG, "Executing accessibility tool: $toolName")
+                    // Fix: Add null check before invoking toolExecutor
+                    if (toolExecutor != null) {
+                        toolExecutor!!.invoke(toolCall)
+                    } else {
+                        "Tool executor not set"
                     }
                 }
-
-                val skillResult = skillManager.executeTool(toolName, params)
-                if (skillResult.success) {
-                    Log.d(TAG, "Tool $toolName success: ${skillResult.output}")
-                    skillResult.output
-                } else {
-                    Log.e(TAG, "Tool $toolName failed: ${skillResult.error}")
-                    skillResult.error ?: "Skill error"
-                }
-            } else {
-                // Accessibility tool
-                Log.d(TAG, "Executing accessibility tool: $toolName")
-                toolExecutor?.invoke(toolCall) ?: "Tool executor not set"
             }
         }
     }
