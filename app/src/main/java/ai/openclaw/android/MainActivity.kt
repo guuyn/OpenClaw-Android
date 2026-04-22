@@ -148,12 +148,23 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
         onDispose { voiceManager.destroy() }
     }
 
+    // Voice collect flow — MUST be collected to actually start STT engine
+    var voiceCollectJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val startVoiceCollect: (VoiceInteractionManager, kotlinx.coroutines.CoroutineScope) -> Unit = { vm, sc ->
+        voiceCollectJob?.cancel()
+        voiceCollectJob = sc.launch {
+            vm.startListening().collect { result ->
+                // VoiceInteractionManager already updates internal transcript/state
+            }
+        }
+    }
+
     // Audio permission launcher for voice (mic button in ChatScreen)
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            voiceManager.startListening()
+            startVoiceCollect(voiceManager, scope)
         }
     }
 
@@ -379,9 +390,13 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                 // Voice callbacks — single VoiceInteractionManager instance
                 voiceState = voiceState,
                 voiceTranscript = voiceTranscript,
-                onStartListening = { voiceManager.startListening() },
+                onStartListening = {
+                    startVoiceCollect(voiceManager, scope)
+                },
                 onStopListening = {
                     voiceManager.stopListening()
+                    voiceCollectJob?.cancel()
+                    voiceCollectJob = null
                 },
                 hasRecordAudioPermission = { voiceManager.hasRecordAudioPermission() },
                 onRequestAudioPermission = {
