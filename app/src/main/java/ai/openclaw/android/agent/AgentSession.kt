@@ -99,7 +99,7 @@ class AgentSession(
     }
     companion object {
         private const val TAG = "AgentSession"
-        private const val MAX_TOOL_ROUNDS = 5
+        private const val MAX_TOOL_ROUNDS = 50
 
         private const val BASE_SYSTEM_PROMPT = """You are an AI assistant on an Android device with tool access.
 
