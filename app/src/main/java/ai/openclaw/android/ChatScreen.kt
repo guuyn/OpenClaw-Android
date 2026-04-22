@@ -327,16 +327,24 @@ fun ChatScreen(
     // Manual keyboard height detection for OEM devices with broken WindowInsets.ime.
     // Uses ViewCompat.getRootWindowInsets to read raw IME inset, then subtracts
     // the Scaffold bottom padding (NavigationBar) to avoid double-counting.
+    // Only applies when adjustResize is not working (window didn't shrink with keyboard).
     val view = LocalView.current
     val density = LocalDensity.current
     val scaffoldBottomPx = with(density) { scaffoldPadding.calculateBottomPadding().toPx() }.toInt()
     val keyboardHeightDp = remember { mutableStateOf(0.dp) }
     DisposableEffect(view) {
+        var initialWindowHeight = 0
         val listener = ViewTreeObserver.OnGlobalLayoutListener {
+            val rootH = view.rootView.height
+            if (initialWindowHeight == 0 && rootH > 0) initialWindowHeight = rootH
             val insets = androidx.core.view.ViewCompat.getRootWindowInsets(view)
             val imeBottom = insets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
-            val kb = maxOf(0, imeBottom - scaffoldBottomPx)
-            keyboardHeightDp.value = with(density) { kb.toDp() }
+            if (imeBottom > 0 && rootH >= initialWindowHeight) {
+                // Window didn't shrink → adjustResize not working → manual padding needed
+                keyboardHeightDp.value = with(density) { maxOf(0, imeBottom - scaffoldBottomPx).toDp() }
+            } else {
+                keyboardHeightDp.value = 0.dp
+            }
         }
         view.viewTreeObserver.addOnGlobalLayoutListener(listener)
         onDispose { view.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
