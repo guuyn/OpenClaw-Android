@@ -192,24 +192,33 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
 
         // 3.6. Ensure DynamicSkillManager is initialized (for generate_skill tool)
         if (dynamicSkillManager == null) {
-            database = AppDatabase.getInstance(service)
+            val db = AppDatabase.getInstance(service)
+            database = db
+            val sm = skillManager
+            if (sm == null) {
+                Log.e(TAG, "Cannot create DynamicSkillManager: skillManager is null")
+                return false
+            }
             dynamicSkillManager = DynamicSkillManager(
                 context = service,
-                dynamicSkillDao = database!!.dynamicSkillDao(),
-                skillManager = skillManager!!,
+                dynamicSkillDao = db.dynamicSkillDao(),
+                skillManager = sm,
                 orchestrator = ai.openclaw.script.ScriptOrchestrator(service),
                 preferenceManager = ai.openclaw.android.skill.UserPreferenceManager(service),
                 onUserConfirmation = { _, _ ->
                     ApprovalDecision.ALWAYS_APPROVE
                 }
             )
-            dynamicSkillManager!!.loadAllSaved()
-            dynamicSkillManager!!.setToolsChangedListener {
+            dynamicSkillManager?.loadAllSaved()
+            dynamicSkillManager?.setToolsChangedListener {
                 agentSession?.refreshTools()
             }
-            val generateSkillTool = GenerateSkillTool(dynamicSkillManager!!)
-            val generateSkillSkill = GenerateSkillSkill(generateSkillTool)
-            skillManager!!.registerSkill(generateSkillSkill)
+            val gsm = dynamicSkillManager
+            if (gsm != null) {
+                val generateSkillTool = GenerateSkillTool(gsm)
+                val generateSkillSkill = GenerateSkillSkill(generateSkillTool)
+                sm.registerSkill(generateSkillSkill)
+            }
         }
 
         // 3.7. Inject MemoryManager into ScriptSkill if available
@@ -219,9 +228,16 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         }
 
         // 4. Rebuild AgentSession for backward compatibility
+        val mc = modelClient
+        val sm = skillManager
+        if (mc == null || sm == null) {
+            Log.e(TAG, "Cannot create AgentSession: modelClient=$mc, skillManager=$sm")
+            _connectionState.value = ConnectionState.Error("Model or SkillManager initialization failed")
+            return false
+        }
         agentSession = AgentSession(
-            modelClient = modelClient!!,
-            skillManager = skillManager!!,
+            modelClient = mc,
+            skillManager = sm,
             maxContextTokens = 4000
         ).apply {
             val systemPrompt = SystemPromptLoader.load(service)

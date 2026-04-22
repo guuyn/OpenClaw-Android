@@ -16,7 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import android.Manifest
-import kotlinx.coroutines.Job
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Send
@@ -40,7 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.openclaw.android.domain.Deliverable
 import ai.openclaw.android.domain.RichContent
-import ai.openclaw.android.voice.VoiceInteractionManager
 import ai.openclaw.android.voice.VoiceState
 import ai.openclaw.android.ui.A2UICard
 import ai.openclaw.android.ui.A2UICardParser
@@ -204,7 +202,14 @@ fun ChatScreen(
     modifier: Modifier = Modifier,
     lastDeliverable: Deliverable? = null,
     lastRichContent: RichContent? = null,
-    onSpeakText: ((String) -> Unit)? = null
+    onSpeakText: ((String) -> Unit)? = null,
+    // Voice callbacks — hoisted to single VoiceInteractionManager in MainActivity
+    voiceState: ai.openclaw.android.voice.VoiceState = ai.openclaw.android.voice.VoiceState.Idle,
+    voiceTranscript: String = "",
+    onStartListening: (() -> Unit)? = null,
+    onStopListening: (() -> Unit)? = null,
+    hasRecordAudioPermission: () -> Boolean = { false },
+    onRequestAudioPermission: (() -> Unit)? = null,
 ) {
     var renderedRichContent by remember { mutableStateOf<Map<String, RichContent>>(emptyMap()) }
 
@@ -224,16 +229,11 @@ fun ChatScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Voice interaction
-    val voiceManager = remember { VoiceInteractionManager(context) }
-    val voiceState by voiceManager.sessionState.collectAsState()
-    val voiceTranscript by voiceManager.transcript.collectAsState()
-
-    // Voice recording states
+    // Voice recording states (UI-only, hoisted VoiceInteractionManager in MainActivity)
     var isRecording by remember { mutableStateOf(false) }
-    var voiceCollectJob by remember { mutableStateOf<Job?>(null) }
     var pendingVoiceText by remember { mutableStateOf("") }
     var showVoiceConfirm by remember { mutableStateOf(false) }
+    var lastFinalTranscript by remember { mutableStateOf("") }
 
     val sendInteraction = remember { MutableInteractionSource() }
     val isSendPressed by sendInteraction.collectIsPressedAsState()
@@ -243,28 +243,12 @@ fun ChatScreen(
         label = "sendScale"
     )
 
-    // Initialize and cleanup voice manager
-    LaunchedEffect(voiceManager) {
-        // Pass SD card model paths for sherpa-onnx engines
-        val sttPath = "/storage/emulated/0/Android/data/ai.openclaw.android/files/models/stt"
-        val ttsPath = "/storage/emulated/0/Android/data/ai.openclaw.android/files/models/tts"
-        voiceManager.initialize(sttModelPath = sttPath, ttsModelPath = ttsPath)
-    }
-    DisposableEffect(voiceManager) {
-        onDispose { voiceManager.destroy() }
-    }
-
-    // Audio permission launcher
+    // Audio permission launcher — calls back to hoisted VoiceInteractionManager
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted && isRecording && !isLoading) {
-            isRecording = true
-            voiceCollectJob = scope.launch {
-                voiceManager.startListening().collect { result ->
-                    // 实时更新 transcript，已在 VoiceStateIndicator 显示
-                }
-            }
+            onStartListening?.invoke()
         }
     }
 
@@ -274,26 +258,20 @@ fun ChatScreen(
 
     LaunchedEffect(isMicPressed) {
         if (isMicPressed && !isRecording && !isLoading) {
-            if (voiceManager.hasRecordAudioPermission()) {
+            if (hasRecordAudioPermission()) {
                 isRecording = true
-                voiceCollectJob = scope.launch {
-                    voiceManager.startListening().collect { result ->
-                        // 实时更新 transcript，已在 VoiceStateIndicator 显示
-                    }
-                }
+                // transcript updates come from voiceState/voiceTranscript params
             } else {
-                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                onRequestAudioPermission?.invoke()
             }
         } else if (!isMicPressed && isRecording) {
             // 松手 → 停止识别
-            voiceManager.stopListening()
-            voiceCollectJob?.cancel()
-            voiceCollectJob = null
+            onStopListening?.invoke()
             isRecording = false
             // 如果有识别到文字，弹出确认框
-            val text = voiceManager.finalTranscript.value
-            if (text.isNotBlank()) {
-                pendingVoiceText = text
+            if (voiceTranscript.isNotBlank()) {
+                lastFinalTranscript = voiceTranscript
+                pendingVoiceText = voiceTranscript
                 showVoiceConfirm = true
             }
         }

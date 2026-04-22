@@ -134,8 +134,11 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
         ResponseRouter(capabilities)
     }
 
-    // Voice manager for TTS
+    // Voice manager for TTS (single instance — hoisted to MainScreen)
     val voiceManager = remember { VoiceInteractionManager(context) }
+    val voiceState by voiceManager.sessionState.collectAsStateWithLifecycle()
+    val voiceTranscript by voiceManager.transcript.collectAsStateWithLifecycle()
+
     LaunchedEffect(Unit) {
         val sttPath = "/storage/emulated/0/Android/data/ai.openclaw.android/files/models/stt"
         val ttsPath = "/storage/emulated/0/Android/data/ai.openclaw.android/files/models/tts"
@@ -143,6 +146,15 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
     }
     DisposableEffect(Unit) {
         onDispose { voiceManager.destroy() }
+    }
+
+    // Audio permission launcher for voice (mic button in ChatScreen)
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            voiceManager.startListening()
+        }
     }
 
     // Parse and route LLM response
@@ -363,7 +375,18 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                     scope.launch {
                         voiceManager.speak(text)
                     }
-                }
+                },
+                // Voice callbacks — single VoiceInteractionManager instance
+                voiceState = voiceState,
+                voiceTranscript = voiceTranscript,
+                onStartListening = { voiceManager.startListening() },
+                onStopListening = {
+                    voiceManager.stopListening()
+                },
+                hasRecordAudioPermission = { voiceManager.hasRecordAudioPermission() },
+                onRequestAudioPermission = {
+                    audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                },
             )
             1 -> {
                 val notifications by SmartNotificationListener.notifications.collectAsStateWithLifecycle()

@@ -69,7 +69,7 @@ class GatewayService : Service() {
 
     inner class LocalBinder : Binder() {
         fun getService(): GatewayService = this@GatewayService
-        fun getGatewayContract(): GatewayContract = gatewayManager!!
+        fun getGatewayContract(): GatewayContract? = gatewayManager
     }
     
     override fun onCreate() {
