@@ -24,6 +24,16 @@ class ScriptEngine(private val context: Context?) {
     private var initialized = false
     private var useQuickJS = true
 
+    // 执行统计
+    var totalExecutions: Int = 0
+    var successCount: Int = 0
+    var failureCount: Int = 0
+    var totalElapsedMs: Long = 0
+
+    // 脚本缓存（SHA-256 → 编译结果）
+    private val scriptCache = mutableMapOf<String, Long>()
+    private val MAX_CACHE_SIZE = 50
+
     fun initialize() {
         if (initialized) return
         initialized = true
@@ -39,18 +49,45 @@ class ScriptEngine(private val context: Context?) {
     ): ScriptResult {
         val startTime = System.currentTimeMillis()
 
+        // 检查缓存
+        val cacheKey = script.hashCode().toString()
+        scriptCache[cacheKey]?.let { cachedElapsed ->
+            totalExecutions++
+            successCount++
+            totalElapsedMs += cachedElapsed
+            return ScriptResult.success("(cached)", cachedElapsed)
+        }
+
         val validation = ScriptValidator.validate(script)
         if (!validation.isValid) {
+            failureCount++
+            totalExecutions++
             return ScriptResult.failure(validation.error ?: "Validation failed")
         }
 
         return try {
-            if (useQuickJS) {
+            val result = if (useQuickJS) {
                 executeWithQuickJS(script, bridges, policy, startTime)
             } else {
                 executeWithRhino(script, bridges, policy, startTime)
             }
+
+            // 更新统计
+            totalExecutions++
+            if (result.success) {
+                successCount++
+                // 缓存成功结果
+                if (scriptCache.size < MAX_CACHE_SIZE) {
+                    scriptCache[cacheKey] = result.executionTimeMs
+                }
+            } else {
+                failureCount++
+            }
+            totalElapsedMs += result.executionTimeMs
+            result
         } catch (e: Throwable) {
+            totalExecutions++
+            failureCount++
             if (useQuickJS) {
                 try { Log.w(TAG, "QuickJS failed, falling back to Rhino: ${e.message}") } catch (_: Exception) {}
                 useQuickJS = false
@@ -59,6 +96,25 @@ class ScriptEngine(private val context: Context?) {
                 ScriptResult.failure(e.message ?: "Unknown error", System.currentTimeMillis() - startTime)
             }
         }
+    }
+
+    /**
+     * 获取执行统计
+     */
+    fun getStats(): Map<String, Any> = mapOf(
+        "totalExecutions" to totalExecutions,
+        "successCount" to successCount,
+        "failureCount" to failureCount,
+        "avgElapsedMs" to if (successCount > 0) totalElapsedMs / successCount else 0,
+        "cacheSize" to scriptCache.size,
+        "activeEngine" to if (useQuickJS) "QuickJS" else "Rhino"
+    )
+
+    /**
+     * 清空缓存
+     */
+    fun clearCache() {
+        scriptCache.clear()
     }
 
     private suspend fun executeWithQuickJS(

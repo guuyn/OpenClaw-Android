@@ -18,6 +18,13 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
     private var appId: String = ""
     private var appSecret: String = ""
     private var accessToken: String = ""
+    private var tokenExpireAt: Long = 0L // Token 过期时间戳
+
+    // 断线重连
+    private var autoReconnect = true
+    private var reconnectDelayMs = 3000L
+    private val maxReconnectDelayMs = 30000L
+    private val reconnectHandler = android.os.Handler(android.os.Looper.getMainLooper())
     
     private val json = Json { ignoreUnknownKeys = true }
     
@@ -59,8 +66,8 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 isConnected = false
-                t.printStackTrace()
-                println("Feishu WebSocket failed: ${t.message}")
+                android.util.Log.w("FeishuClient", "WebSocket failed: ${t.message}")
+                scheduleReconnect()
             }
         })
     }
@@ -80,6 +87,11 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
     }
     
     override suspend fun sendMessage(chatId: String, content: String): Result<String> {
+        // 确保 Token 有效
+        if (!ensureTokenValid()) {
+            return Result.failure(Exception("Token refresh failed"))
+        }
+
         return try {
             val messageBody = """
                 {
@@ -112,6 +124,11 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
     }
     
     override suspend fun uploadFile(chatId: String, filePath: String): Result<String> {
+        // 确保 Token 有效
+        if (!ensureTokenValid()) {
+            return Result.failure(Exception("Token refresh failed"))
+        }
+
         return try {
             val file = File(filePath)
             if (!file.exists()) {
@@ -152,9 +169,12 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
         }
     }
     
-    private fun refreshToken() {
-        // 调用飞书API获取新的访问令牌
-        try {
+    /**
+     * 刷新 Token（带过期检测）
+     * @return 是否刷新成功
+     */
+    private fun refreshToken(): Boolean {
+        return try {
             val requestBody = RequestBody.create(
                 "application/json; charset=utf-8".toMediaType(),
                 """{
@@ -162,26 +182,71 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
                     "app_secret": "$appSecret"
                 }"""
             )
-            
+
             val request = Request.Builder()
                 .url("https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal")
                 .post(requestBody)
                 .addHeader("Content-Type", "application/json; charset=utf-8")
                 .build()
-            
+
             val response = httpClient.newCall(request).execute()
             if (response.isSuccessful) {
                 val responseBody = response.body?.string()
-                // 解析响应中的tenant_access_token
-                val tokenRegex = Regex("\"tenant_access_token\"\\s*:\\s*\"([^\"]+)\"")
-                val matchResult = tokenRegex.find(responseBody ?: "")
-                if (matchResult != null) {
-                    accessToken = matchResult.groupValues[1]
+                // 解析 tenant_access_token 和 expire
+                val tokenRegex = Regex(""""tenant_access_token"\s*:\s*"([^"]+)"""")
+                val expireRegex = Regex(""""expire"\s*:\s*(\d+)""")
+
+                val tokenMatch = tokenRegex.find(responseBody ?: "")
+                val expireMatch = expireRegex.find(responseBody ?: "")
+
+                if (tokenMatch != null) {
+                    accessToken = tokenMatch.groupValues[1]
+                    // 飞书 Token 默认 2 小时有效，提前 5 分钟刷新
+                    val expireSeconds = expireMatch?.groupValues?.get(1)?.toLongOrNull() ?: 7200
+                    tokenExpireAt = System.currentTimeMillis() + (expireSeconds - 300) * 1000
+                    android.util.Log.d("FeishuClient", "Token refreshed, expires in ${expireSeconds}s")
+                    true
+                } else {
+                    android.util.Log.e("FeishuClient", "Failed to parse token")
+                    false
                 }
+            } else {
+                android.util.Log.e("FeishuClient", "Token refresh failed: ${response.code}")
+                false
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("FeishuClient", "Token refresh exception: ${e.message}")
+            false
         }
+    }
+
+    /**
+     * 确保 Token 有效，过期则自动刷新
+     */
+    private fun ensureTokenValid(): Boolean {
+        if (accessToken.isEmpty() || System.currentTimeMillis() >= tokenExpireAt) {
+            return refreshToken()
+        }
+        return true
+    }
+
+    /**
+     * 断线重连（指数退避）
+     */
+    private fun scheduleReconnect() {
+        if (!autoReconnect) return
+
+        val delay = reconnectDelayMs
+        reconnectDelayMs = minOf(reconnectDelayMs * 2, maxReconnectDelayMs)
+
+        android.util.Log.d("FeishuClient", "Scheduling reconnect in ${delay}ms")
+        reconnectHandler.postDelayed({
+            if (appId.isNotEmpty() && appSecret.isNotEmpty()) {
+                android.util.Log.d("FeishuClient", "Attempting reconnect...")
+                refreshToken()
+                connect(appId, appSecret)
+            }
+        }, delay)
     }
     
     private fun extractFileKey(responseBody: String?): String? {
