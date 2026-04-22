@@ -380,6 +380,7 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                 messages = messages.toList(),
                 isLoading = isLoading,
                 modifier = Modifier.padding(padding),
+                scaffoldPadding = padding,
                 lastDeliverable = lastDeliverable,
                 lastRichContent = lastRichContent,
                 onSpeakText = { text ->

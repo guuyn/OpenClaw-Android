@@ -32,6 +32,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import android.graphics.Rect
+import android.view.ViewTreeObserver
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -200,6 +205,7 @@ fun ChatScreen(
     messages: List<ChatMessage>,
     isLoading: Boolean,
     modifier: Modifier = Modifier,
+    scaffoldPadding: PaddingValues = PaddingValues(),
     lastDeliverable: Deliverable? = null,
     lastRichContent: RichContent? = null,
     onSpeakText: ((String) -> Unit)? = null,
@@ -318,7 +324,25 @@ fun ChatScreen(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    // Manual keyboard height detection for OEM devices with broken WindowInsets.ime.
+    // Uses ViewCompat.getRootWindowInsets to read raw IME inset, then subtracts
+    // the Scaffold bottom padding (NavigationBar) to avoid double-counting.
+    val view = LocalView.current
+    val density = LocalDensity.current
+    val scaffoldBottomPx = with(density) { scaffoldPadding.calculateBottomPadding().toPx() }.toInt()
+    val keyboardHeightDp = remember { mutableStateOf(0.dp) }
+    DisposableEffect(view) {
+        val listener = ViewTreeObserver.OnGlobalLayoutListener {
+            val insets = androidx.core.view.ViewCompat.getRootWindowInsets(view)
+            val imeBottom = insets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
+            val kb = maxOf(0, imeBottom - scaffoldBottomPx)
+            keyboardHeightDp.value = with(density) { kb.toDp() }
+        }
+        view.viewTreeObserver.addOnGlobalLayoutListener(listener)
+        onDispose { view.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
+    }
+
+    Column(modifier = modifier.fillMaxSize().padding(bottom = keyboardHeightDp.value)) {
         // Top bar
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -427,8 +451,7 @@ fun ChatScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                        .imePadding(),
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
