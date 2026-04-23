@@ -1,14 +1,18 @@
 package ai.openclaw.android
 
+import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.ServiceConnection
 import android.net.Uri
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
 import android.util.Log
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -47,13 +51,52 @@ import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.notification.SmartNotificationListener
 import ai.openclaw.android.notification.NotificationScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateListOf
 
+/** Unwrap ContextWrapper to find the Activity */
+private fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        private const val VOLUME_LONG_PRESS_MS = 300L // 长按阈值
+    }
 
     private var gatewayContract: GatewayContract? = null
     private var serviceBound = false
+
+    // 音量键语音输入
+    private var volumeLongPressRunnable: Runnable? = null
+    private var volumeHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** 语音输入运行状态（Compose 侧维护） */
+    var isVolumeKeyListening = false
+
+    /** 当前识别文字（Compose 侧实时更新） */
+    var volumeKeyTranscript: String = ""
+
+    /** 信号：告诉 Compose 音量键已释放，该弹确认框了 */
+    private val _volumeKeyReleased = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val volumeKeyReleased = _volumeKeyReleased.asSharedFlow()
+
+    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // Compose 回调钩子
+    var onStartVolumeVoice: (() -> Unit)? = null
+    var onStopVolumeVoice: (() -> Unit)? = null
+    var onSendVolumeVoice: ((String) -> Unit)? = null
+    var hasRecordAudioPerm: () -> Boolean = { false }
+    var requestRecordAudioPerm: () -> Unit = {}
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -96,6 +139,51 @@ class MainActivity : ComponentActivity() {
             unbindService(serviceConnection)
             serviceBound = false
         }
+    }
+
+    /**
+     * 拦截音量下键：按住说话，松开停止 + 弹确认框。短按正常调音量。
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) return super.dispatchKeyEvent(event)
+
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> {
+                // 已在录音中 → 忽略重复按下（按住不放不会重复触发）
+                if (isVolumeKeyListening) return true
+                // 延迟触发：300ms 后启动语音
+                volumeLongPressRunnable = Runnable { startVoiceInput() }
+                volumeHandler.postDelayed(volumeLongPressRunnable!!, VOLUME_LONG_PRESS_MS)
+                return true // 消费事件
+            }
+            KeyEvent.ACTION_UP -> {
+                volumeLongPressRunnable?.let { volumeHandler.removeCallbacks(it) }
+                if (isVolumeKeyListening) {
+                    isVolumeKeyListening = false
+                    onStopVolumeVoice?.invoke()
+                    // Signal Compose to show dialog after async transcript update
+                    activityScope.launch {
+                        kotlinx.coroutines.delay(400)
+                        _volumeKeyReleased.tryEmit(Unit)
+                    }
+                    return true
+                }
+                // 短按 → 正常调音量
+                val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun startVoiceInput() {
+        if (!hasRecordAudioPerm()) {
+            requestRecordAudioPerm()
+            return
+        }
+        onStartVolumeVoice?.invoke()
+        isVolumeKeyListening = true
     }
 }
 
@@ -375,35 +463,80 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
         }
     ) { padding ->
         when (selectedTab) {
-            0 -> ChatScreen(
-                sendMessage = sendMessage,
-                messages = messages.toList(),
-                isLoading = isLoading,
-                modifier = Modifier.padding(padding),
-                scaffoldPadding = padding,
-                lastDeliverable = lastDeliverable,
-                lastRichContent = lastRichContent,
-                onSpeakText = { text ->
-                    scope.launch {
-                        voiceManager.speak(text)
+            0 -> {
+                val activity = context.findActivity() as? MainActivity
+
+                // Wire up volume key callbacks
+                LaunchedEffect(activity) {
+                    activity?.onStartVolumeVoice = {
+                        activity.volumeKeyTranscript = ""
+                        startVoiceCollect(voiceManager, scope)
                     }
-                },
-                // Voice callbacks — single VoiceInteractionManager instance
-                voiceState = voiceState,
-                voiceTranscript = voiceTranscript,
-                onStartListening = {
-                    startVoiceCollect(voiceManager, scope)
-                },
-                onStopListening = {
-                    voiceManager.stopListening()
-                    voiceCollectJob?.cancel()
-                    voiceCollectJob = null
-                },
-                hasRecordAudioPermission = { voiceManager.hasRecordAudioPermission() },
-                onRequestAudioPermission = {
-                    audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                },
-            )
+                    activity?.onStopVolumeVoice = {
+                        voiceManager.stopListening()
+                        voiceCollectJob?.cancel()
+                        voiceCollectJob = null
+                    }
+                    activity?.onSendVolumeVoice = { text -> sendMessage(text) }
+                    activity?.hasRecordAudioPerm = { voiceManager.hasRecordAudioPermission() }
+                    activity?.requestRecordAudioPerm = {
+                        audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+
+                // Volume key confirm dialog state (Compose-side)
+                var showVolumeConfirm by remember { mutableStateOf(false) }
+                var volumePendingText by remember { mutableStateOf("") }
+
+                // Listen for volume key release signal from Activity
+                LaunchedEffect(activity) {
+                    activity?.volumeKeyReleased?.collect {
+                        // Read transcript AFTER the async stopListening has completed
+                        val text = voiceManager.transcript.value.trim()
+                        if (text.isNotBlank()) {
+                            volumePendingText = text
+                            showVolumeConfirm = true
+                        }
+                    }
+                }
+
+                ChatScreen(
+                    sendMessage = sendMessage,
+                    messages = messages.toList(),
+                    isLoading = isLoading,
+                    modifier = Modifier.padding(padding),
+                    scaffoldPadding = padding,
+                    lastDeliverable = lastDeliverable,
+                    lastRichContent = lastRichContent,
+                    onSpeakText = { text ->
+                        scope.launch { voiceManager.speak(text) }
+                    },
+                    voiceState = voiceState,
+                    voiceTranscript = voiceTranscript,
+                    onStartListening = { startVoiceCollect(voiceManager, scope) },
+                    onStopListening = {
+                        voiceManager.stopListening()
+                        voiceCollectJob?.cancel()
+                        voiceCollectJob = null
+                    },
+                    hasRecordAudioPermission = { voiceManager.hasRecordAudioPermission() },
+                    onRequestAudioPermission = {
+                        audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    },
+                    isVolumeKeyListening = { activity?.isVolumeKeyListening == true },
+                    showVolumeKeyConfirm = { showVolumeConfirm },
+                    volumeKeyPendingTextProvider = { volumePendingText },
+                    onDismissVolumeKeyConfirm = {
+                        showVolumeConfirm = false
+                        volumePendingText = ""
+                    },
+                    onSendVolumeKeyVoice = { text ->
+                        sendMessage(text)
+                        showVolumeConfirm = false
+                        volumePendingText = ""
+                    },
+                )
+            }
             1 -> {
                 val notifications by SmartNotificationListener.notifications.collectAsStateWithLifecycle()
                 val hasNotificationPermission = remember {

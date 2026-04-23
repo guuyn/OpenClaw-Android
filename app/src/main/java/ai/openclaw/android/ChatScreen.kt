@@ -216,6 +216,13 @@ fun ChatScreen(
     onStopListening: (() -> Unit)? = null,
     hasRecordAudioPermission: () -> Boolean = { false },
     onRequestAudioPermission: (() -> Unit)? = null,
+    // Volume key voice input
+    isVolumeKeyListening: () -> Boolean = { false },
+    volumeKeyTranscriptProvider: () -> String = { "" },
+    showVolumeKeyConfirm: () -> Boolean = { false },
+    volumeKeyPendingTextProvider: () -> String = { "" },
+    onDismissVolumeKeyConfirm: (() -> Unit)? = null,
+    onSendVolumeKeyVoice: ((String) -> Unit)? = null,
 ) {
     var renderedRichContent by remember { mutableStateOf<Map<String, RichContent>>(emptyMap()) }
 
@@ -337,8 +344,14 @@ fun ChatScreen(
         val listener = ViewTreeObserver.OnGlobalLayoutListener {
             val rootH = view.rootView.height
             if (initialWindowHeight == 0 && rootH > 0) initialWindowHeight = rootH
-            val insets = androidx.core.view.ViewCompat.getRootWindowInsets(view)
-            val imeBottom = insets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
+            // API 30+ uses WindowInsets.Type.ime(), fallback to keyboardHeightDp calculation
+            val imeBottom = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val insets = androidx.core.view.ViewCompat.getRootWindowInsets(view)
+                insets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
+            } else {
+                // API 29 and below: detect keyboard by window height difference
+                maxOf(0, initialWindowHeight - rootH)
+            }
             if (imeBottom > 0 && rootH >= initialWindowHeight) {
                 // Window didn't shrink → adjustResize not working → manual padding needed
                 keyboardHeightDp.value = with(density) { maxOf(0, imeBottom - scaffoldBottomPx).toDp() }
@@ -528,23 +541,33 @@ fun ChatScreen(
                         onClick = {},
                         interactionSource = micInteractionSource,
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(56.dp)
                             .padding(end = 4.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Mic,
                             contentDescription = "长按说话",
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(32.dp),
                             tint = if (isRecording) SciFiPrimary else SciFiOnSurfaceVariant
                         )
                     }
                 }
 
                 EnergyBar(isFocused = isInputFocused)
+
+                // 音量键语音输入提示
+                if (!isVolumeKeyListening()) {
+                    Text(
+                        text = "💡 长按音量下键可语音输入",
+                        color = SciFiOnSurfaceVariant.copy(alpha = 0.35f),
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
 
-        // 语音识别确认弹窗
+        // 语音识别确认弹窗（麦克风按钮）
         if (showVoiceConfirm) {
             AlertDialog(
                 onDismissRequest = { 
@@ -575,6 +598,27 @@ fun ChatScreen(
                     ) { 
                         Text("取消") 
                     }
+                }
+            )
+        }
+
+        // 音量键语音确认弹窗
+        if (showVolumeKeyConfirm()) {
+            AlertDialog(
+                onDismissRequest = { onDismissVolumeKeyConfirm?.invoke() },
+                title = { Text("🎤 语音输入") },
+                text = { Text(volumeKeyPendingTextProvider()) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            onSendVolumeKeyVoice?.invoke(volumeKeyPendingTextProvider())
+                        }
+                    ) { Text("发送") }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { onDismissVolumeKeyConfirm?.invoke() }
+                    ) { Text("取消") }
                 }
             )
         }

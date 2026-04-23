@@ -480,7 +480,8 @@ Example:
     }
 
     private suspend fun executeToolCall(toolCall: ToolCall): String {
-        return toolExecutionMutex.withLock {
+        toolExecutionMutex.lock()
+        return try {
             withContext(Dispatchers.IO) {
                 val toolName = toolCall.function.name
 
@@ -530,6 +531,8 @@ Example:
                     }
                 }
             }
+        } finally {
+            toolExecutionMutex.unlock()
         }
     }
 
