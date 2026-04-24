@@ -108,7 +108,11 @@ android {
     }
     packaging {
         resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += listOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/LICENSE.md",
+                "/META-INF/LICENSE-notice.md"
+            )
         }
         // Keep both sherpa-onnx and onnxruntime native libs
         jniLibs {
@@ -205,4 +209,8 @@ dependencies {
     androidTestImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
     androidTestImplementation("io.mockk:mockk-android:1.13.16")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    // Compose UI Test dependencies
+    androidTestImplementation(platform("androidx.compose:compose-bom:2025.03.00"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

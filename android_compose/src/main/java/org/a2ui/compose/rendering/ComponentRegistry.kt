@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,11 +24,18 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -47,6 +55,19 @@ import org.a2ui.compose.data.*
 import org.a2ui.compose.theme.A2UITheme
 import org.a2ui.compose.theme.A2UIThemeConfig
 import org.a2ui.compose.theme.parseColor
+import org.a2ui.compose.theme.glassmorphism
+import org.a2ui.compose.theme.getEnhancedCardColors
+import org.a2ui.compose.theme.getEnhancedCardElevation
+import org.a2ui.compose.theme.a2uiThemeConfig
+import org.a2ui.compose.animation.*
+import org.a2ui.compose.charts.*
+import org.a2ui.compose.charts.advanced.*
+import kotlin.math.pow
+import kotlin.math.sqrt
+import kotlin.random.Random
+import org.a2ui.compose.charts.interaction.*
+import org.a2ui.compose.charts.data.*
+import org.a2ui.compose.charts.performance.*
 import org.a2ui.compose.validation.SafeRegexValidator
 import java.util.concurrent.ConcurrentHashMap
 
@@ -60,6 +81,8 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
 
     init {
         registerDefaultComponents()
+        registerChartComponents()
+        // registerAIComponents() // 暂时禁用AI组件，等待后续完善
     }
 
     fun register(componentName: String, factory: @Composable (Component, SurfaceContext) -> Unit) {
@@ -101,7 +124,7 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
     }
 
     /** 解析值，支持 collection scope */
-    private fun resolve(ctx: SurfaceContext, value: DynamicValue<*>?): Any? {
+    internal fun resolve(ctx: SurfaceContext, value: DynamicValue<*>?): Any? {
         return renderer.resolveValueWithScope(ctx.surfaceId, value, ctx.scopePath)
     }
 
@@ -330,6 +353,124 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                         Box(modifier = Modifier.padding(16.dp)) {
                             Column { resolveChildren(component, context) }
                         }
+                    }
+                }
+            }
+        }
+
+        // ==================== StockCard ====================
+        register("StockCard") { component, context ->
+            val themeConfig = a2uiThemeConfig()
+
+            // 解析股票数据 - 使用text属性作为股票信息
+            val stockInfo = resolve(context, component.text) as? String ?: "股票信息"
+            val lines = stockInfo.split("\n")
+
+            // 尝试解析股票数据
+            var symbol = "N/A"
+            var price = "0.00"
+            var change = "0.00%"
+            var volume = "0"
+            var priceValue = 0f
+            var changeValue = 0f
+
+            lines.forEach { line ->
+                when {
+                    line.contains("股票代码") || line.contains("Symbol") -> {
+                        symbol = line.substringAfter(":").trim()
+                    }
+                    line.contains("价格") || line.contains("Price") -> {
+                        price = line.substringAfter(":").trim()
+                        priceValue = price.replace("[^\\d.]".toRegex(), "").toFloatOrNull() ?: 0f
+                    }
+                    line.contains("涨跌") || line.contains("Change") -> {
+                        change = line.substringAfter(":").trim()
+                        changeValue = change.replace("[^\\d.-]".toRegex(), "").toFloatOrNull() ?: 0f
+                    }
+                    line.contains("成交量") || line.contains("Volume") -> {
+                        volume = line.substringAfter(":").trim()
+                    }
+                }
+            }
+
+            val isPositive = !change.startsWith("-")
+
+            AnimatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                themeConfig = themeConfig
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // 股票代码和名称
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AnimatedText(
+                            text = symbol,
+                            style = MaterialTheme.typography.headlineSmall,
+                            themeConfig = themeConfig
+                        )
+                        Icon(
+                            imageVector = if (isPositive) Icons.Default.TrendingUp else Icons.Default.TrendingDown,
+                            contentDescription = if (isPositive) "上涨" else "下跌",
+                            tint = if (isPositive) Color(0xFF4CAF50) else Color(0xFFF44336)
+                        )
+                    }
+
+                    // 价格信息
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        AnimatedNumber(
+                            targetValue = priceValue,
+                            style = MaterialTheme.typography.headlineMedium,
+                            themeConfig = themeConfig,
+                            formatter = { "%.2f".format(it) }
+                        )
+                        AnimatedText(
+                            text = change,
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                color = if (isPositive) Color(0xFF4CAF50) else Color(0xFFF44336)
+                            ),
+                            themeConfig = themeConfig
+                        )
+                    }
+
+                    // 成交量
+                    if (volume != "0" && volume.isNotBlank()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AnimatedText(
+                                text = "成交量",
+                                style = MaterialTheme.typography.bodyMedium,
+                                themeConfig = themeConfig
+                            )
+                            AnimatedText(
+                                text = volume,
+                                style = MaterialTheme.typography.bodyMedium,
+                                themeConfig = themeConfig
+                            )
+                        }
+                    }
+
+                    // 如果无法解析，显示原始文本
+                    if (symbol == "N/A" && price == "0.00") {
+                        AnimatedText(
+                            text = stockInfo,
+                            style = MaterialTheme.typography.bodyMedium,
+                            themeConfig = themeConfig
+                        )
                     }
                 }
             }
@@ -855,7 +996,7 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
      * 公共子组件解析逻辑，供所有 renderChildren 重载和 Card 使用
      */
     @Composable
-    private fun resolveChildren(component: Component, context: SurfaceContext) {
+    fun resolveChildren(component: Component, context: SurfaceContext) {
         when (val children = component.children) {
             is ChildList.ArrayChildList -> {
                 children.array.forEach { childId ->
@@ -878,7 +1019,7 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
     }
 
     @Composable
-    private fun renderChildren(component: Component, context: SurfaceContext) {
+    fun renderChildren(component: Component, context: SurfaceContext) {
         when (val children = component.children) {
             is ChildList.ArrayChildList -> {
                 children.array.forEach { childId ->
@@ -897,7 +1038,27 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
     }
 
     @Composable
-    private fun RowScope.renderChildren(component: Component, context: SurfaceContext) {
+    fun RowScope.renderChildren(component: Component, context: SurfaceContext) {
+        when (val children = component.children) {
+            is ChildList.ArrayChildList -> {
+                children.array.forEach { childId ->
+                    renderer.getComponent(context.surfaceId, childId)?.let {
+                        Box {
+                            render(it, context.copy(renderDepth = context.renderDepth + 1))
+                        }
+                    }
+                }
+            }
+            is ChildList.ObjectChildList -> {
+
+                renderListTemplate(context, children.objectChild)
+            }
+            else -> {}
+        }
+    }
+
+    @Composable
+    fun ColumnScope.renderChildren(component: Component, context: SurfaceContext) {
         when (val children = component.children) {
             is ChildList.ArrayChildList -> {
                 children.array.forEach { childId ->
@@ -916,26 +1077,7 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
     }
 
     @Composable
-    private fun ColumnScope.renderChildren(component: Component, context: SurfaceContext) {
-        when (val children = component.children) {
-            is ChildList.ArrayChildList -> {
-                children.array.forEach { childId ->
-                    renderer.getComponent(context.surfaceId, childId)?.let {
-                        Box {
-                            render(it, context.copy(renderDepth = context.renderDepth + 1))
-                        }
-                    }
-                }
-            }
-            is ChildList.ObjectChildList -> {
-                renderListTemplate(context, children.objectChild)
-            }
-            else -> {}
-        }
-    }
-
-    @Composable
-    private fun renderListTemplate(context: SurfaceContext, template: ChildTemplate) {
+    fun renderListTemplate(context: SurfaceContext, template: ChildTemplate) {
         val dataPath = template.path
         val dataItems = resolve(context, DynamicValue.PathValue<Any>(dataPath)) as? List<*>
 
@@ -967,6 +1109,592 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
             }
         }
     }
+} // ComponentRegistry class end
+
+/**
+ * 注册图表组件
+ */
+private fun ComponentRegistry.registerChartComponents() {
+    // ==================== CandlestickChart ====================
+    register("CandlestickChart") { component, context ->
+        val themeConfig = a2uiThemeConfig()
+
+        // 解析K线数据
+        val chartDataText = resolve(context, component.text) as? String ?: ""
+        val candles = parseStockData(chartDataText)
+
+        val candlestickData = ChartData.CandlestickData(
+            candles = candles,
+            timeLabels = generateTimeLabels(candles.size)
+        )
+
+        StockCandlestickChart(
+            data = candlestickData,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .padding(8.dp),
+            config = ChartConfig(
+                animationEnabled = true,
+                animationDuration = 300
+            ),
+            themeConfig = themeConfig
+        )
+    }
+
+    // ==================== LineChart ====================
+    register("LineChart") { component, context ->
+        val themeConfig = a2uiThemeConfig()
+
+        // 解析折线图数据
+        val chartDataText = resolve(context, component.text) as? String ?: ""
+        val series = parseLineData(chartDataText)
+
+        val lineData = ChartData.LineData(
+            series = series,
+            xLabels = generateXLabels(series.firstOrNull()?.values?.size ?: 0)
+        )
+
+        RealTimeLineChart(
+            data = lineData,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(250.dp)
+                .padding(8.dp),
+            config = ChartConfig(
+                animationEnabled = true,
+                animationDuration = 300
+            ),
+            themeConfig = themeConfig
+        )
+    }
+
+    // ==================== GaugeChart ====================
+    register("GaugeChart") { component, context ->
+        val themeConfig = a2uiThemeConfig()
+
+        // 解析仪表盘数据
+        val gaugeText = resolve(context, component.text) as? String ?: "50"
+        val value = gaugeText.toFloatOrNull() ?: 50f
+        val maxValue = component.variant?.toFloatOrNull() ?: 100f
+
+        val gaugeData = ChartData.GaugeData(
+            value = value,
+            maxValue = maxValue,
+            ranges = listOf(
+                GaugeRange(0f, 30f, Color(0xFF4CAF50), "良好"),
+                GaugeRange(30f, 70f, Color(0xFFFF9800), "一般"),
+                GaugeRange(70f, 100f, Color(0xFFF44336), "警告")
+            ),
+            unit = "%"
+        )
+
+        GaugeChart(
+            data = gaugeData,
+            modifier = Modifier.padding(8.dp),
+            config = ChartConfig(
+                animationEnabled = true
+            ),
+            themeConfig = themeConfig
+        )
+    }
+
+    // ==================== MiniGauge ====================
+    register("MiniGauge") { component, context ->
+        val themeConfig = a2uiThemeConfig()
+
+        val value = (resolve(context, component.text) as? String)?.toFloatOrNull() ?: 50f
+        val maxValue = component.variant?.toFloatOrNull() ?: 100f
+        val color = component.usageHint?.let { parseColor(it) } ?: Color.Blue
+
+        MiniGauge(
+            value = value,
+            maxValue = maxValue,
+            color = color,
+            modifier = Modifier.padding(4.dp),
+            themeConfig = themeConfig
+        )
+    }
+
+    // ==================== HeatmapChart ====================
+    register("HeatmapChart") { component, context ->
+        val themeConfig = a2uiThemeConfig()
+
+        // 解析热力图数据
+        val heatmapText = resolve(context, component.text) as? String ?: ""
+        val heatmapData = parseHeatmapData(heatmapText)
+
+        HeatmapChart(
+            data = heatmapData,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .padding(8.dp),
+            config = ChartConfig(
+                animationEnabled = true,
+                animationDuration = 300,
+                showLabels = true,
+                showGrid = false
+            ),
+            themeConfig = themeConfig
+        )
+    }
+
+    // ==================== RadarChart ====================
+    register("RadarChart") { component, context ->
+        val themeConfig = a2uiThemeConfig()
+
+        // 解析雷达图数据
+        val radarText = resolve(context, component.text) as? String ?: ""
+        val radarData = parseRadarData(radarText)
+
+        RadarChart(
+            data = radarData,
+            modifier = Modifier
+                .size(250.dp)
+                .padding(8.dp),
+            config = ChartConfig(
+                animationEnabled = true,
+                animationDuration = 300,
+                showLabels = true,
+                showGrid = true
+            ),
+            themeConfig = themeConfig
+        )
+    }
+
+    // ==================== BubbleChart ====================
+    register("BubbleChart") { component, context ->
+        val themeConfig = a2uiThemeConfig()
+
+        // 解析气泡图数据
+        val bubbleText = resolve(context, component.text) as? String ?: ""
+        val bubbleData = parseBubbleData(bubbleText)
+
+        BubbleChart(
+            data = bubbleData,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .padding(8.dp),
+            config = ChartConfig(
+                animationEnabled = true,
+                animationDuration = 300,
+                showLabels = true,
+                showGrid = true
+            ),
+            themeConfig = themeConfig
+        )
+    }
+
+    // ==================== StreamingLineChart ====================
+    register("StreamingLineChart") { component, context ->
+        val themeConfig = a2uiThemeConfig()
+
+        // 创建模拟流式数据源
+        val dataSource = remember {
+            SimulatedDataSource(
+                updateInterval = 1000L,
+                valueRange = 0f to 100f
+            )
+        }
+
+        val streamingState = rememberStreamingChartState(
+            dataSource = dataSource,
+            dataTransformer = { value -> RealTimeDataPoint(value = value) }
+        )
+
+        // 自动开始流式数据
+        StreamingDataEffect(
+            state = streamingState,
+            autoStart = true
+        )
+
+        // 转换为折线图数据
+        val lineData = ChartData.LineData(
+            series = listOf(
+                DataSeries(
+                    name = "实时数据",
+                    values = streamingState.series.points.map { it.value },
+                    color = Color(0xFF4CAF50),
+                    fillArea = true,
+                    showPoints = false
+                )
+            )
+        )
+
+        RealTimeLineChart(
+            data = lineData,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .padding(8.dp),
+            config = ChartConfig(
+                animationEnabled = true,
+                animationDuration = 300
+            ),
+            themeConfig = themeConfig
+        )
+    }
+
+    // ==================== InteractiveLineChart ====================
+    register("InteractiveLineChart") { component, context ->
+        val themeConfig = a2uiThemeConfig()
+        val interactionState = rememberChartInteractionState()
+
+        // 解析折线图数据
+        val chartDataText = resolve(context, component.text) as? String ?: ""
+        val series = parseLineData(chartDataText)
+
+        val lineData = ChartData.LineData(
+            series = series,
+            xLabels = generateXLabels(series.firstOrNull()?.values?.size ?: 0)
+        )
+
+        Box(modifier = Modifier.fillMaxWidth().height(250.dp).padding(8.dp)) {
+            RealTimeLineChart(
+                data = lineData,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .chartInteraction(
+                        state = interactionState,
+                        config = ChartInteractionConfig(
+                            mode = ChartInteractionMode.PAN_AND_ZOOM,
+                            enableDoubleTapZoom = true,
+                            enablePinchZoom = true
+                        ),
+                        onZoom = { event ->
+                            // 处理缩放事件
+                        },
+                        onPan = { event ->
+                            // 处理平移事件
+                        }
+                    ),
+                config = ChartConfig(
+                    animationEnabled = true,
+                    animationDuration = 300
+                ),
+                themeConfig = themeConfig
+            )
+
+            // 显示交互状态
+            if (interactionState.isInteracting) {
+                Text(
+                    text = "缩放: ${String.format("%.1f", interactionState.scale)}x",
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .background(
+                            Color.Black.copy(alpha = 0.7f),
+                            RoundedCornerShape(4.dp)
+                        )
+                        .padding(4.dp),
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 生成X轴标签
+ */
+private fun generateXLabels(count: Int): List<String> {
+    return (0 until count).map { "T$it" }
+}
+
+/**
+ * 解析股票K线数据
+ */
+private fun parseStockData(dataText: String): List<CandleData> {
+    if (dataText.isBlank()) {
+        // 生成示例数据
+        return generateSampleCandleData()
+    }
+
+    val lines = dataText.split("\n").filter { it.isNotBlank() }
+    return lines.mapNotNull { line ->
+        val parts = line.split(",")
+        if (parts.size >= 5) {
+            try {
+                CandleData(
+                    timestamp = System.currentTimeMillis(),
+                    open = parts[1].toFloat(),
+                    high = parts[2].toFloat(),
+                    low = parts[3].toFloat(),
+                    close = parts[4].toFloat(),
+                    volume = if (parts.size > 5) parts[5].toFloat() else 0f
+                )
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+    }.ifEmpty { generateSampleCandleData() }
+}
+
+/**
+ * 解析折线图数据
+ */
+private fun parseLineData(dataText: String): List<DataSeries> {
+    if (dataText.isBlank()) {
+        return listOf(generateSampleLineSeries())
+    }
+
+    val lines = dataText.split("\n").filter { it.isNotBlank() }
+    val values = lines.mapNotNull { it.toFloatOrNull() }
+
+    return if (values.isNotEmpty()) {
+        listOf(
+            DataSeries(
+                name = "数据",
+                values = values,
+                color = Color(0xFF2196F3),
+                fillArea = true,
+                showPoints = true
+            )
+        )
+    } else {
+        listOf(generateSampleLineSeries())
+    }
+}
+
+/**
+ * 生成示例K线数据
+ */
+private fun generateSampleCandleData(): List<CandleData> {
+    var price = 100f
+    return (0..19).map { i ->
+        val open = price
+        val change = Random.nextFloat() * 10f - 5f // (-5f..5f).random()
+        val close = open + change
+        val high = maxOf(open, close) + Random.nextFloat() * 3f // (0f..3f).random()
+        val low = minOf(open, close) - Random.nextFloat() * 3f // (0f..3f).random()
+        price = close
+
+        CandleData(
+            timestamp = System.currentTimeMillis() + i * 86400000L,
+            open = open,
+            high = high,
+            low = low,
+            close = close,
+            volume = Random.nextFloat() * 9000f + 1000f // (1000f..10000f).random()
+        )
+    }
+}
+
+/**
+ * 生成示例折线数据
+ */
+private fun generateSampleLineSeries(): DataSeries {
+    val values = (0..19).map { i ->
+        50f + kotlin.math.sin(i * 0.3) * 20f + (Random.nextFloat() * 10f - 5f) // (-5f..5f).random()
+    }
+
+    return DataSeries(
+        name = "示例数据",
+        values = values.map { it.toFloat() },
+        color = Color(0xFF4CAF50),
+        fillArea = true,
+        showPoints = true
+    )
+}
+
+/**
+ * 生成时间标签
+ */
+private fun generateTimeLabels(count: Int): List<String> {
+    return (0 until count).map { i ->
+        "Day ${i + 1}"
+    }
+}
+
+/**
+ * 解析热力图数据
+ */
+private fun parseHeatmapData(dataText: String): HeatmapData {
+    if (dataText.isBlank()) {
+        return generateSampleHeatmapData()
+    }
+
+    val lines = dataText.split("\n").filter { it.isNotBlank() }
+    val values = mutableListOf<FloatArray>()
+
+    lines.forEach { line ->
+        val rowValues = line.split(",").mapNotNull { it.trim().toFloatOrNull() }
+        if (rowValues.isNotEmpty()) {
+            values.add(rowValues.toFloatArray())
+        }
+    }
+
+    return if (values.isNotEmpty()) {
+        HeatmapData(
+            values = values.toTypedArray(),
+            xLabels = (1..values[0].size).map { "Col $it" },
+            yLabels = (1..values.size).map { "Row $it" }
+        )
+    } else {
+        generateSampleHeatmapData()
+    }
+}
+
+/**
+ * 解析雷达图数据
+ */
+private fun parseRadarData(dataText: String): RadarData {
+    if (dataText.isBlank()) {
+        return generateSampleRadarData()
+    }
+
+    val lines = dataText.split("\n").filter { it.isNotBlank() }
+    val series = mutableListOf<RadarSeries>()
+    var axes = listOf("指标1", "指标2", "指标3", "指标4", "指标5")
+
+    lines.forEachIndexed { index, line ->
+        if (line.startsWith("axes:")) {
+            axes = line.substringAfter("axes:").split(",").map { it.trim() }
+        } else {
+            val parts = line.split(":")
+            if (parts.size >= 2) {
+                val name = parts[0].trim()
+                val values = parts[1].split(",").mapNotNull { it.trim().toFloatOrNull() }
+                if (values.isNotEmpty()) {
+                    series.add(
+                        RadarSeries(
+                            name = name,
+                            values = values,
+                            color = ChartConfig.defaultColors[index % ChartConfig.defaultColors.size],
+                            fillAlpha = 0.3f
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    return if (series.isNotEmpty()) {
+        RadarData(series = series, axes = axes)
+    } else {
+        generateSampleRadarData()
+    }
+}
+
+/**
+ * 解析气泡图数据
+ */
+private fun parseBubbleData(dataText: String): BubbleData {
+    if (dataText.isBlank()) {
+        return generateSampleBubbleData()
+    }
+
+    val lines = dataText.split("\n").filter { it.isNotBlank() }
+    val bubbles = mutableListOf<BubblePoint>()
+
+    lines.forEach { line ->
+        val parts = line.split(",")
+        if (parts.size >= 3) {
+            try {
+                val x = parts[0].trim().toFloat()
+                val y = parts[1].trim().toFloat()
+                val size = parts[2].trim().toFloat()
+                val label = if (parts.size > 3) parts[3].trim() else ""
+                val colorIndex = bubbles.size % ChartConfig.defaultColors.size
+
+                bubbles.add(
+                    BubblePoint(
+                        x = x,
+                        y = y,
+                        size = size,
+                        label = label,
+                        color = ChartConfig.defaultColors[colorIndex]
+                    )
+                )
+            } catch (e: Exception) {
+                // 忽略解析错误的行
+            }
+        }
+    }
+
+    return if (bubbles.isNotEmpty()) {
+        BubbleData(bubbles = bubbles)
+    } else {
+        generateSampleBubbleData()
+    }
+}
+
+/**
+ * 生成示例热力图数据
+ */
+private fun generateSampleHeatmapData(): HeatmapData {
+    val rows = 8
+    val cols = 10
+    val values = Array(rows) { row ->
+        FloatArray(cols) { col ->
+            // 生成基于距离的热力图数据
+            val centerX = cols / 2f
+            val centerY = rows / 2f
+            val distance = sqrt((col - centerX).pow(2) + (row - centerY).pow(2))
+            val maxDistance = sqrt(centerX.pow(2) + centerY.pow(2))
+            (1f - distance / maxDistance) * 100f + (Random.nextFloat() * 20f - 10f) // (-10f..10f).random()
+        }
+    }
+
+    return HeatmapData(
+        values = values,
+        xLabels = (1..cols).map { "Week $it" },
+        yLabels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Avg")
+    )
+}
+
+/**
+ * 生成示例雷达图数据
+ */
+private fun generateSampleRadarData(): RadarData {
+    val axes = listOf("速度", "准确性", "效率", "质量", "创新", "协作")
+
+    val series = listOf(
+        RadarSeries(
+            name = "团队A",
+            values = listOf(85f, 90f, 78f, 92f, 75f, 88f),
+            color = Color(0xFF2196F3),
+            fillAlpha = 0.3f
+        ),
+        RadarSeries(
+            name = "团队B",
+            values = listOf(75f, 85f, 90f, 80f, 95f, 82f),
+            color = Color(0xFF4CAF50),
+            fillAlpha = 0.3f
+        )
+    )
+
+    return RadarData(series = series, axes = axes, maxValue = 100f)
+}
+
+/**
+ * 生成示例气泡图数据
+ */
+private fun generateSampleBubbleData(): BubbleData {
+    val bubbles = listOf(
+        BubblePoint(20f, 30f, 15f, "产品A", Color(0xFF2196F3)),
+        BubblePoint(40f, 60f, 25f, "产品B", Color(0xFF4CAF50)),
+        BubblePoint(60f, 40f, 20f, "产品C", Color(0xFFF44336)),
+        BubblePoint(80f, 70f, 30f, "产品D", Color(0xFFFF9800)),
+        BubblePoint(30f, 80f, 18f, "产品E", Color(0xFF9C27B0)),
+        BubblePoint(70f, 20f, 22f, "产品F", Color(0xFF00BCD4))
+    )
+
+    return BubbleData(
+        bubbles = bubbles,
+        xRange = 0f to 100f,
+        yRange = 0f to 100f,
+        sizeRange = 10f to 35f
+    )
+}
+
+/**
+ * 注册AI组件 - 暂时禁用，等待后续完善
+ */
+private fun ComponentRegistry.registerAIComponents() {
+    // TODO: 实现AI组件注册
 }
 
 // ==================== Icon Map (v0.9 standard catalog, camelCase) ====================

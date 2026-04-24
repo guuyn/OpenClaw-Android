@@ -6,6 +6,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -27,6 +28,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.isEditable
+import androidx.compose.ui.semantics.editableText
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -48,6 +53,7 @@ import ai.openclaw.android.voice.VoiceState
 import ai.openclaw.android.ui.A2UICard
 import ai.openclaw.android.ui.A2UICardParser
 import ai.openclaw.android.ui.A2UICardRouter
+import ai.openclaw.android.ui.A2UIComposeRenderer
 import ai.openclaw.android.ui.CardAction
 import ai.openclaw.android.ui.MessageSegment
 import androidx.compose.foundation.background
@@ -82,6 +88,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import org.a2ui.compose.rendering.A2UIRenderer
 import org.a2ui.compose.rendering.rememberA2UIRenderer
+import org.json.JSONObject
 import ai.openclaw.android.ui.components.ConnectionState
 import ai.openclaw.android.ui.components.EnergyBar
 import ai.openclaw.android.ui.components.HapticHelper
@@ -108,11 +115,8 @@ import androidx.compose.material.icons.filled.Share
 
 // ==================== A2UI Protocol Bridge ====================
 
-/**
- * Converts a legacy A2UICard (type+data from skills) into an A2UI protocol message
- * that the A2UI component library can render. Returns null if the card data
- * cannot be converted to a valid A2UI message.
- */
+// Legacy function marked as deprecated, kept for backward compatibility
+@Deprecated("Use A2UIComposeRenderer which handles standard protocol natively")
 private fun tryBuildA2UIMessage(card: A2UICard): String? {
     val surfaceId = "msg_card_${card.type}"
     val data = card.rawData.mapValues { it.value?.toString() ?: "" }
@@ -501,7 +505,16 @@ fun ChatScreen(
                         BasicTextField(
                             value = inputText,
                             onValueChange = { inputText = it },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("message_input")
+                                .focusable()
+                                .semantics(mergeDescendants = true) {
+                                    this.isEditable = true
+                                    this.editableText = androidx.compose.ui.text.buildAnnotatedString {
+                                        append(inputText.takeIf { it.isNotEmpty() } ?: "输入消息...")
+                                    }
+                                },
                             textStyle = LocalTextStyle.current.copy(
                                 color = SciFiOnSurfaceVariant
                             ),
@@ -795,54 +808,23 @@ private fun AiMessageBubble(
             val segments = remember(message.content) { A2UICardParser.parse(message.content) }
             val a2uiRenderer = rememberA2UIRenderer()
 
-            val a2uiSegments = segments.filterIsInstance<MessageSegment.A2UICard>()
-            if (a2uiSegments.isNotEmpty()) {
-                LaunchedEffect(message.id) {
-                    try {
-                        for (cardSegment in a2uiSegments) {
-                            val a2uiMessage = tryBuildA2UIMessage(cardSegment.card)
-                            if (a2uiMessage != null) {
-                                a2uiRenderer.processMessage(a2uiMessage)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("ChatScreen", "A2UI processMessage failed", e)
+            for (segment in segments) {
+                when (segment) {
+                    is MessageSegment.Text -> {
+                        Text(
+                            text = segment.text,
+                            color = SciFiOnSurfaceVariant
+                        )
                     }
-                }
-
-                for (segment in segments) {
-                    when (segment) {
-                        is MessageSegment.Text -> {
-                            Text(
-                                text = segment.text,
-                                color = SciFiOnSurfaceVariant
-                            )
-                        }
-                        is MessageSegment.A2UICard -> {
-                            A2UICardRouter(
-                                card = segment.card,
-                                onActionClick = onCardAction,
-                                modifier = Modifier.padding(vertical = 4.dp)
-                            )
-                        }
-                    }
-                }
-            } else {
-                for (segment in segments) {
-                    when (segment) {
-                        is MessageSegment.Text -> {
-                            Text(
-                                text = segment.text,
-                                color = SciFiOnSurfaceVariant
-                            )
-                        }
-                        is MessageSegment.A2UICard -> {
-                            A2UICardRouter(
-                                card = segment.card,
-                                onActionClick = onCardAction,
-                                modifier = Modifier.padding(vertical = 4.dp)
-                            )
-                        }
+                    is MessageSegment.A2UICard -> {
+                        // 将旧格式卡片转为 JSON 并通过标准协议渲染（向后兼容）
+                        val cardJson = segment.card.toJsonString()
+                        val a2uiContent = "[A2UI]$cardJson[/A2UI]"
+                        A2UIComposeRenderer(
+                            content = a2uiContent,
+                            renderer = a2uiRenderer,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
                     }
                 }
             }

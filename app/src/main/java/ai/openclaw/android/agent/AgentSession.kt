@@ -111,25 +111,121 @@ class AgentSession(
 4. Simple greetings need no tools or A2UI.
 
 ## A2UI Format
-After receiving tool results, wrap the response:
+After receiving tool results, wrap the response using the standard A2UI protocol:
 [A2UI]
-{"type": "<result_type>", "data": {"key": "value", ...}}
+{
+  "version": "v0.10",
+  "createSurface": {
+    "surfaceId": "unique_surface_id",
+    "catalogId": "app_catalog"
+  },
+  "updateComponents": {
+    "surfaceId": "unique_surface_id",
+    "components": [
+      {
+        "id": "root",
+        "component": "Card",
+        "child": "content_id"
+      },
+      {
+        "id": "content_id",
+        "component": "Column",
+        "children": {
+          "array": ["title_id", "value_id"]
+        }
+      },
+      {
+        "id": "title_id",
+        "component": "Text",
+        "text": {"literalString": "Title"}
+      },
+      {
+        "id": "value_id",
+        "component": "Text",
+        "text": {"literalString": "Value"}
+      }
+    ]
+  }
+}
 [/A2UI]
-Supported types: weather, location, reminder, translation, search, generic.
-"data" must be a flat object with string values.
+
+Legacy format is still supported for backward compatibility:
+[A2UI]{"type":"weather","data":{"title":"西安 · 天气","city":"西安","condition":"晴","temperature":"20°C","feelsLike":"18°C","humidity":"45%","wind":"南风 3级","forecast":[],"alert":null},"actions":[{"label":"⏰ 降雨提醒","action":"set_rain_reminder","style":"Secondary"}]}[/A2UI]
+
+Available components: Text, Button, Row, Column, TextField, CheckBox, Card, Image, Icon, Divider, Slider, ChoicePicker, List, Tabs, Modal, DateTimeInput, Video, AudioPlayer, Surface, Spacer, ProgressBar, Switch, Dropdown, StockCard, CandlestickChart, LineChart, GaugeChart, MiniGauge, HeatmapChart, RadarChart, BubbleChart, StreamingLineChart, InteractiveLineChart.
 
 ## Card Output Guidance
-When tool results arrive, ALWAYS output the response in A2UI card format. Choose the most specific card type:
+When tool results arrive, output the response in A2UI standard protocol format. Both legacy and standard protocols are supported:
 
-- [A2UI]{"type":"weather","data":{"title":"西安 · 天气","city":"西安","condition":"晴","temperature":"20°C","feelsLike":"18°C","humidity":"45%","wind":"南风 3级","forecast":[],"alert":null},"actions":[{"label":"⏰ 降雨提醒","action":"set_rain_reminder","style":"Secondary"}]}[/A2UI]
-- [A2UI]{"type":"translation","data":{"source":"Hello","target":"你好","sourceLang":"en","targetLang":"zh"},"actions":[]}[/A2UI]
-- [A2UI]{"type":"search_result","data":{"query":"OpenClaw","results":[{"title":"OpenClaw","url":"https://openclaw.ai"}]},"actions":[]}[/A2UI]
+Legacy format (still supported):
+[A2UI]{"type":"weather","data":{"title":"西安 · 天气","city":"西安","condition":"晴","temperature":"20°C","feelsLike":"18°C","humidity":"45%","wind":"南风 3级","forecast":[],"alert":null},"actions":[{"label":"⏰ 降雨提醒","action":"set_rain_reminder","style":"Secondary"}]}[/A2UI]
 
-If the result doesn't fit any specific card type, use the generic InfoCard:
+Standard protocol format (preferred):
+[A2UI]
+{
+  "version": "v0.10",
+  "createSurface": {
+    "surfaceId": "weather_surface_123",
+    "catalogId": "weather_catalog"
+  },
+  "updateComponents": {
+    "surfaceId": "weather_surface_123",
+    "components": [
+      {
+        "id": "root",
+        "component": "Card",
+        "child": "weather_content"
+      },
+      {
+        "id": "weather_content",
+        "component": "Column",
+        "children": {
+          "array": ["city_title", "temp_display", "condition_desc", "details_row"]
+        }
+      },
+      {
+        "id": "city_title",
+        "component": "Text",
+        "text": {"literalString": "西安"},
+        "variant": "h3"
+      },
+      {
+        "id": "temp_display",
+        "component": "Text",
+        "text": {"literalString": "20°C"},
+        "variant": "h1"
+      },
+      {
+        "id": "condition_desc",
+        "component": "Text",
+        "text": {"literalString": "晴"},
+        "variant": "body"
+      },
+      {
+        "id": "details_row",
+        "component": "Row",
+        "children": {
+          "array": ["humidity_display", "wind_display"]
+        }
+      },
+      {
+        "id": "humidity_display",
+        "component": "Text",
+        "text": {"literalString": "湿度: 45%"},
+        "variant": "caption"
+      },
+      {
+        "id": "wind_display",
+        "component": "Text",
+        "text": {"literalString": "风向: 南风 3级"},
+        "variant": "caption"
+      }
+    ]
+  }
+}
+[/A2UI]
 
-[A2UI]{"type":"info","data":{"title":"回复","icon":"info","content":"你的回复内容"},"actions":[{"label":"📋 复制全文","action":"copy","style":"Secondary"}]}[/A2UI]
-
-Available card types: weather, translation, search_result, reminder, calendar, location, action_confirm, contact, sms, app, settings, error, info, summary.
+Available components: Text, Button, Row, Column, TextField, CheckBox, Card, Image, Icon, Divider, Slider, ChoicePicker, List, Tabs, Modal, DateTimeInput, Video, AudioPlayer, Surface, Spacer, ProgressBar, Switch, Dropdown, StockCard, CandlestickChart, LineChart, GaugeChart, MiniGauge, HeatmapChart, RadarChart, BubbleChart, StreamingLineChart, InteractiveLineChart.
 
 ## Dynamic Skills
 You can create new skills dynamically using the `dynamic_skill_generator_generate_skill` tool.

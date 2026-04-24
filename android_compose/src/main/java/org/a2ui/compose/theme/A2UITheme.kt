@@ -1,14 +1,28 @@
 package org.a2ui.compose.theme
 
+import android.os.Build
+import androidx.compose.animation.*
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 data class A2UIColorScheme(
@@ -50,7 +64,24 @@ data class A2UIThemeConfig(
     val darkMode: Boolean? = null,
     val borderRadius: Int = 8,
     val fontFamily: String? = null,
+    // Animation settings
+    val enableAnimations: Boolean = true,
+    val animationDuration: Int = 300,
+    val enableDataTransitions: Boolean = true,
+    val enableMicroInteractions: Boolean = true,
+    val enableGlassmorphism: Boolean = true,
+    val cardElevation: Int = 4,
+    val listItemAnimation: ListAnimation = ListAnimation.STAGGER,
 )
+
+enum class ListAnimation {
+    NONE,
+    FADE,
+    STAGGER,
+    SLIDE,
+    WAVE,
+    CASCADE
+}
 
 val LocalA2UIThemeConfig = staticCompositionLocalOf { A2UIThemeConfig() }
 
@@ -224,4 +255,80 @@ fun A2UITheme(
 @Composable
 fun a2uiThemeConfig(): A2UIThemeConfig {
     return LocalA2UIThemeConfig.current
+}
+
+/** Glassmorphism modifier with theme config support */
+fun Modifier.glassmorphism(
+    themeConfig: A2UIThemeConfig,
+    shape: Shape = RoundedCornerShape(themeConfig.borderRadius.dp)
+): Modifier {
+    if (!themeConfig.enableGlassmorphism) return this
+    return this.then(
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Modifier.blur(20.dp).then(
+                Modifier.drawBehind {
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.1f),
+                                Color.White.copy(alpha = 0.05f)
+                            )
+                        ),
+                        cornerRadius = CornerRadius(shape.toString().let { 
+                            if (it.contains("RoundedCornerShape")) themeConfig.borderRadius.dp.toPx() else 8.dp.toPx() 
+                        })
+                    )
+                }
+            )
+        } else {
+            this
+        }
+    )
+}
+
+/** Get enhanced card elevation based on theme config */
+@Composable
+fun getEnhancedCardElevation(themeConfig: A2UIThemeConfig): CardElevation {
+    return CardDefaults.cardElevation(defaultElevation = themeConfig.cardElevation.dp)
+}
+
+/** Get enhanced card colors based on theme config */
+@Composable
+fun getEnhancedCardColors(themeConfig: A2UIThemeConfig): CardColors {
+    return CardDefaults.cardColors(
+        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        contentColor = MaterialTheme.colorScheme.onSurface
+    )
+}
+
+/** Create card enter transition based on theme config */
+fun createCardEnterTransition(themeConfig: A2UIThemeConfig): EnterTransition {
+    return slideInVertically(
+        animationSpec = tween(themeConfig.animationDuration, easing = FastOutSlowInEasing)
+    ) { it / 4 } + fadeIn(
+        animationSpec = tween(themeConfig.animationDuration, easing = FastOutSlowInEasing)
+    ) + scaleIn(
+        animationSpec = tween(themeConfig.animationDuration, easing = FastOutSlowInEasing),
+        initialScale = 0.95f
+    )
+}
+
+/** Create card exit transition based on theme config */
+fun createCardExitTransition(themeConfig: A2UIThemeConfig): ExitTransition {
+    return slideOutVertically(
+        animationSpec = tween(themeConfig.animationDuration, easing = FastOutSlowInEasing)
+    ) { it / 4 } + fadeOut(
+        animationSpec = tween(themeConfig.animationDuration, easing = FastOutSlowInEasing)
+    ) + scaleOut(
+        animationSpec = tween(themeConfig.animationDuration, easing = FastOutSlowInEasing),
+        targetScale = 0.95f
+    )
+}
+
+/** Create animation spec based on theme config */
+fun createAnimationSpec(themeConfig: A2UIThemeConfig): AnimationSpec<Float> {
+    return tween(
+        durationMillis = themeConfig.animationDuration,
+        easing = FastOutSlowInEasing
+    )
 }

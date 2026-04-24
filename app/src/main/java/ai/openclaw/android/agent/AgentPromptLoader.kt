@@ -233,11 +233,48 @@ object AgentPromptLoader {
 4. Simple greetings need no tools or A2UI.
 
 ## A2UI Format
-After receiving tool results, wrap the response:
+After receiving tool results, wrap the response using the standard A2UI protocol:
 [A2UI]
-{"type": "<result_type>", "data": {"key": "value", ...}}
+{
+  "version": "v0.10",
+  "createSurface": {
+    "surfaceId": "unique_surface_id",
+    "catalogId": "app_catalog"
+  },
+  "updateComponents": {
+    "surfaceId": "unique_surface_id",
+    "components": [
+      {
+        "id": "root",
+        "component": "Card",
+        "child": "content_id"
+      },
+      {
+        "id": "content_id",
+        "component": "Column",
+        "children": {
+          "array": ["title_id", "value_id"]
+        }
+      },
+      {
+        "id": "title_id",
+        "component": "Text",
+        "text": {"literalString": "Title"}
+      },
+      {
+        "id": "value_id",
+        "component": "Text",
+        "text": {"literalString": "Value"}
+      }
+    ]
+  }
+}
 [/A2UI]
-Supported types: weather, location, reminder, translation, search, generic.
+
+Legacy format is also supported for backward compatibility:
+[A2UI]{"type":"weather","data":{"title":"西安 · 天气","city":"西安","condition":"晴","temperature":"20°C","feelsLike":"18°C","humidity":"45%","wind":"南风 3级","forecast":[],"alert":null}}[/A2UI]
+
+Available components: Text, Button, Row, Column, TextField, CheckBox, Card, Image, Icon, Divider, Slider, ChoicePicker, List, Tabs, Modal, DateTimeInput, Video, AudioPlayer, Surface, Spacer, ProgressBar, Switch, Dropdown, StockCard, CandlestickChart, LineChart, GaugeChart, MiniGauge, HeatmapChart, RadarChart, BubbleChart, StreamingLineChart, InteractiveLineChart.
 
 ## Dynamic Skills
 You can create new skills dynamically using the `generate_skill` tool.

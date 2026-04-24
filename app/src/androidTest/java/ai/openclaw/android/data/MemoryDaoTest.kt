@@ -157,7 +157,9 @@ class MemoryDaoTest {
         val retrievedBeforeDelete = memoryDao.getById(id)
         assertNotNull(retrievedBeforeDelete)
 
-        memoryDao.delete(memory)
+        // @Delete 按主键匹配，需用带正确 id 的 entity 删除
+        val memoryWithId = retrievedBeforeDelete!!.copy()
+        memoryDao.delete(memoryWithId)
         val retrievedAfterDelete = memoryDao.getById(id)
         assertNull(retrievedAfterDelete)
     }

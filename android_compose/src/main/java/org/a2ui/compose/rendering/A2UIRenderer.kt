@@ -7,6 +7,10 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.remember
+// Saver removed — SavedRendererState is not Bundle-serializable.
+// The A2UI renderer does not need process-death persistence; it rebuilds
+// from incoming messages. See crash report: rememberSaveable with
+// SavedRendererState causes IllegalArgumentException on state save.
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import kotlinx.coroutines.flow.Flow
@@ -66,6 +70,8 @@ class A2UIRenderer(
     private val surfaces = mutableStateMapOf<String, SurfaceContext>()
     private val surfaceComponents = mutableStateMapOf<String, SnapshotStateMap<String, Component>>()
     private val surfaceStates = mutableStateMapOf<String, A2UIRendererState>()
+    private val missingComponentWarnings = linkedSetOf<String>()
+
 
     private val _actionHandler = MutableStateFlow<ActionHandler?>(null)
     val actionHandler: StateFlow<ActionHandler?>
@@ -81,10 +87,7 @@ class A2UIRenderer(
         const val MAX_ERROR_COUNT = 100
         val ALLOWED_URL_SCHEMES = setOf("https://", "http://", "mailto:", "tel:", "sms:")
 
-    // Saver removed — SavedRendererState is not Bundle-serializable.
-    // The A2UI renderer does not need process-death persistence; it rebuilds
-    // from incoming messages. See crash report: rememberSaveable with
-    // SavedRendererState causes IllegalArgumentException on state save.
+// Saver intentionally omitted — SavedRendererState cannot be serialized to Bundle
     }
 
     private val json = Json {
@@ -275,6 +278,7 @@ class A2UIRenderer(
         surfaceComponents.remove(surfaceId)
         surfaceStates.remove(surfaceId)
         surfaceChanges.remove(surfaceId)
+        missingComponentWarnings.removeAll { it.startsWith("$surfaceId|") }
     }
 
     fun updateDataModel(surfaceId: String, path: String, value: Any?) {
@@ -295,6 +299,44 @@ class A2UIRenderer(
 
     fun getComponent(surfaceId: String, componentId: String): Component? {
         return surfaceComponents[surfaceId]?.get(componentId)
+    }
+
+    fun resolveComponentForRender(
+        surfaceId: String,
+        componentId: String,
+        parentComponentId: String? = null,
+    ): Component? {
+        getComponent(surfaceId, componentId)?.let { return it }
+
+        val bindingPaths = findBindingPathsForComponentId(surfaceId, componentId)
+        val bindingPath = bindingPaths
+            .sortedWith(compareBy<String>({ path -> path.count { it == '/' } }, { it.length }))
+            .firstOrNull()
+
+        return if (bindingPath != null) {
+            logMissingComponentReference(
+                surfaceId = surfaceId,
+                parentComponentId = parentComponentId,
+                componentId = componentId,
+                bindingPath = bindingPath,
+                hadMultipleMatches = bindingPaths.size > 1,
+            )
+            Component(
+                id = "__fallback__${surfaceId}_${componentId}",
+                component = "Text",
+                text = DynamicValue.PathValue<String>(bindingPath),
+                variant = "body",
+            )
+        } else {
+            logMissingComponentReference(
+                surfaceId = surfaceId,
+                parentComponentId = parentComponentId,
+                componentId = componentId,
+                bindingPath = null,
+                hadMultipleMatches = false,
+            )
+            null
+        }
     }
 
     fun getSurfaceContext(surfaceId: String): SurfaceContext? {
@@ -376,6 +418,86 @@ class A2UIRenderer(
         return dataModelProcessor.getDataModel(surfaceId)
     }
 
+    private fun findBindingPathsForComponentId(surfaceId: String, componentId: String): List<String> {
+        val surfaceData = dataModelProcessor.getSurfaceData(surfaceId) ?: return emptyList()
+        val matches = linkedSetOf<String>()
+        collectBindingPaths(
+            value = surfaceData,
+            currentPath = "",
+            targetKey = componentId,
+            matches = matches,
+        )
+        return matches.toList()
+    }
+
+    private fun collectBindingPaths(
+        value: Any?,
+        currentPath: String,
+        targetKey: String,
+        matches: MutableSet<String>,
+    ) {
+        when (value) {
+            is Map<*, *> -> {
+                value.forEach { (rawKey, nestedValue) ->
+                    val key = rawKey as? String ?: return@forEach
+                    val nextPath = "$currentPath/$key"
+                    if (key == targetKey) {
+                        matches += nextPath
+                    }
+                    collectBindingPaths(
+                        value = nestedValue,
+                        currentPath = nextPath,
+                        targetKey = targetKey,
+                        matches = matches,
+                    )
+                }
+            }
+
+            is List<*> -> {
+                value.forEachIndexed { index, item ->
+                    collectBindingPaths(
+                        value = item,
+                        currentPath = "$currentPath/$index",
+                        targetKey = targetKey,
+                        matches = matches,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun logMissingComponentReference(
+        surfaceId: String,
+        parentComponentId: String?,
+        componentId: String,
+        bindingPath: String?,
+        hadMultipleMatches: Boolean,
+    ) {
+        val warningKey = listOf(surfaceId, parentComponentId ?: "_", componentId, bindingPath ?: "_").joinToString("|")
+        if (!missingComponentWarnings.add(warningKey)) {
+            return
+        }
+
+        val parentLabel = parentComponentId ?: "unknown_parent"
+        val message = if (bindingPath != null) {
+            buildString {
+                append("Missing referenced component '$componentId' under '$parentLabel' on surface '$surfaceId'; ")
+                append("using fallback Text bound to '$bindingPath'")
+                if (hadMultipleMatches) {
+                    append(" after selecting the shortest matching data path")
+                }
+            }
+        } else {
+            "Missing referenced component '$componentId' under '$parentLabel' on surface '$surfaceId'; no fallback binding path found"
+        }
+
+        logger.log(A2UILogLevel.WARN, message)
+        errorHandler?.handleError(
+            A2UIError.ComponentError(componentId, message),
+            ErrorSeverity.WARNING,
+        )
+    }
+
     fun saveState(): SavedRendererState {
         val dataModels = mutableMapOf<String, Map<String, Any?>>()
         surfaces.keys.forEach { surfaceId ->
@@ -449,6 +571,7 @@ class A2UIRenderer(
         surfaceComponents.clear()
         surfaceStates.clear()
         surfaceChanges.clear()
+        missingComponentWarnings.clear()
         dataModelProcessor.clear()
     }
 }
@@ -492,9 +615,7 @@ class DefaultLogger : A2UILogger {
 fun rememberA2UIRenderer(
     logger: A2UILogger = DefaultLogger()
 ): A2UIRenderer {
-    // Use plain remember() — A2UI renderer state does not need to survive
-    // process death. The renderer rebuilds from messages on each launch.
-    return remember { A2UIRenderer(logger) }
+    return androidx.compose.runtime.remember { A2UIRenderer(logger) }
 }
 
 /**

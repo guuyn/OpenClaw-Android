@@ -131,6 +131,12 @@ data class A2UICard(
 
     fun asSummaryCard(): SummaryCardData? =
         if (type == "summary") SummaryCardData.fromCard(this) else null
+
+    /** 将卡片序列化为 JSON 字符串（用于标准协议兼容） */
+    fun toJsonString(): String {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        return json.encodeToString(A2UICard.serializer(), this)
+    }
 }
 
 /** 操作按钮 */
