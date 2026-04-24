@@ -59,3 +59,8 @@
 -keepclassmembers class com.k2fsa.sherpa.onnx.** {
     private native <methods>;
 }
+
+# PersonalCenter - ViewModelFactory used by reflection
+-keep class ai.openclaw.android.personalcenter.PersonalCenterViewModelFactory { *; }
+-keep class ai.openclaw.android.personalcenter.PersonalCenterViewModel { *; }
+-keep class ai.openclaw.android.personalcenter.** { *; }

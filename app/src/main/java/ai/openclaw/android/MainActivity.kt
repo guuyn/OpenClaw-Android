@@ -50,6 +50,9 @@ import ai.openclaw.android.voice.VoiceInteractionManager
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.notification.SmartNotificationListener
 import ai.openclaw.android.notification.NotificationScreen
+import ai.openclaw.android.personalcenter.PersonalCenterScreen
+import ai.openclaw.android.personalcenter.PersonalCenterViewModel
+import ai.openclaw.android.personalcenter.PersonalCenterViewModelFactory
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -127,9 +130,22 @@ class MainActivity : ComponentActivity() {
         setContent {
             OpenClawTheme {
                 MainScreen(
-                    gatewayContractProvider = { gatewayContract }
+                    gatewayContractProvider = { gatewayContract },
+                    initialTab = intent?.getIntExtra("tab_index", 0) ?: 0
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val tabIndex = intent.getIntExtra("tab_index", -1)
+        if (tabIndex >= 0) {
+            // Use a workaround: finish and restart with new tab
+            val newIntent = Intent(this, MainActivity::class.java)
+            newIntent.putExtra("tab_index", tabIndex)
+            newIntent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            startActivity(newIntent)
         }
     }
 
@@ -189,7 +205,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
+fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int = 0) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -538,22 +554,15 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?) {
                 )
             }
             1 -> {
-                val notifications by SmartNotificationListener.notifications.collectAsStateWithLifecycle()
-                val hasNotificationPermission = remember {
-                    hasNotificationListenerPermission(context)
+                val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<PersonalCenterViewModel>(
+                    factory = PersonalCenterViewModelFactory(context.applicationContext as android.app.Application)
+                )
+                // 注入 LLM 评估能力（个人中心需要 GatewayContract 来调用 LLM 做语义过滤）
+                LaunchedEffect(Unit) {
+                    viewModel.setGatewayContract(gatewayContractProvider())
                 }
-
-                NotificationScreen(
-                    notifications = notifications,
-                    onMarkAsRead = { },
-                    onMarkAllAsRead = { },
-                    onDelete = { },
-                    onClearAll = { },
-                    hasPermission = hasNotificationPermission,
-                    onRequestPermission = {
-                        val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-                        context.startActivity(intent)
-                    },
+                PersonalCenterScreen(
+                    viewModel = viewModel,
                     modifier = Modifier.padding(padding)
                 )
             }
