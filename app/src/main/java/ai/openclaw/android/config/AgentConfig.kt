@@ -11,7 +11,7 @@ data class AgentConfig(
     val tools: List<String> = emptyList(),
     val routing: RoutingConfig? = null,
     /** 自我反思策略（默认自动选择） */
-    val reflectionStrategy: ReflectionStrategy = ReflectionStrategy.SINGLE
+    val reflectionStrategy: ReflectionStrategy = ReflectionStrategy.NONE
 )
 
 data class RoutingConfig(

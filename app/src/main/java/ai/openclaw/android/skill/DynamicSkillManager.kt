@@ -6,6 +6,9 @@ import ai.openclaw.script.ScriptOrchestrator
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * 动态技能管理器
@@ -44,17 +47,30 @@ class DynamicSkillManager(
     }
 
     /**
+     * 创建 onUsed 回调：技能工具被调用时更新 lastUsedAt
+     */
+    private fun makeOnUsedCallback(skillId: String): () -> Unit {
+        return {
+            scope.launch {
+                dynamicSkillDao.updateLastUsed(skillId, System.currentTimeMillis())
+            }
+        }
+    }
+
+    /**
      * 从 JSON 注册新技能
-     *
-     * @param json LLM 生成的技能定义 JSON
-     * @return 成功返回技能 ID，失败返回异常
      */
     suspend fun registerFromJson(json: String): Result<String> = try {
-        val skill = DynamicSkill.fromJson(json, orchestrator, preferenceManager, onUserConfirmation)
+        // 先从 JSON 提取 skillId 避免双重解析
+        val skillId = Json.parseToJsonElement(json).jsonObject["id"]?.jsonPrimitive?.content
+            ?: throw IllegalArgumentException("Missing 'id' in skill JSON")
+
+        val onUsed = makeOnUsedCallback(skillId)
+        val skill = DynamicSkill.fromJson(json, orchestrator, onUsed, preferenceManager, onUserConfirmation)
 
         // 持久化
         val entity = DynamicSkillEntity(
-            id = skill.id,
+            id = skillId,
             name = skill.name,
             description = skill.description,
             version = skill.version,
@@ -63,7 +79,7 @@ class DynamicSkillManager(
             script = skill.script,
             toolsJson = json,
             permissions = "",
-            lastUsedAt = 0,
+            lastUsedAt = System.currentTimeMillis(),  // 修复：注册时设置当前时间，避免 lastUsedAt=0 被误杀
             enabled = true
         )
         dynamicSkillDao.insert(entity)
@@ -72,8 +88,8 @@ class DynamicSkillManager(
         skillManager.registerSkill(skill)
         notifyToolsChanged()
 
-        Log.i(TAG, "Registered dynamic skill: ${skill.id}")
-        Result.success(skill.id)
+        Log.i(TAG, "Registered dynamic skill: $skillId")
+        Result.success(skillId)
     } catch (e: Exception) {
         Log.e(TAG, "Failed to register skill: ${e.message}")
         Result.failure(e)
@@ -81,15 +97,14 @@ class DynamicSkillManager(
 
     /**
      * 启动时加载所有已保存的动态技能
-     *
-     * @return 成功加载的技能数量
      */
     suspend fun loadAllSaved(): Int {
         val entities = dynamicSkillDao.getAllEnabledList()
         var count = 0
         for (entity in entities) {
             try {
-                val skill = DynamicSkill.fromJson(entity.toolsJson, orchestrator, preferenceManager, onUserConfirmation)
+                val onUsed = makeOnUsedCallback(entity.id)
+                val skill = DynamicSkill.fromJson(entity.toolsJson, orchestrator, onUsed, preferenceManager, onUserConfirmation)
                 skillManager.registerSkill(skill)
                 count++
             } catch (e: Exception) {
@@ -102,11 +117,17 @@ class DynamicSkillManager(
 
     /**
      * 30 天未使用 → 停用
+     * 修复：lastUsedAt == 0 视为刚创建，不处理
      */
     suspend fun disableUnusedSkills() {
         val threshold = System.currentTimeMillis() - (DISABLE_AFTER_DAYS * 24 * 60 * 60 * 1000L)
         val unusedSkills = dynamicSkillDao.getEnabledSkillsLastUsedBefore(threshold)
         for (skill in unusedSkills) {
+            // lastUsedAt == 0 说明刚注册还没被使用过，跳过
+            if (skill.lastUsedAt == 0L) {
+                Log.d(TAG, "Skipping skill ${skill.id}: lastUsedAt=0 (newly registered)")
+                continue
+            }
             dynamicSkillDao.disable(skill.id)
             skillManager.unregisterSkill(skill.id)
             Log.i(TAG, "Disabled unused skill: ${skill.id}")
@@ -150,7 +171,8 @@ class DynamicSkillManager(
     suspend fun enableSkill(id: String) {
         val entity = dynamicSkillDao.getById(id) ?: return
         dynamicSkillDao.enable(id)
-        val skill = DynamicSkill.fromJson(entity.toolsJson, orchestrator, preferenceManager, onUserConfirmation)
+        val onUsed = makeOnUsedCallback(id)
+        val skill = DynamicSkill.fromJson(entity.toolsJson, orchestrator, onUsed, preferenceManager, onUserConfirmation)
         skillManager.registerSkill(skill)
         Log.i(TAG, "Enabled skill: $id")
     }

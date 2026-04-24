@@ -7,8 +7,11 @@ import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.domain.AgentResponse
 import ai.openclaw.android.domain.DeviceCapabilities
 import ai.openclaw.android.domain.ReflectionConfig
+import ai.openclaw.android.domain.ReflectionResult
 import ai.openclaw.android.domain.ReflectionRole
 import ai.openclaw.android.domain.ReflectionStrategy
+import ai.openclaw.android.domain.ReflectionUtils
+import kotlinx.coroutines.withTimeoutOrNull
 import ai.openclaw.android.domain.ResponseRouter
 import ai.openclaw.android.domain.session.HybridSessionManager
 import ai.openclaw.android.model.*
@@ -88,7 +91,7 @@ class AgentSession(
      */
     fun setReflectionConfig(config: ReflectionConfig) {
         _reflectionConfig = config
-        Log.d(TAG, "Reflection config set: strategy=${config.strategy}, roles=${config.roles.size}")
+        Log.d(TAG, "Reflection config set: strategy=${config.strategy}, timeout=${config.timeoutMs}ms")
     }
 
     /**
@@ -501,25 +504,26 @@ Example:
                 val lastUserMessage = history.lastOrNull { it.role == "user" }?.content ?: ""
 
                 if (reflectionConfig != null && reflectionConfig.strategy != ReflectionStrategy.NONE && content.isNotBlank()) {
-                    Log.d(TAG, "Applying reflection: ${reflectionConfig.strategy} (${reflectionConfig.roles.size} roles)")
-                    LogManager.shared.log("INFO", TAG, "[反思] 开始: strategy=${reflectionConfig.strategy}, roles=${reflectionConfig.roles.map { it.name }}")
-                    emit(SessionEvent.ReflectionStart(reflectionConfig.roles.firstOrNull()?.name ?: "reflection"))
+                    Log.d(TAG, "Applying reflection: ${reflectionConfig.strategy}")
+                    LogManager.shared.log("INFO", TAG, "[反思] 开始: strategy=${reflectionConfig.strategy}")
+                    emit(SessionEvent.ReflectionStart("reflection"))
 
-                    for (role in reflectionConfig.roles) {
-                        val reflectionPrompt = role.buildPrompt(lastUserMessage, content)
-                        val refinedContent = runReflectionRound(reflectionPrompt)
-                        if (refinedContent != null) {
-                            content = refinedContent
-                            Log.d(TAG, "Reflection round complete for role: ${role.name}")
-                            LogManager.shared.log("INFO", TAG, "[反思] 完成: role=${role.name}")
-                        } else {
-                            Log.w(TAG, "Reflection round failed for role: ${role.name}, keeping previous answer")
-                            LogManager.shared.log("WARN", TAG, "[反思] 失败: role=${role.name}, 保留原答案")
-                        }
+                    val reflectionResult = runReflectionWithProtection(
+                        originalContent = content,
+                        userMessage = lastUserMessage,
+                        config = reflectionConfig
+                    )
+
+                    if (reflectionResult.changed) {
+                        content = reflectionResult.refinedContent
+                        Log.d(TAG, "Reflection applied: changeRate=${String.format("%.2f", reflectionResult.changeRate)}, rounds=${reflectionResult.roundsCompleted}")
+                        LogManager.shared.log("INFO", TAG, "[反思] 已应用: 变化率=${String.format("%.1f", reflectionResult.changeRate * 100)}%, A2UI=${reflectionResult.a2uiPreserved}")
+                    } else {
+                        Log.d(TAG, "Reflection unchanged: keeping original answer")
+                        LogManager.shared.log("INFO", TAG, "[反思] 无变化，保留原答案")
                     }
 
-                    emit(SessionEvent.ReflectionComplete(reflectionConfig.roles.lastOrNull()?.name ?: "reflection"))
-                    LogManager.shared.log("INFO", TAG, "[反思] 全部完成, 内容长度=${content.length}")
+                    emit(SessionEvent.ReflectionComplete("reflection"))
                 }
 
                 history.add(Message(role = "assistant", content = content))
@@ -707,61 +711,93 @@ Example:
         }
     }
 
-    // ==================== Reflection (Multi-round Self-Improvement) ====================
+    // ==================== Reflection (Protected) ====================
 
     /**
-     * Run a single reflection round: send reflection prompt to model and get refined answer.
-     * Returns the refined text, or null if the model failed.
+     * Run reflection with safety guards:
+     * - Timeout protection
+     * - Empty content rejection (never overwrite good answer with empty string)
+     * - A2UI format preservation check
+     * - Early termination if change rate < threshold
      */
-    private suspend fun runReflectionRound(reflectionPrompt: String): String? {
+    private suspend fun runReflectionWithProtection(
+        originalContent: String,
+        userMessage: String,
+        config: ReflectionConfig
+    ): ReflectionResult {
         return try {
-            // For reflection, we don't need tools — just pure reasoning
-            val reflectionMessages = buildMessagesForReflection(reflectionPrompt)
+            val checkpoint = System.currentTimeMillis()
+            val reflectionPrompt = ReflectionRole.CHECKER.buildPrompt(userMessage, originalContent)
+            val reflectionMessages = buildLightReflectionMessages(reflectionPrompt)
+
             val fullText = StringBuilder()
             var completeResponse: ModelResponse? = null
 
-            modelClient.chatStream(reflectionMessages, null).collect { event ->
-                when (event) {
-                    is ChatEvent.Token -> fullText.append(event.text)
-                    is ChatEvent.Complete -> completeResponse = event.response
-                    is ChatEvent.Error -> {
-                        Log.w(TAG, "Reflection stream error: ${event.message}")
-                        return@collect
+            // Run with timeout using kotlinx.coroutines
+            withTimeoutOrNull(config.timeoutMs) {
+                modelClient.chatStream(reflectionMessages, null).collect { event ->
+                    when (event) {
+                        is ChatEvent.Token -> fullText.append(event.text)
+                        is ChatEvent.Complete -> completeResponse = event.response
+                        is ChatEvent.Error -> return@collect
+                        else -> {}
                     }
-                    else -> {}
                 }
             }
 
-            completeResponse?.content ?: fullText.toString().takeIf { it.isNotEmpty() }
+            val refinedContent = completeResponse?.content ?: fullText.toString()
+
+            // Guard 1: reject empty content
+            if (refinedContent.isBlank()) {
+                Log.w(TAG, "[反思] 返回空内容，保留原答案")
+                return ReflectionResult.unchanged(originalContent)
+            }
+
+            // Guard 2: A2UI format preservation
+            val a2uiPreserved = if (config.protectA2UI) {
+                ReflectionUtils.isA2UIPreserved(originalContent, refinedContent)
+            } else true
+
+            if (!a2uiPreserved) {
+                Log.w(TAG, "[反思] A2UI 格式被破坏，保留原答案")
+                return ReflectionResult.unchanged(originalContent)
+            }
+
+            // Guard 3: early termination if change < threshold
+            val changeRate = ReflectionUtils.changeRate(originalContent, refinedContent)
+            if (changeRate < config.minChangeRate) {
+                Log.d(TAG, "[反思] 变化率 ${String.format("%.1f", changeRate * 100)}% < 阈值，早停")
+                return ReflectionResult.unchanged(originalContent)
+            }
+
+            val elapsed = System.currentTimeMillis() - checkpoint
+            Log.d(TAG, "[反思] 完成: ${String.format("%.1f", changeRate * 100)}% 变化, 耗时 ${elapsed}ms")
+
+            ReflectionResult(
+                refinedContent = refinedContent,
+                changed = true,
+                changeRate = changeRate,
+                roundsCompleted = 1,
+                a2uiPreserved = a2uiPreserved
+            )
         } catch (e: Exception) {
-            Log.e(TAG, "Reflection round failed: ${e.message}", e)
-            null
+            Log.e(TAG, "[反思] 异常: ${e.message}", e)
+            ReflectionResult.unchanged(originalContent)
         }
     }
 
     /**
-     * Build messages for reflection: use current history + reflection prompt.
-     * The reflection prompt is added as a user message on top of existing history.
+     * Build lightweight reflection messages: only send the original answer + reflection prompt.
+     * Don't include full conversation history to save tokens.
      */
-    private fun buildMessagesForReflection(reflectionPrompt: String): List<Message> {
+    private fun buildLightReflectionMessages(reflectionPrompt: String): List<Message> {
         val basePrompt = _agentConfig?.systemPrompt?.takeIf { it.isNotBlank() }
-            ?.let { customPrompt -> "$customPrompt\n\n---\n$BASE_SYSTEM_PROMPT" }
             ?: BASE_SYSTEM_PROMPT
 
-        val systemPrompt = deviceCapabilities?.let { caps ->
-            "${caps.toPromptSection()}\n\n---\n$basePrompt"
-        } ?: basePrompt
-
-        return mutableListOf<Message>().apply {
-            add(Message(role = "system", content = systemPrompt))
-            memoryContextText?.let { context ->
-                add(Message(role = "system", content = "用户的重要记忆：\n$context"))
-            }
-            // Include conversation history so the model has full context
-            addAll(history)
-            // Add reflection prompt as the last user message
-            add(Message(role = "user", content = reflectionPrompt))
-        }
+        return listOf(
+            Message(role = "system", content = basePrompt),
+            Message(role = "user", content = reflectionPrompt)
+        )
     }
 }
 

@@ -17,6 +17,7 @@ typealias UserConfirmationCallback = suspend (toolId: String, description: Strin
  *
  * @param preferenceManager 用户偏好管理器（可选，null 时禁用安全检查）
  * @param onUserConfirmation 用户确认回调（可选，null 时 ASK_USER 策略视为 DENY）
+ * @param onUsed 工具被调用时的回调（用于更新 lastUsedAt）
  */
 class DynamicSkill(
     override val id: String,
@@ -27,12 +28,13 @@ class DynamicSkill(
     val script: String,
     toolDefs: List<DynamicToolDef>,
     private val orchestrator: ScriptOrchestrator,
+    private val onUsed: (() -> Unit)? = null,
     private val preferenceManager: UserPreferenceManager? = null,
     private val onUserConfirmation: UserConfirmationCallback? = null
 ) : Skill {
 
     override val tools: List<SkillTool> = toolDefs.map { def ->
-        DynamicTool(id, def, script, orchestrator, preferenceManager, onUserConfirmation)
+        DynamicTool(id, def, script, orchestrator, onUsed, preferenceManager, onUserConfirmation)
     }
 
     override fun initialize(context: SkillContext) {
@@ -48,16 +50,11 @@ class DynamicSkill(
 
         /**
          * 从 JSON 字符串创建 DynamicSkill
-         *
-         * @param jsonStr LLM 生成的技能定义 JSON
-         * @param orchestrator 脚本执行器（由外部注入）
-         * @param preferenceManager 用户偏好管理器（可选）
-         * @param onUserConfirmation 用户确认回调（可选）
-         * @throws IllegalArgumentException 缺少必填字段时
          */
         fun fromJson(
             jsonStr: String,
             orchestrator: ScriptOrchestrator,
+            onUsed: (() -> Unit)? = null,
             preferenceManager: UserPreferenceManager? = null,
             onUserConfirmation: UserConfirmationCallback? = null
         ): DynamicSkill {
@@ -105,7 +102,7 @@ class DynamicSkill(
 
             return DynamicSkill(
                 id, name, description, version, instructions, script, toolDefs, orchestrator,
-                preferenceManager, onUserConfirmation
+                onUsed, preferenceManager, onUserConfirmation
             )
         }
     }
@@ -113,8 +110,6 @@ class DynamicSkill(
 
 /**
  * 工具定义（从 JSON 解析）
- *
- * @param isIdempotent 是否幂等操作（幂等操作无需用户审批）
  */
 data class DynamicToolDef(
     val name: String,
@@ -127,18 +122,17 @@ data class DynamicToolDef(
 /**
  * 动态工具实现 — 将 SkillTool 调用路由到 ScriptOrchestrator
  *
- * 执行时拼接：脚本源码 + 入口函数调用（参数以 JSON 传入）
- * 内置安全审查：幂等操作自动执行，非幂等操作按用户偏好处理
- *
- * @param skillId 所属技能 ID，用于构建完整工具 ID
- * @param preferenceManager 用户偏好管理器（可选）
- * @param onUserConfirmation 用户确认回调（可选）
+ * @param skillId 所属技能 ID
+ * @param onUsed 工具被调用时的回调（用于更新 lastUsedAt）
+ * @param preferenceManager 用户偏好管理器
+ * @param onUserConfirmation 用户确认回调
  */
 class DynamicTool(
     private val skillId: String,
     private val def: DynamicToolDef,
     private val script: String,
     private val orchestrator: ScriptOrchestrator,
+    private val onUsed: (() -> Unit)? = null,
     private val preferenceManager: UserPreferenceManager? = null,
     private val onUserConfirmation: UserConfirmationCallback? = null
 ) : SkillTool {
@@ -150,7 +144,7 @@ class DynamicTool(
         def: DynamicToolDef,
         script: String,
         orchestrator: ScriptOrchestrator
-    ) : this("", def, script, orchestrator, null, null)
+    ) : this("", def, script, orchestrator, null, null, null)
 
     override val name: String = def.name
     override val description: String = def.description
@@ -165,6 +159,7 @@ class DynamicTool(
 
         return when (policy) {
             ToolSecurityPolicy.AUTO_EXECUTE -> {
+                onUsed?.invoke()
                 executeScript(params)
             }
 
@@ -173,6 +168,7 @@ class DynamicTool(
                 when (decision) {
                     ApprovalDecision.ALWAYS_APPROVE -> {
                         preferenceManager?.setPreference(toolId, decision)
+                        onUsed?.invoke()
                         executeScript(params)
                     }
 
@@ -182,7 +178,7 @@ class DynamicTool(
                     }
 
                     ApprovalDecision.ASK_EVERY_TIME -> {
-                        // 仅此次执行，不保存偏好
+                        onUsed?.invoke()
                         executeScript(params)
                     }
 

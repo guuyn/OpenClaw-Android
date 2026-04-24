@@ -42,7 +42,7 @@ open class AgentSessionManager(
     private fun toConfigAgent(dataConfig: DataAgentConfig): AgentConfig {
         val reflectionStrategy = dataConfig.reflectionStrategy?.let {
             runCatching { ReflectionStrategy.valueOf(it.uppercase()) }.getOrNull()
-        } ?: ReflectionStrategy.SINGLE
+        } ?: ReflectionStrategy.NONE
 
         return AgentConfig(
             id = dataConfig.id,
