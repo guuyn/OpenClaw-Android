@@ -29,6 +29,11 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
     
+    - name: Download sherpa-onnx AAR
+      run: |
+        mkdir -p app/libs
+        curl -fSL -o app/libs/sherpa-onnx.aar "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.39/sherpa-onnx-1.12.39.aar"
+    
     - name: Run unit tests
       run: ./gradlew test
     
@@ -63,6 +68,11 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
     
+    - name: Download sherpa-onnx AAR
+      run: |
+        mkdir -p app/libs
+        curl -fSL -o app/libs/sherpa-onnx.aar "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.39/sherpa-onnx-1.12.39.aar"
+    
     - name: Build Debug APK
       run: ./gradlew assembleDebug
     
@@ -93,6 +103,11 @@ jobs:
     
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
+    
+    - name: Download sherpa-onnx AAR
+      run: |
+        mkdir -p app/libs
+        curl -fSL -o app/libs/sherpa-onnx.aar "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.39/sherpa-onnx-1.12.39.aar"
     
     - name: Decode keystore
       env:
