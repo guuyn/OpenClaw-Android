@@ -93,6 +93,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    lint {
+        // Kotlin 2.3.0 internal API change crashes this detector
+        disable += "RememberInComposition"
+    }
     kotlin {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
