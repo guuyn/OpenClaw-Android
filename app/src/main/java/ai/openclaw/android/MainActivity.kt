@@ -4,7 +4,9 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.net.Uri
 import android.media.AudioManager
@@ -425,6 +427,22 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
                 messages.add(ChatMessage(role = "assistant", content = "错误: ${e.message}"))
                 isLoading = false
             }
+        }
+    }
+
+    // ==================== 🔬 DEBUG: Broadcast for testing without keyboard ====================
+    DisposableEffect(Unit) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val text = intent?.getStringExtra("message") ?: return
+                Log.d("MainScreen", "[DEBUG BROADCAST] Received: $text")
+                sendMessage(text)
+            }
+        }
+        val filter = IntentFilter("ai.openclaw.android.DEBUG_SEND_MESSAGE")
+        context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        onDispose {
+            context.unregisterReceiver(receiver)
         }
     }
 
