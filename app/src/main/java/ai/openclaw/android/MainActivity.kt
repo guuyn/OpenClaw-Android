@@ -339,8 +339,12 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
         ConfigManager.init(context)
 
         if (!ConfigManager.hasModelCredentials()) {
-            ConfigManager.setModelApiKey("YOUR_API_KEY_HERE")
-            ConfigManager.setModelName("qwen3.5-plus")
+            // Debug: set default credentials for automated testing
+            // ⚠️ Do NOT hardcode API keys in production
+            ConfigManager.setModelProvider("OPENAI")
+            ConfigManager.setModelBaseUrl("https://coding.dashscope.aliyuncs.com/v1")
+            ConfigManager.setModelApiKey("sk-sp-20300993405641aab0fb73aedac15d33")
+            ConfigManager.setModelName("qwen-plus")
             Log.d("MainScreen", "Default API key set for debugging")
         }
 
