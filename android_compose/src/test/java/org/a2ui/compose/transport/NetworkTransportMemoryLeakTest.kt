@@ -1,4 +1,5 @@
 package org.a2ui.compose.transport
+import kotlinx.coroutines.flow.StateFlow
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.runTest
@@ -214,7 +215,7 @@ class NetworkTransportMemoryLeakTest {
         transport.close()
 
         // 验证状态
-        assertEquals(TransportState.Disconnected, transport.state.value)
+        assertEquals(TransportState.Disconnected, (transport.state as StateFlow<TransportState>).value)
     }
 
     @Test
@@ -224,6 +225,6 @@ class NetworkTransportMemoryLeakTest {
         transport.close()
 
         // 验证状态
-        assertEquals(TransportState.Disconnected, transport.state.value)
+        assertEquals(TransportState.Disconnected, (transport.state as StateFlow<TransportState>).value)
     }
 }
