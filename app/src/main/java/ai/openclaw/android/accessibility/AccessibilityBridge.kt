@@ -1,5 +1,6 @@
 package ai.openclaw.android.accessibility
 
+import android.content.Context
 import android.os.Build
 import android.util.Log
 import ai.openclaw.android.MyAccessibilityService
@@ -153,7 +154,7 @@ class AccessibilityBridge {
                 type = "function",
                 function = ToolFunction(
                     name = "read_screen",
-                    description = "Read all visible text content on the current screen. Use this to understand what's displayed.",
+                    description = "Read the current screen as a structured UI tree. Each element shows: [Type] \"text/label\" {flags} @(x,y). Use this to understand the UI layout and find elements to interact with.",
                     parameters = ToolParameters(
                         type = "object",
                         properties = emptyMap(),
@@ -189,6 +190,31 @@ class AccessibilityBridge {
                         required = listOf("text")
                     )
                 )
+            ),
+            Tool(
+                type = "function",
+                function = ToolFunction(
+                    name = "get_current_app",
+                    description = "Get the currently active app's package name and app label. Use this to know which app you are currently interacting with.",
+                    parameters = ToolParameters(type = "object", properties = emptyMap(), required = emptyList())
+                )
+            ),
+            Tool(
+                type = "function",
+                function = ToolFunction(
+                    name = "launch_app",
+                    description = "Launch an app by its package name. Use this to switch to a different app. Example package names: 'com.tencent.mm' (WeChat), 'com.android.chrome' (Chrome).",
+                    parameters = ToolParameters(
+                        type = "object",
+                        properties = mapOf(
+                            "package_name" to ToolProperty(
+                                type = "string",
+                                description = "The package name of the app to launch (e.g., 'com.tencent.mm')"
+                            )
+                        ),
+                        required = listOf("package_name")
+                    )
+                )
             )
         )
     }
@@ -217,9 +243,11 @@ class AccessibilityBridge {
                 "swipe" -> executeSwipe(service, params)
                 "press_back" -> service.pressBack()
                 "press_home" -> service.pressHome()
-                "read_screen" -> service.readScreenText()
+                "read_screen" -> service.readScreenStructured()
                 "screenshot" -> executeScreenshot(service)
                 "find_elements" -> executeFindElements(service, params)
+                "get_current_app" -> service.getCurrentApp()
+                "launch_app" -> executeLaunchApp(service, params)
                 else -> "Error: Unknown tool '$toolName'"
             }
         }
@@ -291,5 +319,10 @@ class AccessibilityBridge {
         }
         
         return result.toString()
+    }
+
+    private fun executeLaunchApp(service: MyAccessibilityService, params: Map<String, Any?>): String {
+        val packageName = params["package_name"] as? String ?: return "Error: Missing 'package_name' parameter"
+        return service.launchApp(params)
     }
 }

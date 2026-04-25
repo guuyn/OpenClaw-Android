@@ -2,6 +2,7 @@ package ai.openclaw.android
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Path
@@ -566,6 +567,106 @@ class MyAccessibilityService : AccessibilityService() {
         }
     }
     
+    // ==================== App Awareness & Launch ====================
+
+    /**
+     * Get info about the currently active app
+     */
+    fun getCurrentApp(): String {
+        val rootNode = rootInActiveWindow ?: return "Error: No active window"
+        val packageName = rootNode.packageName?.toString() ?: "unknown"
+        val pm = packageManager
+        val appLabel = try {
+            val appInfo = pm.getApplicationInfo(packageName, 0)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            packageName
+        }
+        val activityClass = rootNode.className?.toString() ?: "unknown"
+        return "App: $appLabel\nPackage: $packageName\nActivity: $activityClass"
+    }
+
+    /**
+     * Launch an app by package name
+     */
+    fun launchApp(params: Map<String, Any?>): String {
+        val packageName = params["package_name"] as? String ?: return "Error: Missing 'package_name' parameter"
+        return try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+                addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+                setPackage(packageName)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            "Success: Launched app with package '$packageName'"
+        } catch (e: Exception) {
+            "Error: Failed to launch '$packageName' — ${e.message}"
+        }
+    }
+
+    /**
+     * Read the current screen as a structured UI tree
+     */
+    fun readScreenStructured(): String {
+        val rootNode = rootInActiveWindow ?: return "Error: No active window"
+        val builder = StringBuilder()
+
+        val packageName = rootNode.packageName?.toString() ?: "unknown"
+        builder.append("[SCREEN] Package: $packageName\n")
+        builder.append("[SCREEN] Size: ${screenWidth}x${screenHeight}\n")
+        builder.append("---\n")
+
+        traverseNodeStructured(rootNode, builder, 0)
+
+        val result = builder.toString()
+        return if (result.length > 4000) {
+            result.take(4000) + "\n... (output truncated, ${result.length - 4000} chars omitted)"
+        } else {
+            result
+        }
+    }
+
+    private fun traverseNodeStructured(node: android.view.accessibility.AccessibilityNodeInfo, builder: StringBuilder, depth: Int) {
+        if (!node.isVisibleToUser && depth > 0) return
+
+        val indent = "  ".repeat(depth.coerceAtMost(6))
+        val className = node.className?.toString()?.substringAfterLast('.') ?: "View"
+        val text = node.text?.toString()?.take(50)
+        val contentDesc = node.contentDescription?.toString()?.take(50)
+        val isClickable = node.isClickable
+        val isEditable = node.isEditable
+        val isEnabled = node.isEnabled
+
+        val hasLabel = !text.isNullOrBlank() || !contentDesc.isNullOrBlank()
+        val isInteractive = isClickable || isEditable
+
+        if (hasLabel || isInteractive || depth <= 1) {
+            val label = if (!text.isNullOrBlank()) "\"$text\""
+                        else if (!contentDesc.isNullOrBlank()) "[desc: $contentDesc]"
+                        else ""
+
+            val flags = mutableListOf<String>()
+            if (isClickable) flags.add("clickable")
+            if (isEditable) flags.add("editable")
+            if (!isEnabled) flags.add("disabled")
+
+            val bounds = android.graphics.Rect()
+            node.getBoundsInScreen(bounds)
+
+            builder.append("${indent}[$className] $label")
+            if (flags.isNotEmpty()) builder.append(" {${flags.joinToString(", ")}}")
+            builder.append(" @ (${bounds.left},${bounds.top})\n")
+        }
+
+        if (depth >= 8) return
+
+        val maxChildren = if (depth < 2) node.childCount else node.childCount.coerceAtMost(50)
+        for (i in 0 until maxChildren) {
+            val child = node.getChild(i) ?: continue
+            traverseNodeStructured(child, builder, depth + 1)
+        }
+    }
+
     private fun releaseMediaProjection() {
         imageReader?.close()
         imageReader = null
