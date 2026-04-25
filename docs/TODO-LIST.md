@@ -18,7 +18,7 @@
 | # | 任务 | 状态 | 说明 |
 |---|------|------|------|
 | 1 | 会话压缩质量提升 | 基础实现 | SessionCompressor 已实现，摘要缓存、跨会话记忆关联待做 |
-| 2 | 补充测试覆盖 | 部分完成 | **158 测试全部通过**；LLM 客户端 mock、Compose UI 测试缺失 |
+| 2 | 补充测试覆盖 | ✅ 完成 | **CI 全绿**：app unit test + android_compose unit test + instrumented test 编译通过 |
 | 3 | 设备控制 Phase 1 | 待实施 | 待定义具体需求 |
 | 4 | 预采集数据层 | 概念阶段 | 待设计 |
 
@@ -72,8 +72,9 @@
 | Kotlin 源文件 | 151+ 个 |
 | 内置技能 | 14 个 + GenerateSkill |
 | A2UI 卡片类型 | **14 种** |
-| 总 Commit | 116+ 个 |
-| 单元测试 | **158 个（全部通过 ✅）** |
+| 总 Commit | 120+ 个 |
+| 单元测试 | **全部通过 ✅**（app + android_compose） |
+| 集成测试 | **编译通过 ✅**（AgentSessionTest + SessionIntegrationTest 恢复启用） |
 | LLM Provider | 4 个（OpenAI / Anthropic / Bailian / Local） |
 
 ---

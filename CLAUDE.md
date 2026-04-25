@@ -191,7 +191,41 @@ Jetpack Compose with Material3. Sci-Fi themed.
 
 Agent responses use the `[A2UI]...[/A2UI]` markup for rich UI rendering. Supported types: weather, location, reminder, translation, search, generic.
 
-## Testing
+## Testing Requirements
 
-- **Unit tests** (`src/test/`): JVM-based using MockK. Tests cover serialization (`ModelModelsTest`), skill logic, session compression, memory system, and embedding service.
-- **Instrumented tests** (`src/androidTest/`): Require device/emulator, use fake `ModelClient` implementations with `mockito-kotlin` (e.g., `AgentSessionTest` for streaming behavior).
+**ALL tests MUST pass before committing code.** This is a hard requirement.
+
+### Required Build & Test Checks
+
+```bash
+# 1. Unit tests — MUST pass
+./gradlew :app:testDebugUnitTest :android_compose:testDebugUnitTest
+
+# 2. Instrumented test compilation — MUST compile
+./gradlew :app:compileDebugAndroidTestKotlin :android_compose:compileDebugUnitTestKotlin
+
+# 3. Debug build — MUST succeed
+./gradlew assembleDebug
+```
+
+### Test Coverage Areas
+
+- **Unit tests** (`src/test/`): JVM-based using JUnit 4 + MockK. Cover serialization (`ModelModelsTest`), skill logic, session compression, memory system, embedding service, agent config, and domain logic.
+- **Instrumented tests** (`src/androidTest/`): Require device/emulator. Cover AgentSession streaming, HybridSessionManager integration, DAO operations, UI components (MessageBubble, EnergyBar, SettingsScreen), and ML embedding services.
+- **A2UI compose module** (`android_compose/src/test/`): DataModelProcessor, NetworkTransport, A2UIService lifecycle, theme/color parsing, memory leak detection.
+
+### Known Test Patterns & Pitfalls
+
+- **Compose `Color`**: uses 0.0-1.0 range, NOT 0-255. `color.red.toInt()` returns 0 or 1.
+- **`DynamicValue.FunctionValue`**: requires explicit type parameter `<Any>` in Kotlin 2.3.0.
+- **`Flow` vs `StateFlow`**: `Flow` has no `.value` property; cast to `StateFlow` first.
+- **`ModelClient.configure`**: signature includes `baseUrl` parameter — `configure(provider, apiKey, model, baseUrl)`.
+- **`LocalLLMClient`**: constructor takes `Context` directly, no `getInstance()` singleton.
+- **`MessageDao`**: use `getMessagesBySessionIdWithLimit(sessionId, limit, offset)`, not `getBySession`.
+
+### Adding New Tests
+
+- Unit tests go in `src/test/java/` — same package structure as main code.
+- Instrumented tests go in `src/androidTest/java/` — use `AndroidJUnit4` runner.
+- Use explicit type parameters for generic types to avoid Kotlin 2.3.0 inference issues.
+- Never use `assertTrue/assertFalse` on `Any?` results; cast to expected type first.
