@@ -155,10 +155,16 @@ class A2UIService(
     }
 
     fun processMessage(message: String): Result<Unit> {
+        if (isClosed.get()) {
+            throw IllegalStateException("Service is closed")
+        }
         return renderer.processMessage(message)
     }
 
     fun processMessages(messages: List<String>) {
+        if (isClosed.get()) {
+            throw IllegalStateException("Service is closed")
+        }
         messages.forEach { processMessage(it) }
     }
 

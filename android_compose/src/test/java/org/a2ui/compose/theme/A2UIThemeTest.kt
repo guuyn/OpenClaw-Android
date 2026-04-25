@@ -7,19 +7,18 @@ class A2UIThemeTest {
 
     @Test
     fun testParseColor_validHex6() {
-        val color = parseColor("#FF5722")
-        assertNotNull(color)
-        assertEquals(255, color?.red?.toInt())
-        assertEquals(87, color?.green?.toInt())
-        assertEquals(34, color?.blue?.toInt())
+        val color = parseColor("#FF5722")!!
+        // Compose Color uses 0.0-1.0 range
+        assertEquals(1.0f, color.red, 0.01f)
+        assertEquals(87 / 255f, color.green, 0.01f)
+        assertEquals(34 / 255f, color.blue, 0.01f)
     }
 
     @Test
     fun testParseColor_validHex8() {
-        val color = parseColor("#80FF5722")
-        assertNotNull(color)
-        // Alpha should be 128 (0x80)
-        assertEquals(128, color?.alpha?.toInt())
+        val color = parseColor("#80FF5722")!!
+        // Alpha should be 128/255 ≈ 0.5 (Compose uses 0.0-1.0)
+        assertEquals(128 / 255f, color.alpha, 0.01f)
     }
 
     @Test
