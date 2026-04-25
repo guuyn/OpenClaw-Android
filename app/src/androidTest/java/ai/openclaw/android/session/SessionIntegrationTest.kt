@@ -4,6 +4,12 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import ai.openclaw.android.data.local.AppDatabase
+import ai.openclaw.android.data.model.MessageRole
+import ai.openclaw.android.domain.session.HybridSessionManager
+import ai.openclaw.android.domain.session.TokenCounter
+import ai.openclaw.android.domain.memory.MemoryManager
+import ai.openclaw.android.model.LocalLLMClient
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -22,14 +28,15 @@ class SessionIntegrationTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         
-        val llmClient = LocalLLMClient.getInstance(context)
+        val llmClient = LocalLLMClient(context)
         
         manager = HybridSessionManager(
             sessionDao = db.sessionDao(),
             messageDao = db.messageDao(),
             summaryDao = db.summaryDao(),
             llmClient = llmClient,
-            tokenCounter = TokenCounter()
+            tokenCounter = TokenCounter(),
+            memoryManager = null
         )
     }
     
@@ -45,14 +52,14 @@ class SessionIntegrationTest {
         
         // 模拟完整对话
         val conversation = listOf(
-            "我想开发一个 Android 应用" to MessageRole.USER,
-            "好的，你想做什么类型的应用？" to MessageRole.ASSISTANT,
-            "一个会话管理工具" to MessageRole.USER,
-            "明白，需要什么功能？" to MessageRole.ASSISTANT,
-            "长期持久，分层压缩" to MessageRole.USER
+            MessageRole.USER to "我想开发一个 Android 应用",
+            MessageRole.ASSISTANT to "好的，你想做什么类型的应用？",
+            MessageRole.USER to "一个会话管理工具",
+            MessageRole.ASSISTANT to "明白，需要什么功能？",
+            MessageRole.USER to "长期持久，分层压缩"
         )
         
-        conversation.forEach { (content, role) ->
+        conversation.forEach { (role, content) ->
             manager.addMessage(role, content)
         }
         
@@ -69,12 +76,14 @@ class SessionIntegrationTest {
         val sessionId = manager.getCurrentSessionId()!!
         
         // 模拟重启（创建新的 manager）
+        val context = ApplicationProvider.getApplicationContext<Context>()
         val newManager = HybridSessionManager(
             sessionDao = db.sessionDao(),
             messageDao = db.messageDao(),
             summaryDao = db.summaryDao(),
-            llmClient = LocalLLMClient.getInstance(ApplicationProvider.getApplicationContext()),
-            tokenCounter = TokenCounter()
+            llmClient = LocalLLMClient(context),
+            tokenCounter = TokenCounter(),
+            memoryManager = null
         )
         
         // 恢复会话
@@ -82,8 +91,8 @@ class SessionIntegrationTest {
         
         // 验证恢复
         assertEquals(sessionId, newManager.getCurrentSessionId())
-        val context = newManager.getConversationContext()
-        assertTrue(context.any { it.content.contains("记住这个信息") })
+        val convContext = newManager.getConversationContext()
+        assertTrue(convContext.any { it.content.contains("记住这个信息") })
     }
     
     @Test
@@ -96,7 +105,7 @@ class SessionIntegrationTest {
         }
         
         // 验证压缩发生
-        val messages = db.messageDao().getBySession(manager.getCurrentSessionId()!!)
+        val messages = db.messageDao().getMessagesBySessionIdWithLimit(manager.getCurrentSessionId()!!, limit = 1000, offset = 0)
         // 压缩后消息应该 < 30 条（部分被摘要替代）
         assertTrue(messages.size < 30)
     }

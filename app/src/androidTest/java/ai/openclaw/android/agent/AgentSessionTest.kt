@@ -44,7 +44,7 @@ class AgentSessionTest {
             override fun chatStream(messages: List<Message>, tools: List<Tool>?): Flow<ChatEvent> {
                 return streamFactory(callCount++)
             }
-            override fun configure(provider: ModelProvider, apiKey: String, model: String) {}
+            override fun configure(provider: ModelProvider, apiKey: String, model: String, baseUrl: String) {}
         }
         return AgentSession(client, skillManager)
     }
@@ -248,7 +248,7 @@ class AgentSessionTest {
                     ))
                 )))
             }
-            override fun configure(provider: ModelProvider, apiKey: String, model: String) {}
+            override fun configure(provider: ModelProvider, apiKey: String, model: String, baseUrl: String) {}
         }
 
         val session = AgentSession(client, skillManager)
