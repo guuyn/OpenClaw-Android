@@ -193,7 +193,7 @@ class AgentConfigTest {
     fun `AgentConfig uses correct default values`() {
         val config = AgentConfig(id = "test", name = "Test")
 
-        assertEquals("bailian/qwen3.5-plus", config.model)
+        assertEquals("openai/qwen3.5-plus", config.model)
         assertNull(config.systemPrompt)
         assertEquals(listOf("all"), config.tools)
         assertEquals(emptyList<String>(), config.keywords)
@@ -239,7 +239,7 @@ class AgentConfigTest {
 
         assertEquals("minimal", agent.id)
         assertEquals("Minimal", agent.name)
-        assertEquals("bailian/qwen3.5-plus", agent.model)
+        assertEquals("openai/qwen3.5-plus", agent.model)
         assertNull(agent.systemPrompt)
         assertEquals(listOf("all"), agent.tools)
         assertEquals(emptyList<String>(), agent.keywords)
