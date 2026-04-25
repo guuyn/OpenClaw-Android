@@ -585,7 +585,9 @@ Example:
             withContext(Dispatchers.IO) {
                 val toolName = toolCall.function.name
 
-                if (toolName.contains("_") && toolName.split("_").size >= 2) {
+                // Check if this is an accessibility tool first
+                val isAccessibilityTool = accessibilityTools.any { it.function.name == toolName }
+                if (!isAccessibilityTool && toolName.contains("_") && toolName.split("_").size >= 2) {
                     // Skill tool — find matching skill by longest prefix
                     val params = parseToolCallParams(toolCall)
                     val skillId = skillManager.getLoadedSkills().keys
