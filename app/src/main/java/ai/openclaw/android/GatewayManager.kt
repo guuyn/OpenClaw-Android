@@ -1,5 +1,7 @@
 package ai.openclaw.android
 
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.util.Log
 import ai.openclaw.android.accessibility.AccessibilityBridge
 import ai.openclaw.android.agent.AgentRegistry
@@ -288,6 +290,33 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
                 name = agent.name,
                 isDefault = defaultAgent?.id == agent.id
             )
+        }
+    }
+
+    // ========== Screen Capture (MediaProjection) ==========
+
+    override fun getScreenCaptureIntent(): Intent? {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.LOLLIPOP) {
+            Log.e(TAG, "MediaProjection requires API 21+")
+            return null
+        }
+        val manager = service.getSystemService(MediaProjectionManager::class.java)
+        return manager.createScreenCaptureIntent()
+    }
+
+    override fun initScreenCapture(resultCode: Int, data: Intent): Boolean {
+        val accessibilityService = MyAccessibilityService.getInstance()
+        if (accessibilityService == null) {
+            Log.e(TAG, "AccessibilityService not running")
+            return false
+        }
+        try {
+            accessibilityService.initMediaProjection(resultCode, data)
+            Log.d(TAG, "Screen capture initialized")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to init screen capture: ${e.message}")
+            return false
         }
     }
 

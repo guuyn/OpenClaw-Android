@@ -19,6 +19,17 @@ interface GatewayContract {
     suspend fun reconfigureModel(config: ModelConfig): Boolean
     fun getAvailableSkills(): List<SkillInfo>
     fun getAvailableAgents(): List<AgentInfo>
+
+    /**
+     * Request MediaProjection permission for screenshots.
+     * Returns an Intent that must be launched with startActivityForResult.
+     */
+    fun getScreenCaptureIntent(): android.content.Intent?
+
+    /**
+     * Initialize MediaProjection after user grants permission.
+     */
+    fun initScreenCapture(resultCode: Int, data: android.content.Intent): Boolean
 }
 
 data class ModelConfig(

@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.media.AudioManager
 import android.os.Bundle
@@ -232,6 +233,13 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
     var configExpanded by remember { mutableStateOf(true) }
     var logExpanded by remember { mutableStateOf(false) }
 
+    // Check if GatewayService is actually running (via gatewayContract availability)
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(2000) // Wait for service binding
+        val contract = gatewayContractProvider()
+        serviceRunning = contract?.isReady() == true || ConfigManager.isServiceEnabled()
+    }
+
     val permManager = remember { context.permissionManager() }
 
     // Response router (initialized once)
@@ -305,6 +313,18 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
         contract = ActivityResultContracts.StartActivityForResult()
     ) { _ ->
         settingsPermRefreshKey++
+    }
+
+    // MediaProjection (screen capture) launcher
+    var screenCaptureReady by remember { mutableStateOf(false) }
+    val screenCaptureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val contract = gatewayContractProvider()
+            contract?.initScreenCapture(result.resultCode, result.data!!)
+            screenCaptureReady = true
+        }
     }
 
     // Observe chat-triggered permission requests
@@ -643,6 +663,14 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
                     )
                     allFilesAccessLauncher.launch(intent)
                 },
+                onRequestScreenCapture = {
+                    val contract = gatewayContractProvider()
+                    val intent = contract?.getScreenCaptureIntent()
+                    if (intent != null) {
+                        screenCaptureLauncher.launch(intent)
+                    }
+                },
+                isScreenCaptureReady = screenCaptureReady,
                 settingsPermRefreshKey = settingsPermRefreshKey,
                 modifier = Modifier.padding(padding)
             )
@@ -670,6 +698,8 @@ fun SettingsScreen(
     permissionManager: PermissionManager,
     onRequestPermissions: (Array<String>) -> Unit,
     onRequestAllFilesAccess: () -> Unit,
+    onRequestScreenCapture: () -> Unit,
+    isScreenCaptureReady: Boolean,
     settingsPermRefreshKey: Int,
     modifier: Modifier = Modifier
 ) {
@@ -890,6 +920,46 @@ fun SettingsScreen(
             onRequestAllFilesAccess = onRequestAllFilesAccess,
             refreshKey = settingsPermRefreshKey
         )
+
+        // Screen Capture Card
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = if (isScreenCaptureReady) Icons.Default.CheckCircle else Icons.Default.PhotoCamera,
+                        contentDescription = null,
+                        tint = if (isScreenCaptureReady)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "屏幕截图权限",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = if (isScreenCaptureReady) "已授权 — screenshot 工具可用" else "未授权 — 需要授权才能截图",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isScreenCaptureReady)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Button(
+                        onClick = onRequestScreenCapture
+                    ) {
+                        Text(if (isScreenCaptureReady) "重新授权" else "授权")
+                    }
+                }
+            }
+        }
 
         // Log Card
         Card(modifier = Modifier.fillMaxWidth()) {
