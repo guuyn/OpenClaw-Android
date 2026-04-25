@@ -35,6 +35,9 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
 
 /**
  * Local LLM Client using LiteRT-LM framework
@@ -309,7 +312,7 @@ class LocalLLMClient(private val context: Context) : ModelClient {
             val result = sessionMutex.withLock {
                 withContext(Dispatchers.IO) {
                     eng.createConversation(buildConversationConfig(messages, tools)).use { conversation ->
-                        val lastContent = messages.last().content
+                        val lastContent = buildVisionFallbackContent(messages.last())
                         val response = conversation.sendMessage(lastContent)
 
                         val toolCalls = response.toolCalls
@@ -347,7 +350,7 @@ class LocalLLMClient(private val context: Context) : ModelClient {
         sessionMutex.withLock {
             try {
                 val startTime = System.currentTimeMillis()
-                val lastContent = messages.last().content
+                val lastContent = buildVisionFallbackContent(messages.last())
                 var responseMessage: com.google.ai.edge.litertlm.Message? = null
 
                 eng.createConversation(buildConversationConfig(messages, tools)).use { conversation ->
@@ -428,7 +431,10 @@ class LocalLLMClient(private val context: Context) : ModelClient {
 
     private fun convertMessage(msg: ai.openclaw.android.model.Message, allMessages: List<ai.openclaw.android.model.Message>): com.google.ai.edge.litertlm.Message {
         return when (msg.role) {
-            "user" -> com.google.ai.edge.litertlm.Message.user(msg.content)
+            "user" -> {
+                val content = buildVisionFallbackContent(msg)
+                com.google.ai.edge.litertlm.Message.user(content)
+            }
             "assistant" -> {
                 val toolCalls = msg.toolCalls?.map { tc ->
                     val args = try {
@@ -456,8 +462,32 @@ class LocalLLMClient(private val context: Context) : ModelClient {
                     Contents.of(Content.ToolResponse(toolName, msg.content))
                 )
             }
-            else -> com.google.ai.edge.litertlm.Message.user(msg.content)
+            else -> {
+                val content = buildVisionFallbackContent(msg)
+                com.google.ai.edge.litertlm.Message.user(content)
+            }
         }
+    }
+
+    /**
+     * Build text content for messages that may contain images.
+     *
+     * LiteRT-LM SDK currently does not expose a Content.image(bitmap) API for
+     * multimodal input, so we fall back to appending image descriptions as text.
+     *
+     * TODO: Replace with Content.image(bitmap) + Contents.of(Content.text(...), Content.image(bitmap))
+     *       when LiteRT-LM SDK adds multimodal Content API support.
+     *       The visionBackend is already configured in EngineConfig.
+     */
+    private fun buildVisionFallbackContent(msg: ai.openclaw.android.model.Message): String {
+        if (msg.images.isNullOrEmpty()) return msg.content
+
+        val imageDescriptions = msg.images.mapIndexed { index, img ->
+            val desc = img.description ?: "[图片${index + 1}]"
+            "- $desc (${img.mediaType}, ${(img.base64.length * 3 / 4 / 1024)}KB)"
+        }.joinToString("\n")
+
+        return "${msg.content}\n\n[图片已附加，但端侧模型暂不支持视觉输入]\n$imageDescriptions"
     }
 
     private fun resolveToolName(toolMsg: Message, allMessages: List<Message>): String {

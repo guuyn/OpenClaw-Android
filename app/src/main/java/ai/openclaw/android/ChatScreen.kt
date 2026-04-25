@@ -1,6 +1,12 @@
 package ai.openclaw.android
 
 import android.util.Log
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import android.net.Uri
+import java.io.File
+import androidx.core.content.FileProvider
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
@@ -11,6 +17,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,7 +27,10 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.VolumeUp
@@ -56,6 +66,7 @@ import ai.openclaw.android.ui.A2UICardRouter
 import ai.openclaw.android.ui.A2UIComposeRenderer
 import ai.openclaw.android.ui.CardAction
 import ai.openclaw.android.ui.MessageSegment
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -82,6 +93,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -96,6 +109,8 @@ import ai.openclaw.android.ui.components.StatusIndicator
 import ai.openclaw.android.ui.components.TypingCursor
 import ai.openclaw.android.ui.components.rememberHapticHelper
 import ai.openclaw.android.ui.theme.MonospaceAccent
+import ai.openclaw.android.model.ImageContent
+import ai.openclaw.android.model.ImageUtils
 import ai.openclaw.android.ui.theme.gradientDivider
 import ai.openclaw.android.ui.theme.neonBorder
 import ai.openclaw.android.ui.theme.sciFiGlow
@@ -165,7 +180,8 @@ data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
     val role: String,
     val content: String,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val images: List<ai.openclaw.android.model.ImageContent>? = null
 )
 
 // ==================== Card Action Message Mapping ====================
@@ -205,7 +221,7 @@ fun mapCardActionToMessage(action: CardAction, messages: List<ChatMessage>): Car
 
 @Composable
 fun ChatScreen(
-    sendMessage: (String) -> Unit,
+    sendMessage: (String, List<ImageContent>) -> Unit,
     messages: List<ChatMessage>,
     isLoading: Boolean,
     modifier: Modifier = Modifier,
@@ -245,6 +261,29 @@ fun ChatScreen(
     val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // 图片输入状态
+    var selectedImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var showImageOptions by remember { mutableStateOf(false) }
+
+    // 图片选择 Launcher（从相册选择多张）
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        selectedImages = (selectedImages + uris).take(3)  // 最多3张
+    }
+
+    // 拍照 Launcher
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            val uri = ImageUtils.saveBitmapToTempUri(context, bitmap)
+            if (uri != null) {
+                selectedImages = (selectedImages + uri).take(3)
+            }
+        }
+    }
 
     // Voice recording states (UI-only, hoisted VoiceInteractionManager in MainActivity)
     var isRecording by remember { mutableStateOf(false) }
@@ -321,13 +360,13 @@ fun ChatScreen(
         when (mappedResult) {
             is CardActionResult.SendMessage -> {
                 if (!isLoading && mappedResult.text.isNotBlank()) {
-                    sendMessage(mappedResult.text)
+                    sendMessage(mappedResult.text, emptyList())
                 }
             }
             is CardActionResult.ResendLast -> {
                 if (!isLoading) {
                     messages.lastOrNull { it.role == "user" }?.let {
-                        sendMessage(it.content)
+                        sendMessage(it.content, emptyList())
                     }
                 }
             }
@@ -471,6 +510,52 @@ fun ChatScreen(
             tonalElevation = 0.dp
         ) {
             Column {
+                // 图片预览条
+                if (selectedImages.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(selectedImages.size) { index ->
+                            val uri = selectedImages[index]
+                            Box(modifier = Modifier.size(64.dp)) {
+                                val bitmap: Bitmap? = remember(key1 = uri) {
+                                    context.contentResolver.openInputStream(uri)?.use {
+                                        BitmapFactory.decodeStream(it)
+                                    }
+                                }
+                                bitmap?.let {
+                                    Image(
+                                        bitmap = it.asImageBitmap(),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .border(1.dp, SciFiOutlineVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                                // 删除按钮
+                                IconButton(
+                                    onClick = { selectedImages = selectedImages - uri },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .size(20.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "移除",
+                                        modifier = Modifier.size(14.dp),
+                                        tint = SciFiOnSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 var isInputFocused by remember { mutableStateOf(false) }
 
                 Row(
@@ -479,6 +564,43 @@ fun ChatScreen(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 图片附件按钮
+                    Box {
+                        IconButton(
+                            onClick = { showImageOptions = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AddPhotoAlternate,
+                                contentDescription = "添加图片",
+                                tint = if (selectedImages.isNotEmpty()) SciFiPrimary
+                                    else SciFiOnSurfaceVariant,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showImageOptions,
+                            onDismissRequest = { showImageOptions = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("从相册选择") },
+                                leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, null, modifier = Modifier.size(20.dp)) },
+                                onClick = {
+                                    showImageOptions = false
+                                    imagePickerLauncher.launch("image/*")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("拍照") },
+                                leadingIcon = { Icon(Icons.Filled.PhotoCamera, null, modifier = Modifier.size(20.dp)) },
+                                onClick = {
+                                    showImageOptions = false
+                                    cameraLauncher.launch(null)
+                                }
+                            )
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -524,12 +646,16 @@ fun ChatScreen(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
-                    val sendEnabled = inputText.isNotBlank() && !isLoading
+                    val sendEnabled = (inputText.isNotBlank() || selectedImages.isNotEmpty()) && !isLoading
                     IconButton(
                         onClick = {
                             if (sendEnabled) {
-                                sendMessage(inputText)
+                                val images = selectedImages.mapNotNull { uri ->
+                                    ImageUtils.uriToBase64(context, uri)
+                                }.let { ImageUtils.validateImages(it) }
+                                sendMessage(inputText, images)
                                 inputText = ""
+                                selectedImages = emptyList()
                             }
                         },
                         enabled = sendEnabled,
@@ -594,7 +720,7 @@ fun ChatScreen(
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            sendMessage(pendingVoiceText)
+                            sendMessage(pendingVoiceText, emptyList())
                             showVoiceConfirm = false
                             pendingVoiceText = ""
                         }
@@ -734,6 +860,27 @@ private fun UserMessageBubble(
             .padding(12.dp)
     ) {
         Column {
+            // 显示图片
+            message.images?.forEach { imageContent ->
+                val bitmap = remember(imageContent.base64) {
+                    try {
+                        val bytes = Base64.decode(imageContent.base64, Base64.DEFAULT)
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    } catch (_: Exception) { null }
+                }
+                bitmap?.let {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = imageContent.description,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .padding(bottom = 4.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+            }
             val segments = remember(message.content) { A2UICardParser.parse(message.content) }
             for (segment in segments) {
                 when (segment) {

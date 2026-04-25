@@ -61,7 +61,9 @@ class ChatScreenTest {
     @Test
     fun testSendMessageCallbackCalled() {
         var messageSent = ""
-        val sendMessage: (String) -> Unit = { messageSent = it }
+        val sendMessage: (String, List<ai.openclaw.android.model.ImageContent>) -> Unit = { text, _ ->
+            messageSent = text
+        }
 
         composeTestRule.setContent {
             OpenClawTheme {
@@ -112,7 +114,7 @@ class ChatScreenTest {
         composeTestRule.setContent {
             OpenClawTheme {
                 ChatScreen(
-                    sendMessage = { },
+                    sendMessage = { _, _ -> },
                     messages = messages,
                     isLoading = isLoading
                 )

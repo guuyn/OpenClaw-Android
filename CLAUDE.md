@@ -61,16 +61,16 @@ Single-module Android app under package `ai.openclaw.android`.
 ### Core Data Flow
 
 ```
-User → ChatViewModel → AgentSession (conversation manager + tool loop)
-     → ModelClient (LLM provider)
-     → SkillManager → Skill → Tool execution
+User (text + optional images) → ChatScreen → AgentSession (conversation manager + tool loop)
+                               → ModelClient (LLM provider, multimodal vision support)
+                               → SkillManager → Skill → Tool execution
 ```
 
 ### Key Components
 
 - **`AgentSession`** — Central conversation orchestrator. Manages message history, runs tool-calling loops (max 5 rounds), supports both sync (`handleMessage`) and streaming (`handleMessageStream`) modes. Tools come from two sources: accessibility tools and skill tools.
 
-- **`ModelClient`** interface — Abstract LLM client with implementations for Bailian (阿里百炼), OpenAI, Anthropic, and LOCAL (on-device Gemma). All providers support streaming via `Flow<ChatEvent>`.
+- **`ModelClient`** interface — Abstract LLM client with implementations for Bailian (阿里百炼), OpenAI, Anthropic, and LOCAL (on-device Gemma). All providers support streaming via `Flow<ChatEvent>`. **All providers support multimodal vision input** (images in messages), with provider-specific formats.
 
 - **`SkillManager`** — Plugin registry. Skills are registered at init, each exposing `ToolDefinition`s. Tool names are namespaced as `{skillId}_{toolName}`. Skills requiring Android context receive it at registration.
 
@@ -117,6 +117,20 @@ Event-driven automation with rule matching, debouncing, and deduplication.
 - **`VoiceSession`** — State machine for voice session
 - **`stt/`** — `AndroidSpeechRecognizer` implementing `SpeechToTextEngine`
 - **`tts/`** — `AndroidTTSEngine` implementing `TextToSpeechEngine`
+
+### Multimodal/Vision (`model/`)
+
+Users can send images with messages (from gallery or camera, max 3 per message). Images are compressed (1200px max, JPEG 80%) and encoded as Base64.
+
+- **`ImageContent`** — Data class: `base64` (String), `mediaType` (String, default `image/jpeg`), `description` (String?)
+- **`ImageUtils`** — Image processing: `uriToBase64()`, `bitmapToBase64()`, `compressBitmap()`, `validateImages()`, `saveBitmapToTempUri()`
+- **`Message.images`** — Optional `List<ImageContent>` on messages
+- **Provider formats**:
+  - **OpenAIClient** — OpenAI Vision format: `{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}` (also compatible with Qwen/DashScope)
+  - **AnthropicClient** — Anthropic Vision format: `{"type": "image", "source": {"type": "base64", "media_type": "...", "data": "..."}}`
+  - **LocalLLMClient** — LiteRT-LM SDK does NOT yet support multimodal Content API. Uses `buildVisionFallbackContent()` to append image descriptions as text. **TODO**: replace with `Content.image(bitmap)` when SDK supports it.
+- **Permissions**: `CAMERA`, `READ_MEDIA_IMAGES`
+- **FileProvider**: `ai.openclaw.android.fileprovider` via `res/xml/file_paths.xml`
 
 ### Feishu Integration (`feishu/`)
 
@@ -222,6 +236,8 @@ Agent responses use the `[A2UI]...[/A2UI]` markup for rich UI rendering. Support
 - **`ModelClient.configure`**: signature includes `baseUrl` parameter — `configure(provider, apiKey, model, baseUrl)`.
 - **`LocalLLMClient`**: constructor takes `Context` directly, no `getInstance()` singleton.
 - **`MessageDao`**: use `getMessagesBySessionIdWithLimit(sessionId, limit, offset)`, not `getBySession`.
+- **`sendMessage`** signature is now `(String, List<ImageContent>)` — all call sites must pass both parameters.
+- **`ChatScreen`** `sendMessage` callback uses `(String, List<ImageContent>)` — update tests with `{ _, _ -> }`.
 
 ### Adding New Tests
 

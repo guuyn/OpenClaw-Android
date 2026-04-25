@@ -397,8 +397,8 @@ Example:
 
     // ==================== Synchronous API (backward compat) ====================
 
-    suspend fun handleMessage(userMessage: String): String {
-        history.add(Message(role = "user", content = userMessage))
+    suspend fun handleMessage(userMessage: String, images: List<ImageContent>? = null): String {
+        history.add(Message(role = "user", content = userMessage, images = images))
         refreshMemoryContext()
         persistMessage("user", userMessage)
         val activeTools = tools.takeIf { it.isNotEmpty() }
@@ -448,8 +448,8 @@ Example:
      * Streaming variant — emits tokens and tool events in real-time.
      * The flow completes with a [SessionEvent.Complete] containing the full text.
      */
-    fun handleMessageStream(userMessage: String): Flow<SessionEvent> = flow {
-        history.add(Message(role = "user", content = userMessage))
+    fun handleMessageStream(userMessage: String, images: List<ImageContent>? = null): Flow<SessionEvent> = flow {
+        history.add(Message(role = "user", content = userMessage, images = images))
         refreshMemoryContext()
         persistMessage("user", userMessage)
         val activeTools = tools.takeIf { it.isNotEmpty() }

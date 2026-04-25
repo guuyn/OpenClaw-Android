@@ -207,6 +207,18 @@ class AnthropicClient : ModelClient {
             else -> buildJsonObject {
                 put("role", JsonPrimitive(msg.role))
                 put("content", buildJsonArray {
+                    // Add image blocks first if present (Anthropic Vision format)
+                    msg.images?.forEach { img ->
+                        add(buildJsonObject {
+                            put("type", JsonPrimitive("image"))
+                            put("source", buildJsonObject {
+                                put("type", JsonPrimitive("base64"))
+                                put("media_type", JsonPrimitive(img.mediaType))
+                                put("data", JsonPrimitive(img.base64))
+                            })
+                        })
+                    }
+                    // Add text block
                     add(buildJsonObject {
                         put("type", JsonPrimitive("text"))
                         put("text", JsonPrimitive(msg.content))

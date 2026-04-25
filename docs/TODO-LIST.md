@@ -1,6 +1,6 @@
 # OpenClaw-Android 待完成项清单
 
-**最后更新**: 2026-04-21
+**最后更新**: 2026-04-25
 
 ---
 
@@ -9,7 +9,8 @@
 | # | 任务 | 状态 | 说明 |
 |---|------|------|------|
 | 1 | ~~语音真机验证~~ | ✅ 已验证 | 语音重构后真机验证通过（2026-04-21） |
-| 2 | 多轮反思真机验证 | ⏳ 待验证 | 2026-04-21 新增，需测试反思功能是否正常工作 |
+| 2 | ~~多轮反思真机验证~~ | ✅ 已验证 | 反思功能真机验证通过 |
+| 3 | 多模态图片输入真机验证 | ⏳ 待验证 | 需测试相册/拍照 + 各 LLM 提供商（OpenAI/Qwen/Anthropic/Local） |
 
 ---
 
@@ -21,6 +22,7 @@
 | 2 | 补充测试覆盖 | ✅ 完成 | **CI 全绿**：app unit test + android_compose unit test + instrumented test 编译通过 |
 | 3 | 设备控制 Phase 1 | 待实施 | 待定义具体需求 |
 | 4 | 预采集数据层 | 概念阶段 | 待设计 |
+| 5 | LiteRT-LM 多模态 API 跟进 | 待跟进 | SDK 暂不支持 Content.image()，已标记 TODO |
 
 ---
 
@@ -52,6 +54,20 @@
 | 任务 | 提交 | 说明 |
 |------|------|------|
 | 多轮自我反思功能集成 | `4919c13` | ReflectionStrategy + ReflectionRole + 提示词模板 + UI 状态显示 |
+
+---
+
+## ✅ 今日完成（2026-04-25）
+
+| 任务 | 提交 | 说明 |
+|------|------|------|
+| 多模态图片输入 | 待提交 | ImageContent + ImageUtils + ChatScreen UI + 3 Provider 适配 |
+| QA 验证 11/11 通过 | `da9ad28` | 全量验证报告 |
+| 无障碍感知能力 | `08ecc6f` | getCurrentApp + launchApp + 结构化UI树 |
+| 工具路由修复 | `c1d6c30` | get_current_app 误识别修复 |
+| 截图可用化 | `370066a` | MediaProjection 授权流程 |
+| DEBUG_SEND_MESSAGE 广播 | `6b6b71f` | 自动化测试基础设施 |
+| 恢复集成测试 | `b6339d9` | AgentSessionTest + SessionIntegrationTest |
 
 ---
 

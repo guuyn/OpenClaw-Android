@@ -44,7 +44,7 @@ class MessageBubbleTest {
         composeTestRule.setContent {
             OpenClawTheme {
                 ChatScreen(
-                    sendMessage = {},
+                    sendMessage = { _, _ -> },
                     messages = messages,
                     isLoading = false
                 )
@@ -68,7 +68,7 @@ class MessageBubbleTest {
         composeTestRule.setContent {
             OpenClawTheme {
                 ChatScreen(
-                    sendMessage = {},
+                    sendMessage = { _, _ -> },
                     messages = listOf(message),
                     isLoading = false
                 )

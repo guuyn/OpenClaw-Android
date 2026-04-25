@@ -375,11 +375,11 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
         serviceRunning = ConfigManager.isServiceEnabled()
     }
 
-    val sendMessage: (String) -> Unit = { text ->
+    val sendMessage: (String, List<ai.openclaw.android.model.ImageContent>) -> Unit = { text, images ->
         Log.d("MainScreen", "=== sendMessage called ===")
         LogManager.shared.log("INFO", "Chat", "User: $text")
 
-        messages.add(ChatMessage(role = "user", content = text))
+        messages.add(ChatMessage(role = "user", content = text, images = images.ifEmpty { null }))
         isLoading = true
 
         scope.launch {
@@ -395,7 +395,7 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
                 messages.add(ChatMessage(id = responseId, role = "assistant", content = ""))
                 val responseIndex = messages.lastIndex
 
-                contract.sendMessage(text).collect { event ->
+                contract.sendMessage(text, images.ifEmpty { null }).collect { event ->
                     when (event) {
                         is SessionEvent.Token -> {
                             val current = messages[responseIndex]
@@ -460,7 +460,7 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
             override fun onReceive(context: Context?, intent: Intent?) {
                 val text = intent?.getStringExtra("message") ?: return
                 Log.d("MainScreen", "[DEBUG BROADCAST] Received: $text")
-                sendMessage(text)
+                sendMessage(text, emptyList())
             }
         }
         val filter = IntentFilter("ai.openclaw.android.DEBUG_SEND_MESSAGE")
@@ -535,7 +535,7 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
                         voiceCollectJob?.cancel()
                         voiceCollectJob = null
                     }
-                    activity?.onSendVolumeVoice = { text -> sendMessage(text) }
+                    activity?.onSendVolumeVoice = { text -> sendMessage(text, emptyList()) }
                     activity?.hasRecordAudioPerm = { voiceManager.hasRecordAudioPermission() }
                     activity?.requestRecordAudioPerm = {
                         audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
@@ -589,7 +589,7 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
                         volumePendingText = ""
                     },
                     onSendVolumeKeyVoice = { text ->
-                        sendMessage(text)
+                        sendMessage(text, emptyList())
                         showVolumeConfirm = false
                         volumePendingText = ""
                     },

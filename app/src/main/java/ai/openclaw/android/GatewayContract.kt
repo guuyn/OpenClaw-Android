@@ -3,6 +3,7 @@ package ai.openclaw.android
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import ai.openclaw.android.agent.SessionEvent
+import ai.openclaw.android.model.ImageContent
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.ModelProvider
 
@@ -15,7 +16,7 @@ interface GatewayContract {
     fun isReady(): Boolean
     fun getModelLoadState(): LocalLLMClient.LoadState?
     fun getConnectionState(): StateFlow<GatewayManager.ConnectionState>
-    fun sendMessage(text: String): Flow<SessionEvent>
+    fun sendMessage(text: String, images: List<ImageContent>? = null): Flow<SessionEvent>
     suspend fun reconfigureModel(config: ModelConfig): Boolean
     fun getAvailableSkills(): List<SkillInfo>
     fun getAvailableAgents(): List<AgentInfo>

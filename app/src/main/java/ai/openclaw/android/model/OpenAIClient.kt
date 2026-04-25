@@ -11,6 +11,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -92,7 +97,11 @@ class OpenAIClient : ModelClient {
         stream: Boolean
     ): Request {
         val modelClean = model.removePrefix("openai/")
-        val messagesJson = json.encodeToString(messages)
+        val messagesJson = buildJsonArray {
+            for (msg in messages) {
+                add(convertMessageToJsonElement(msg))
+            }
+        }.toString()
 
         val bodyBuilder = StringBuilder()
         bodyBuilder.append("{\"model\":\"$modelClean\",")
@@ -234,6 +243,80 @@ class OpenAIClient : ModelClient {
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to parse SSE chunk: ${e.message}")
                 }
+            }
+        }
+    }
+
+    /**
+     * Convert a Message to JSON for the OpenAI Chat Completions API.
+     *
+     * When the message contains images, content is serialized as an array following
+     * the OpenAI Vision format (also compatible with Qwen/DashScope):
+     *   [{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}},
+     *    {"type": "text", "text": "..."}]
+     *
+     * Pure text messages use the standard string content format.
+     */
+    private fun convertMessageToJsonElement(msg: Message): JsonObject {
+        // Vision message: content as array
+        if (!msg.images.isNullOrEmpty()) {
+            return buildJsonObject {
+                put("role", JsonPrimitive(msg.role))
+                put("content", buildJsonArray {
+                    // Add image entries first
+                    msg.images.forEach { img ->
+                        add(buildJsonObject {
+                            put("type", JsonPrimitive("image_url"))
+                            put("image_url", buildJsonObject {
+                                put("url", JsonPrimitive("data:${img.mediaType};base64,${img.base64}"))
+                            })
+                        })
+                    }
+                    // Add text entry
+                    if (msg.content.isNotEmpty()) {
+                        add(buildJsonObject {
+                            put("type", JsonPrimitive("text"))
+                            put("text", JsonPrimitive(msg.content))
+                        })
+                    }
+                })
+                // Include tool-related fields if present
+                msg.toolCallId?.let { put("tool_call_id", JsonPrimitive(it)) }
+                msg.toolCalls?.let { tcs ->
+                    put("tool_calls", buildJsonArray {
+                        tcs.forEach { tc ->
+                            add(buildJsonObject {
+                                put("id", JsonPrimitive(tc.id))
+                                put("type", JsonPrimitive(tc.type))
+                                put("function", buildJsonObject {
+                                    put("name", JsonPrimitive(tc.function.name))
+                                    put("arguments", JsonPrimitive(tc.function.arguments))
+                                })
+                            })
+                        }
+                    })
+                }
+            }
+        }
+
+        // Pure text message: content as string (standard format)
+        return buildJsonObject {
+            put("role", JsonPrimitive(msg.role))
+            put("content", JsonPrimitive(msg.content))
+            msg.toolCallId?.let { put("tool_call_id", JsonPrimitive(it)) }
+            msg.toolCalls?.let { tcs ->
+                put("tool_calls", buildJsonArray {
+                    tcs.forEach { tc ->
+                        add(buildJsonObject {
+                            put("id", JsonPrimitive(tc.id))
+                            put("type", JsonPrimitive(tc.type))
+                            put("function", buildJsonObject {
+                                put("name", JsonPrimitive(tc.function.name))
+                                put("arguments", JsonPrimitive(tc.function.arguments))
+                            })
+                        })
+                    }
+                })
             }
         }
     }

@@ -4,6 +4,16 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
+ * Image content for multimodal messages
+ */
+@Serializable
+data class ImageContent(
+    val base64: String,                          // Base64 编码的图片数据
+    val mediaType: String = "image/jpeg",        // MIME 类型
+    val description: String? = null              // 可选的图片描述
+)
+
+/**
  * Message in a conversation
  */
 @Serializable
@@ -13,7 +23,8 @@ data class Message(
     @SerialName("tool_call_id")
     val toolCallId: String? = null,  // Required when role = "tool"
     @SerialName("tool_calls")
-    val toolCalls: List<ToolCall>? = null  // Required when assistant calls tools
+    val toolCalls: List<ToolCall>? = null,  // Required when assistant calls tools
+    val images: List<ImageContent>? = null  // 可选图片列表
 )
 
 /**

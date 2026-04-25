@@ -15,6 +15,7 @@ import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.domain.session.HybridSessionManager
 import ai.openclaw.android.domain.session.TokenCounter
 import ai.openclaw.android.ml.TfLiteEmbeddingService
+import ai.openclaw.android.model.ImageContent
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
@@ -112,25 +113,25 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
 
     override fun getModelLoadState(): LocalLLMClient.LoadState? = localLLMClient?.getState()
 
-    override fun sendMessage(text: String): Flow<SessionEvent> {
+    override fun sendMessage(text: String, images: List<ImageContent>?): Flow<SessionEvent> {
         // Multi-agent routing path (primary)
         val router = agentRouter
         val sessionManager = agentSessionManager
         if (router != null && sessionManager != null) {
             val agentId = router.route(text)
             val session = sessionManager.getOrCreate(agentId)
-            return session.handleMessageStream(text)
+            return session.handleMessageStream(text, images)
         }
         // Backward compatibility: single-agent fallback
-        return agentSession?.handleMessageStream(text)
+        return agentSession?.handleMessageStream(text, images)
             ?: flow { emit(SessionEvent.Error("AgentSession not ready")) }
     }
 
     /**
      * Send message to a specific agent
      */
-    fun sendMessageToAgent(agentId: String, text: String): Flow<SessionEvent> =
-        agentRegistry?.getSession(agentId)?.handleMessageStream(text)
+    fun sendMessageToAgent(agentId: String, text: String, images: List<ImageContent>? = null): Flow<SessionEvent> =
+        agentRegistry?.getSession(agentId)?.handleMessageStream(text, images)
             ?: flow { emit(SessionEvent.Error("AgentRegistry not ready")) }
 
     /**
