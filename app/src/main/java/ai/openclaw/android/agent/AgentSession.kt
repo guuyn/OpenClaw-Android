@@ -403,43 +403,130 @@ Example:
         persistMessage("user", userMessage)
         val activeTools = tools.takeIf { it.isNotEmpty() }
 
-        // Agent loop: call model → execute tools → repeat
-        var round = 0
-        while (round < MAX_TOOL_ROUNDS) {
-            round++
-            val messages = buildMessages()
-            val result = modelClient.chat(messages, activeTools)
+        // State machine loop
+        var state = AgentState(history = history.toList())
+        var error: String? = null
 
-            if (result.isFailure) {
-                Log.e(TAG, "Model call failed: ${result.exceptionOrNull()?.message}")
-                return "抱歉，模型调用失败: ${result.exceptionOrNull()?.message}"
+        for (r in 1..MAX_TOOL_ROUNDS) {
+            // Step 1: Call LLM (includes building messages)
+            val callResult = callLLMStep(state, activeTools)
+            if (callResult.first != null) {
+                error = callResult.first!!
+                break
+            }
+            state = callResult.second
+            Log.d(TAG, "[State] Round $r → ${state.dump()}")
+
+            // Step 2: Check if final answer
+            if (!state.needsToolExecution) {
+                break
             }
 
-            val response = result.getOrThrow()
-            val toolCalls = response.toolCalls
-
-            if (toolCalls.isNullOrEmpty()) {
-                // No tool calls — final text response
-                val content = response.content ?: ""
-                history.add(Message(role = "assistant", content = content))
-                trimHistoryByTokens()
-                persistMessage("assistant", content)
-                return content
-            }
-
-            // Execute tool calls and add to history
-            executeAndRecordToolCalls(toolCalls)
+            // Step 3: Execute tools
+            state = executeToolsStep(state)
+            Log.d(TAG, "[State] After tools → ${state.dump()}")
         }
 
-        // Safety: exceeded max rounds, get a final response without tools
-        Log.w(TAG, "Max tool rounds reached, forcing final response")
-        val messages = buildMessages()
-        val result = modelClient.chat(messages, null)
-        val content = result.getOrDefault(ModelResponse()).content ?: "操作完成"
-        history.add(Message(role = "assistant", content = content))
+        // Handle error
+        if (error != null) {
+            Log.e(TAG, "[State] ERROR → $error")
+            return error
+        }
+
+        // Force final response if max rounds exceeded
+        if (!state.isFinalAnswer) {
+            Log.w(TAG, "[State] Max rounds exceeded, forcing final response")
+            val messages = buildMessagesInternal(state.history)
+            val result = modelClient.chat(messages, null)
+            val content = result.getOrDefault(ModelResponse()).content ?: "操作完成"
+            state = state.copy(
+                history = state.history + Message(role = "assistant", content = content),
+                finalContent = content,
+                currentToolCalls = null,
+                round = state.round + 1
+            )
+        }
+
+        // Sync state history back to mutable history
+        val content = state.finalContent ?: ""
+        history.clear()
+        history.addAll(state.history)
         trimHistoryByTokens()
         persistMessage("assistant", content)
         return content
+    }
+
+    // ==================== State Machine Steps ====================
+
+    /** Call LLM with current state's tools */
+    private suspend fun callLLMStep(state: AgentState, activeTools: List<Tool>?): Pair<String?, AgentState> {
+        val messages = buildMessagesFromState(state, true)
+        val result = modelClient.chat(messages, activeTools)
+
+        if (result.isFailure) {
+            val errorMsg = "抱歉，模型调用失败: ${result.exceptionOrNull()?.message}"
+            Log.e(TAG, "[State] ${state.dump()} → Model call failed")
+            return errorMsg to state
+        }
+
+        val response = result.getOrThrow()
+        val toolCalls = response.toolCalls
+
+        return if (toolCalls.isNullOrEmpty()) {
+            // Final answer
+            val content = response.content ?: ""
+            val newHistory = state.history + Message(role = "assistant", content = content)
+            null to state.copy(
+                history = newHistory,
+                currentToolCalls = null,
+                finalContent = content
+            )
+        } else {
+            // Need tool execution
+            val newHistory = state.history + Message(
+                role = "assistant",
+                content = "",
+                toolCalls = toolCalls
+            )
+            null to state.copy(
+                history = newHistory,
+                currentToolCalls = toolCalls
+            )
+        }
+    }
+
+    /** Execute pending tool calls and add results to history */
+    private suspend fun executeToolsStep(state: AgentState): AgentState {
+        val toolCalls = state.currentToolCalls ?: return state
+        var newHistory = state.history
+
+        for (toolCall in toolCalls) {
+            val toolName = toolCall.function.name
+            Log.d(TAG, "[Tool] Executing $toolName, args: ${toolCall.function.arguments}")
+
+            val result = executeToolCall(toolCall)
+            Log.d(TAG, "[Tool] $toolName → ${result.take(100)}")
+
+            newHistory += Message(
+                role = "tool",
+                content = result,
+                toolCallId = toolCall.id
+            )
+        }
+
+        return state.copy(
+            history = newHistory,
+            currentToolCalls = null
+        )
+    }
+
+    /** Build messages list from AgentState for LLM call */
+    private fun buildMessagesFromState(state: AgentState, includeSystemPrompt: Boolean): List<Message> {
+        return if (includeSystemPrompt) {
+            buildMessagesInternal(state.history)
+        } else {
+            state.history
+        }
     }
 
     // ==================== Streaming API ====================
@@ -447,6 +534,7 @@ Example:
     /**
      * Streaming variant — emits tokens and tool events in real-time.
      * The flow completes with a [SessionEvent.Complete] containing the full text.
+     * Uses AgentState for state machine tracking.
      */
     fun handleMessageStream(userMessage: String, images: List<ImageContent>? = null): Flow<SessionEvent> = flow {
         history.add(Message(role = "user", content = userMessage, images = images))
@@ -454,36 +542,40 @@ Example:
         persistMessage("user", userMessage)
         val activeTools = tools.takeIf { it.isNotEmpty() }
 
-        var round = 0
-        while (round < MAX_TOOL_ROUNDS) {
-            round++
-            val messages = buildMessages()
+        var state = AgentState(history = history.toList())
+        var finalContent: String? = null
+        var hasError = false
+
+        for (r in 1..MAX_TOOL_ROUNDS) {
+            // Step 1: Build messages
+            state = state.copy(round = r)
+            Log.d(TAG, "[State] Round $r start → ${state.dump()}")
+
+            // Step 2: Call LLM (streaming)
+            val messages = buildMessagesFromState(state, true)
             val fullText = StringBuilder()
             var completeResponse: ModelResponse? = null
 
-            // Collect all streaming events
             modelClient.chatStream(messages, activeTools).collect { event ->
                 when (event) {
                     is ChatEvent.Token -> {
                         fullText.append(event.text)
                         emit(SessionEvent.Token(event.text))
                     }
-                    is ChatEvent.Complete -> {
-                        completeResponse = event.response
-                    }
+                    is ChatEvent.Complete -> completeResponse = event.response
                     is ChatEvent.Error -> {
                         emit(SessionEvent.Error(event.message))
+                        hasError = true
                         return@collect
                     }
-                    is ChatEvent.ToolCallRequested -> {
-                        // Tool call deltas are accumulated in streaming, handled via Complete
-                    }
+                    is ChatEvent.ToolCallRequested -> {}
                 }
             }
 
+            if (hasError) return@flow
+
             val response = completeResponse
             if (response == null) {
-                // Stream ended without Complete event — emit what we have
                 val text = fullText.toString()
                 if (text.isNotEmpty()) {
                     history.add(Message(role = "assistant", content = text))
@@ -500,31 +592,21 @@ Example:
             if (toolCalls.isNullOrEmpty()) {
                 // Final text response — apply reflection if configured
                 var content = response.content ?: fullText.toString()
-                val reflectionConfig = _reflectionConfig
-                val lastUserMessage = history.lastOrNull { it.role == "user" }?.content ?: ""
+                state = state.copy(
+                    history = state.history + Message(role = "assistant", content = content),
+                    currentToolCalls = null,
+                    finalContent = content
+                )
+                Log.d(TAG, "[State] Final answer → ${state.dump()}")
 
-                if (reflectionConfig != null && reflectionConfig.strategy != ReflectionStrategy.NONE && content.isNotBlank()) {
-                    Log.d(TAG, "Applying reflection: ${reflectionConfig.strategy}")
-                    LogManager.shared.log("INFO", TAG, "[反思] 开始: strategy=${reflectionConfig.strategy}")
-                    emit(SessionEvent.ReflectionStart("reflection"))
-
-                    val reflectionResult = runReflectionWithProtection(
-                        originalContent = content,
-                        userMessage = lastUserMessage,
-                        config = reflectionConfig
-                    )
-
-                    if (reflectionResult.changed) {
-                        content = reflectionResult.refinedContent
-                        Log.d(TAG, "Reflection applied: changeRate=${String.format("%.2f", reflectionResult.changeRate)}, rounds=${reflectionResult.roundsCompleted}")
-                        LogManager.shared.log("INFO", TAG, "[反思] 已应用: 变化率=${String.format("%.1f", reflectionResult.changeRate * 100)}%, A2UI=${reflectionResult.a2uiPreserved}")
-                    } else {
-                        Log.d(TAG, "Reflection unchanged: keeping original answer")
-                        LogManager.shared.log("INFO", TAG, "[反思] 无变化，保留原答案")
-                    }
-
-                    emit(SessionEvent.ReflectionComplete("reflection"))
-                }
+                // Apply reflection
+                content = applyReflection(state, content) { event -> emit(event) }
+                finalContent = content
+                state = state.copy(
+                    history = state.history.dropLast(1) + Message(role = "assistant", content = content),
+                    finalContent = content,
+                    reflectionApplied = true
+                )
 
                 history.add(Message(role = "assistant", content = content))
                 trimHistoryByTokens()
@@ -533,13 +615,18 @@ Example:
                 return@flow
             }
 
-            // Execute tools and continue loop
-            // Add assistant message with tool_calls to history (required by API)
-            history.add(Message(
-                role = "assistant",
-                content = "",
-                toolCalls = toolCalls
-            ))
+            // Tool calls — update state and execute
+            state = state.copy(
+                history = state.history + Message(
+                    role = "assistant",
+                    content = "",
+                    toolCalls = toolCalls
+                ),
+                currentToolCalls = toolCalls
+            )
+            Log.d(TAG, "[State] Tool calls → ${state.dump()}")
+
+            // Execute tools
             for (toolCall in toolCalls) {
                 emit(SessionEvent.ToolExecuting(toolCall.function.name))
                 val result = executeToolCall(toolCall)
@@ -548,12 +635,59 @@ Example:
                     content = result,
                     toolCallId = toolCall.id
                 ))
+                state = state.copy(
+                    history = state.history + Message(
+                        role = "tool",
+                        content = result,
+                        toolCallId = toolCall.id
+                    )
+                )
                 emit(SessionEvent.ToolResult(toolCall.function.name, result))
             }
+            // Clear tool calls from state (they've been executed)
+            state = state.copy(currentToolCalls = null)
+            Log.d(TAG, "[State] Tools done → ${state.dump()}")
         }
 
-        emit(SessionEvent.Error("Exceeded max tool rounds"))
+        emit(SessionEvent.Error("Exceeded max tool rounds. Last state: ${state.dump()}"))
     }.flowOn(Dispatchers.Default)
+
+    /** Apply reflection to final content, emit events via callback */
+    private suspend fun applyReflection(
+        state: AgentState,
+        content: String,
+        emitEvent: suspend (SessionEvent) -> Unit
+    ): String {
+        val reflectionConfig = _reflectionConfig
+        val lastUserMessage = state.history.lastOrNull { it.role == "user" }?.content ?: ""
+
+        if (reflectionConfig == null || reflectionConfig.strategy == ReflectionStrategy.NONE || content.isBlank()) {
+            return content
+        }
+
+        Log.d(TAG, "Applying reflection: ${reflectionConfig.strategy}")
+        LogManager.shared.log("INFO", TAG, "[反思] 开始: strategy=${reflectionConfig.strategy}")
+        emitEvent(SessionEvent.ReflectionStart("reflection"))
+
+        val reflectionResult = runReflectionWithProtection(
+            originalContent = content,
+            userMessage = lastUserMessage,
+            config = reflectionConfig
+        )
+
+        if (reflectionResult.changed) {
+            val refined = reflectionResult.refinedContent
+            Log.d(TAG, "Reflection applied: changeRate=${String.format("%.2f", reflectionResult.changeRate)}, rounds=${reflectionResult.roundsCompleted}")
+            LogManager.shared.log("INFO", TAG, "[反思] 已应用: 变化率=${String.format("%.1f", reflectionResult.changeRate * 100)}%, A2UI=${reflectionResult.a2uiPreserved}")
+            emitEvent(SessionEvent.ReflectionComplete("reflection"))
+            return refined
+        } else {
+            Log.d(TAG, "Reflection unchanged: keeping original answer")
+            LogManager.shared.log("INFO", TAG, "[反思] 无变化，保留原答案")
+            emitEvent(SessionEvent.ReflectionComplete("reflection"))
+            return content
+        }
+    }
 
     // ==================== Tool Execution ====================
 
@@ -640,7 +774,7 @@ Example:
 
     // ==================== History Management ====================
 
-    private fun buildMessages(): List<Message> {
+    private fun buildMessagesInternal(currentHistory: List<Message>): List<Message> {
         // Build base system prompt
         val basePrompt = _agentConfig?.systemPrompt?.takeIf { it.isNotBlank() }
             ?.let { customPrompt -> "$customPrompt\n\n---\n$BASE_SYSTEM_PROMPT" }
@@ -656,9 +790,12 @@ Example:
             memoryContextText?.let { context ->
                 add(Message(role = "system", content = "用户的重要记忆：\n$context"))
             }
-            addAll(history)
+            addAll(currentHistory)
         }
     }
+
+    /** Legacy buildMessages for backward compat (uses mutable history) */
+    private fun buildMessages(): List<Message> = buildMessagesInternal(history)
 
     /**
      * Token-aware history trimming.
@@ -802,6 +939,45 @@ Example:
         )
     }
 }
+
+// ==================== AgentState (immutable, for debugging & logging) ====================
+
+/**
+ * AgentState — immutable snapshot of the agent's conversation state.
+ * Each tool-calling round produces a new state via copy().
+ * 
+ * Benefits:
+ * - Full state dump on error for quick debugging
+ * - No mutable variable sprawl
+ * - Easy to trace round-by-round in logs
+ */
+data class AgentState(
+    val history: List<Message> = emptyList(),
+    val currentToolCalls: List<ToolCall>? = null,
+    val round: Int = 0,
+    val a2uiResponse: String? = null,
+    val reflectionApplied: Boolean = false,
+    val finalContent: String? = null
+) {
+    val isFinalAnswer: Boolean get() = currentToolCalls == null && finalContent != null
+    val needsToolExecution: Boolean get() = !currentToolCalls.isNullOrEmpty()
+
+    /** Full state dump for debugging — call when errors occur */
+    fun dump(): String = buildString {
+        append("AgentState(")
+        append("round=$round, ")
+        append("historySize=${history.size}, ")
+        append("toolCalls=${currentToolCalls?.map { it.function.name } ?: "null"}, ")
+        append("a2ui=${a2uiResponse != null}, ")
+        append("reflectionApplied=$reflectionApplied, ")
+        append("finalContent=${finalContent?.take(30)}, ")
+        append("isFinalAnswer=$isFinalAnswer")
+        append(")")
+    }
+}
+
+/** Tool execution result (internal use, different from SessionEvent.ToolResult) */
+data class AgentToolResult(val name: String, val result: String)
 
 // ==================== Session Events (for streaming) ====================
 

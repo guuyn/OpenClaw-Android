@@ -10,15 +10,16 @@
 - [android_compose/build.gradle.kts](file://android_compose/build.gradle.kts)
 - [script/build.gradle.kts](file://script/build.gradle.kts)
 - [app/proguard-rules.pro](file://app/proguard-rules.pro)
+- [lint.xml](file://lint.xml)
 </cite>
 
 ## 更新摘要
 **所做变更**
-- 更新仓库配置章节，反映settings.gradle.kts中官方源优先的Maven仓库配置
-- 新增Kotlin 2.3.0兼容性问题临时解决方案章节，说明RememberInComposition lint检测器禁用配置
-- 新增仓库配置最佳实践章节，说明官方源优先和镜像后备策略
-- 更新故障排除指南中的仓库相关问题解决方案
-- 增强国际化开发者的仓库配置指导
+- 更新调试签名逻辑章节，详细说明条件检查机制、平台检测逻辑和回退策略
+- 新增统一调试签名配置的完整实现说明
+- 增强CI环境构建可靠性的签名策略指导
+- 更新故障排除指南中的签名相关问题解决方案
+- 完善调试签名在不同操作系统平台上的适配说明
 
 ## 目录
 1. [简介](#简介)
@@ -129,6 +130,7 @@ Props --> ScriptBuild
 - 构建类型：release启用混淆与资源压缩；debug同样启用统一调试签名。
 - 编译选项：JDK 17目标与Kotlin JVM目标一致。
 - Compose与测试：启用Compose；单元测试默认返回值；打包排除部分元数据与JNI合并策略。
+- **新增** 统一调试签名配置：实现条件检查机制、平台检测逻辑和回退策略，显著提升CI环境构建可靠性。
 - **新增** Kotlin 2.3.0兼容性问题临时解决方案：在lint配置中禁用RememberInComposition检测器，解决内部API变更导致的IncompatibleClassChangeError问题。
 - 依赖：Sherpa-ONNX本地AAR、AndroidX、Koin、Compose BOM、网络、序列化、协程、安全加密、SQLCipher、Room+KSP、WorkManager、LiteRT/LiteRT-LM、ONNX Runtime、Rhino、A2UI组件库、SnakeYAML；测试框架与Compose UI测试依赖齐全。
 
@@ -136,7 +138,7 @@ Props --> ScriptBuild
 - [app/build.gradle.kts:3-9](file://app/build.gradle.kts#L3-L9)
 - [app/build.gradle.kts:11-24](file://app/build.gradle.kts#L11-L24)
 - [app/build.gradle.kts:26-124](file://app/build.gradle.kts#L26-L124)
-- [app/build.gradle.kts:96-99](file://app/build.gradle.kts#L96-L99)
+- [app/build.gradle.kts:96-100](file://app/build.gradle.kts#L96-L100)
 - [app/build.gradle.kts:126-216](file://app/build.gradle.kts#L126-L216)
 
 ### Compose组件库模块（android_compose）
@@ -170,6 +172,14 @@ Props --> ScriptBuild
 
 **章节来源**
 - [app/proguard-rules.pro:7-66](file://app/proguard-rules.pro#L7-L66)
+
+### 全局Lint配置（新增）
+- **新增** 全局lint.xml配置文件提供了统一的lint规则管理，特别针对Kotlin 2.3.0兼容性问题。
+- **新增** RememberInComposition检测器被配置为忽略级别，避免因内部API变更导致的构建错误。
+- **新增** lint配置采用XML格式，便于版本控制和团队协作。
+
+**章节来源**
+- [lint.xml:1-6](file://lint.xml#L1-L6)
 
 ## 依赖分析
 - 模块依赖：app依赖android_compose与script；android_compose与script互不直接依赖。
@@ -206,16 +216,33 @@ Compose -.->|不直接依赖| Script
 
 ## 故障排除指南
 
+### 统一调试签名配置
+
+**更新** 调试签名逻辑增强与CI环境可靠性提升
+- **新增** 条件检查机制：在app/build.gradle.kts中实现了完整的条件检查逻辑，确保只有当所有必需的签名参数都存在时才使用自定义签名配置。
+- **新增** 平台检测逻辑：通过System.getProperty("os.name").lowercase().contains("linux")检测操作系统类型，实现跨平台兼容的调试签名配置。
+- **新增** 回退策略：当统一调试keystore不存在时，自动回退到默认的debug签名配置，确保CI环境的构建稳定性。
+- **新增** 跨平台支持：统一调试keystore路径支持Windows（E:/Android/keystores/debug.keystore）和WSL2（/mnt/e/Android/keystores/debug.keystore）两种平台。
+- **新增** SHA-256指纹：统一调试keystore的SHA-256指纹已记录，便于验证签名的一致性。
+
+**章节来源**
+- [app/build.gradle.kts:49-72](file://app/build.gradle.kts#L49-L72)
+- [app/build.gradle.kts:88-97](file://app/build.gradle.kts#L88-L97)
+
 ### Kotlin 2.3.0兼容性问题
 
 **新增** RememberInComposition lint检测器问题
 - **现象** 构建过程中出现IncompatibleClassChangeError，与Kotlin 2.3.0内部API变更相关。
 - **原因** Kotlin 2.3.0引入的内部API变更影响了RememberInComposition lint检测器的正常工作。
-- **解决方案** 在app/build.gradle.kts的lint配置中禁用RememberInComposition检测器，作为临时解决方案确保构建稳定性。
+- **解决方案** 在app/build.gradle.kts、android_compose/build.gradle.kts和script/build.gradle.kts的lint配置中禁用RememberInComposition检测器，作为临时解决方案确保构建稳定性。
 - **临时性** 此为临时解决方案，待Kotlin团队修复相关问题后可移除此配置。
+- **统一管理** 通过全局lint.xml文件提供统一的lint规则配置，便于团队协作和版本控制。
 
 **章节来源**
-- [app/build.gradle.kts:96-99](file://app/build.gradle.kts#L96-L99)
+- [app/build.gradle.kts:96-100](file://app/build.gradle.kts#L96-L100)
+- [android_compose/build.gradle.kts:39-43](file://android_compose/build.gradle.kts#L39-L43)
+- [script/build.gradle.kts:25-29](file://script/build.gradle.kts#L25-L29)
+- [lint.xml:1-6](file://lint.xml#L1-L6)
 
 ### 仓库配置问题
 
@@ -264,7 +291,11 @@ Compose -.->|不直接依赖| Script
 - [app/build.gradle.kts:212-216](file://app/build.gradle.kts#L212-L216)
 
 ## 结论
-该构建配置通过根级统一插件版本、集中仓库与属性管理、模块化依赖与严格的ProGuard规则，实现了高一致性与高性能的构建体系。最新的仓库配置优化解决了国际开发者访问maven.aliyun.com时的HTTP 502错误问题，通过官方源优先和镜像后备策略确保全球开发者的稳定依赖访问。针对Kotlin 2.3.0兼容性问题的临时解决方案（禁用RememberInComposition lint检测器）确保了构建稳定性，同时保持了项目的现代化配置。遵循本文档的最佳实践与排障建议，可进一步提升构建稳定性与效率。
+该构建配置通过根级统一插件版本、集中仓库与属性管理、模块化依赖与严格的ProGuard规则，实现了高一致性与高性能的构建体系。最新的仓库配置优化解决了国际开发者访问maven.aliyun.com时的HTTP 502错误问题，通过官方源优先和镜像后备策略确保全球开发者的稳定依赖访问。针对Kotlin 2.3.0兼容性问题的临时解决方案（禁用RememberInComposition lint检测器）确保了构建稳定性，同时保持了项目的现代化配置。新增的全局lint.xml配置文件提供了统一的lint规则管理，便于团队协作和版本控制。
+
+**更新** 最重要的改进是调试签名逻辑的全面增强，包括条件检查机制、平台检测逻辑和回退策略的实现。这些改进显著提升了CI环境的构建可靠性，确保在不同操作系统平台（Windows、Linux/WSL2）上都能获得一致的调试签名体验。统一调试签名配置不仅简化了开发流程，还消除了因签名不一致导致的构建问题，为团队协作提供了更好的基础。
+
+遵循本文档的最佳实践与排障建议，可进一步提升构建稳定性与效率。
 
 ## 附录
 
@@ -285,16 +316,46 @@ Compose -.->|不直接依赖| Script
 **章节来源**
 - [app/build.gradle.kts:126-216](file://app/build.gradle.kts#L126-L216)
 
+### 统一调试签名配置详解
+
+**新增** 条件检查机制
+- **背景** 为确保签名配置的安全性和完整性，在app/build.gradle.kts中实现了完整的条件检查逻辑。
+- **实现** 使用if语句检查releaseStoreFile、releaseStorePassword、releaseKeyAlias、releaseKeyPassword四个参数是否都存在且非空。
+- **目的** 防止部分签名参数缺失导致的构建失败或不安全的签名配置。
+
+**新增** 平台检测逻辑
+- **实现** 通过System.getProperty("os.name").lowercase().contains("linux")检测当前操作系统类型。
+- **Windows平台** 使用E:/Android/keystores/debug.keystore路径
+- **Linux/WSL2平台** 使用/mnt/e/Android/keystores/debug.keystore路径
+- **目的** 实现跨平台的统一调试签名配置，支持开发环境的多样性。
+
+**新增** 回退策略
+- **实现** 当统一调试keystore文件存在时使用unifiedDebug签名配置，否则回退到默认的debug签名配置。
+- **CI环境适配** 在CI环境中统一使用默认debug签名，确保构建的稳定性。
+- **目的** 提供灵活的签名策略，适应不同的开发和构建环境需求。
+
+**新增** SHA-256指纹验证
+- **记录** 统一调试keystore的SHA-256指纹：A3:48:0C:D7:EB:37:2A:76:48:60:72:D3:D2:F2:E0:5F:45:88:62:7A:21:CD:DD:62:61:54:60:5B:80:8E:B9:45
+- **用途** 便于验证签名的一致性和完整性，确保跨平台开发的一致性体验。
+
+**章节来源**
+- [app/build.gradle.kts:49-72](file://app/build.gradle.kts#L49-L72)
+- [app/build.gradle.kts:88-97](file://app/build.gradle.kts#L88-L97)
+
 ### Kotlin 2.3.0兼容性问题临时解决方案
 
 **新增** RememberInComposition检测器禁用配置
 - **背景** Kotlin 2.3.0发布后，内部API变更导致RememberInComposition lint检测器出现IncompatibleClassChangeError。
-- **解决方案** 在app/build.gradle.kts中添加`disable += "RememberInComposition"`配置，临时禁用该检测器。
+- **解决方案** 在app/build.gradle.kts、android_compose/build.gradle.kts和script/build.gradle.kts中添加`disable += "RememberInComposition"`配置，临时禁用该检测器。
 - **目的** 确保构建过程不受此兼容性问题影响，维持项目稳定性。
 - **状态** 临时解决方案，待Kotlin团队修复相关问题后可移除此配置。
+- **统一管理** 通过全局lint.xml文件提供统一的lint规则配置，便于团队协作和版本控制。
 
 **章节来源**
-- [app/build.gradle.kts:96-99](file://app/build.gradle.kts#L96-L99)
+- [app/build.gradle.kts:96-100](file://app/build.gradle.kts#L96-L100)
+- [android_compose/build.gradle.kts:39-43](file://android_compose/build.gradle.kts#L39-L43)
+- [script/build.gradle.kts:25-29](file://script/build.gradle.kts#L25-L29)
+- [lint.xml:1-6](file://lint.xml#L1-L6)
 
 ### 仓库配置最佳实践
 
@@ -313,3 +374,14 @@ Compose -.->|不直接依赖| Script
 
 **章节来源**
 - [settings.gradle.kts:1-21](file://settings.gradle.kts#L1-L21)
+
+### 全局Lint配置管理
+
+**新增** lint.xml统一配置
+- **新增** 全局lint.xml配置文件提供了统一的lint规则管理，特别针对Kotlin 2.3.0兼容性问题。
+- **新增** RememberInComposition检测器被配置为忽略级别，避免因内部API变更导致的构建错误。
+- **新增** lint配置采用XML格式，便于版本控制和团队协作。
+- **新增** 各子模块的lint配置与全局配置协同工作，确保构建稳定性。
+
+**章节来源**
+- [lint.xml:1-6](file://lint.xml#L1-L6)
