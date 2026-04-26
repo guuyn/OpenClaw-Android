@@ -534,6 +534,8 @@ data class LegacyCard(
 sealed class MessageSegment {
     data class Text(val text: String) : MessageSegment()
     data class A2UICard(val card: ai.openclaw.android.ui.A2UICard) : MessageSegment()
+    /** Standard protocol (v0.8/v0.9/v0.10) JSONL - rendered by A2UIComposeRenderer */
+    data class StandardProtocol(val json: String) : MessageSegment()
 }
 
 // ==================== 解析器 ====================
@@ -544,7 +546,7 @@ object A2UICardParser {
 
     /**
      * 解析 [A2UI]...[/A2UI] 内容
-     * 优先尝试 v2 JSON 格式，失败则回退 v1 旧格式
+     * 优先检测标准协议 (v0.8/v0.9/v0.10)，其次尝试 v2 JSON 格式，最后回退 v1 旧格式
      */
     fun parse(content: String): List<MessageSegment> {
         val segments = mutableListOf<MessageSegment>()
@@ -570,13 +572,18 @@ object A2UICardParser {
 
             val jsonStr = content.substring(jsonStart, endIdx).trim()
 
-            // Try v2 JSON parse
-            val card = tryParseV2(jsonStr)
-            if (card != null) {
-                segments.add(MessageSegment.A2UICard(card))
+            // 1. Detect standard protocol (JSONL with createSurface/updateComponents)
+            if (isStandardProtocolJson(jsonStr)) {
+                segments.add(MessageSegment.StandardProtocol(jsonStr))
             } else {
-                // Fallback to v1 format
-                segments.add(MessageSegment.A2UICard(parseV1(jsonStr)))
+                // 2. Try v2 JSON parse (legacy card format)
+                val card = tryParseV2(jsonStr)
+                if (card != null) {
+                    segments.add(MessageSegment.A2UICard(card))
+                } else {
+                    // 3. Fallback to v1 format
+                    segments.add(MessageSegment.A2UICard(parseV1(jsonStr)))
+                }
             }
 
             cursor = endIdx + endTag.length
@@ -596,6 +603,19 @@ object A2UICardParser {
         }
 
         return segments
+    }
+
+    /**
+     * 检测 JSON 是否为标准协议格式 (JSONL with createSurface/updateComponents)
+     * Standard protocol v0.8/v0.9/v0.10 uses JSONL with these fields
+     */
+    private fun isStandardProtocolJson(jsonStr: String): Boolean {
+        return jsonStr.contains("createSurface") ||
+               jsonStr.contains("updateComponents") ||
+               jsonStr.contains("updateDataModel") ||
+               jsonStr.contains("deleteSurface") ||
+               jsonStr.contains("surfaceUpdate") ||
+               jsonStr.contains("beginRendering")
     }
 
     /** 尝试 v2 JSON 解析 */

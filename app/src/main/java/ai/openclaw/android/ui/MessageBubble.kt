@@ -2,7 +2,10 @@ package ai.openclaw.android.ui
 
 import ai.openclaw.android.ChatMessage
 import ai.openclaw.android.ui.A2UICardParser
+import ai.openclaw.android.ui.A2UICardRouter
+import ai.openclaw.android.ui.A2UIComposeRenderer
 import ai.openclaw.android.ui.MessageSegment
+import org.a2ui.compose.rendering.rememberA2UIRenderer
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.background
@@ -129,6 +132,16 @@ fun EnhancedMessageBubble(
                                 is MessageSegment.A2UICard -> {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     A2UICardRouter(card = segment.card)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                                is MessageSegment.StandardProtocol -> {
+                                    val a2uiRenderer = rememberA2UIRenderer()
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    A2UIComposeRenderer(
+                                        content = "[A2UI]${segment.json}[/A2UI]",
+                                        renderer = a2uiRenderer,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
                                     Spacer(modifier = Modifier.height(4.dp))
                                 }
                             }

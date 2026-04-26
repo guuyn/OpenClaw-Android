@@ -897,6 +897,14 @@ private fun UserMessageBubble(
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     }
+                    is MessageSegment.StandardProtocol -> {
+                        val a2uiRenderer = rememberA2UIRenderer()
+                        A2UIComposeRenderer(
+                            content = "[A2UI]${segment.json}[/A2UI]",
+                            renderer = a2uiRenderer,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
                 }
             }
             Text(
@@ -968,6 +976,13 @@ private fun AiMessageBubble(
                         A2UICardRouter(
                             card = segment.card,
                             onActionClick = { action -> /* TODO: handle action */ },
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+                    is MessageSegment.StandardProtocol -> {
+                        A2UIComposeRenderer(
+                            content = "[A2UI]${segment.json}[/A2UI]",
+                            renderer = a2uiRenderer,
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     }
