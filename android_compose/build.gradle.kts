@@ -36,6 +36,11 @@ android {
     buildFeatures {
         compose = true
     }
+    lint {
+        // Kotlin 2.3.0 internal API change crashes this detector
+        disable += "RememberInComposition"
+        abortOnError = false
+    }
 }
 
 dependencies {

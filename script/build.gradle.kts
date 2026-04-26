@@ -22,6 +22,11 @@ android {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
     }
+    lint {
+        // Kotlin 2.3.0 internal API change crashes this detector
+        disable += "RememberInComposition"
+        abortOnError = false
+    }
 }
 
 dependencies {
