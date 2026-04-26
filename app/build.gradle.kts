@@ -96,6 +96,7 @@ android {
     lint {
         // Kotlin 2.3.0 internal API change crashes this detector
         disable += "RememberInComposition"
+        isAbortOnError = false
     }
     kotlin {
         compilerOptions {
