@@ -85,8 +85,15 @@ android {
             // Debug 也启用优化减小体积
             isMinifyEnabled = false
             isShrinkResources = false
-            // Use unified debug keystore for consistent signatures across WSL2 and Windows
-            signingConfig = signingConfigs.getByName("unifiedDebug")
+            // Use unified debug keystore when available (local WSL2/Windows), fallback to default for CI
+            val unifiedKeystore = if (System.getProperty("os.name").lowercase().contains("linux"))
+                file("/mnt/e/Android/keystores/debug.keystore")
+            else
+                file("E:/Android/keystores/debug.keystore")
+            signingConfig = if (unifiedKeystore.exists())
+                signingConfigs.getByName("unifiedDebug")
+            else
+                signingConfigs.getByName("debug")
         }
     }
     compileOptions {
