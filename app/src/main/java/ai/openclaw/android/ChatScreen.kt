@@ -964,12 +964,10 @@ private fun AiMessageBubble(
                         )
                     }
                     is MessageSegment.A2UICard -> {
-                        // 将旧格式卡片转为 JSON 并通过标准协议渲染（向后兼容）
-                        val cardJson = segment.card.toJsonString()
-                        val a2uiContent = "[A2UI]$cardJson[/A2UI]"
-                        A2UIComposeRenderer(
-                            content = a2uiContent,
-                            renderer = a2uiRenderer,
+                        // Use A2UICardRouter directly for legacy card format
+                        A2UICardRouter(
+                            card = segment.card,
+                            onActionClick = { action -> /* TODO: handle action */ },
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     }
