@@ -60,7 +60,7 @@ class DefaultErrorHandler : A2UIErrorHandler {
         )
         // ✅ FIFO 淘汰：超过上限时移除最旧的错误
         while (_errors.size >= MAX_ERROR_COUNT) {
-            _errors.removeFirst()
+            _errors.removeAt(0)
         }
         _errors.add(errorInfo)
     }

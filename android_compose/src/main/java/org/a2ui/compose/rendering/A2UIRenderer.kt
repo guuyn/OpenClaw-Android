@@ -173,7 +173,7 @@ class A2UIRenderer(
     private fun handleError(error: A2UIError, surfaceId: String) {
         // ✅ FIFO 淘汰
         while (_errors.size >= MAX_ERROR_COUNT) {
-            _errors.removeFirst()
+            _errors.removeAt(0)
         }
         _errors.add(error)
         surfaceStates[surfaceId] = A2UIRendererState.Error(
