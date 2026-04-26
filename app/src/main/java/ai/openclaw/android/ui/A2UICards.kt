@@ -1483,22 +1483,22 @@ fun A2UICardRouter(
     modifier: Modifier = Modifier
 ) {
     when (card.type) {
-        // P0 核心卡片（Task 3）
-        "weather" -> WeatherCard(card.asWeatherCard()!!, card.actions, onActionClick, modifier)
-        "search_result" -> SearchResultCard(card.asSearchResultCard()!!, card.actions, onActionClick, modifier)
-        "translation" -> TranslationCard(card.asTranslationCard()!!, card.actions, onActionClick, modifier)
-        "reminder" -> ReminderCard(card.asReminderCard()!!, card.actions, onActionClick, modifier)
-        "calendar" -> CalendarCard(card.asCalendarCard()!!, card.actions, onActionClick, modifier)
-        "location" -> LocationCard(card.asLocationCard()!!, card.actions, onActionClick, modifier)
-        "action_confirm" -> ActionConfirmCard(card.asActionConfirmCard()!!, card.actions, onActionClick, modifier)
-        // 全局卡片（Task 4）
-        "error" -> ErrorCard(card.asErrorCard()!!, card.actions, onActionClick, modifier)
-        "info" -> InfoCard(card.asInfoCard()!!, card.actions, onActionClick, modifier)
-        "summary" -> SummaryCard(card.asSummaryCard()!!, card.actions, onActionClick, modifier)
-        "contact" -> ContactCard(card.asContactCard()!!, card.actions, onActionClick, modifier)
-        "sms" -> SMSCard(card.asSMSCard()!!, card.actions, onActionClick, modifier)
-        "app" -> AppCard(card.asAppCard()!!, card.actions, onActionClick, modifier)
-        "settings" -> SettingsCard(card.asSettingsCard()!!, card.actions, onActionClick, modifier)
+        // P0 核心卡片（Task 3）— null-safe with fallback
+        "weather" -> card.asWeatherCard()?.let { WeatherCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "search_result" -> card.asSearchResultCard()?.let { SearchResultCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "translation" -> card.asTranslationCard()?.let { TranslationCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "reminder" -> card.asReminderCard()?.let { ReminderCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "calendar" -> card.asCalendarCard()?.let { CalendarCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "location" -> card.asLocationCard()?.let { LocationCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "action_confirm" -> card.asActionConfirmCard()?.let { ActionConfirmCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        // 全局卡片（Task 4）— null-safe with fallback
+        "error" -> card.asErrorCard()?.let { ErrorCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "info" -> card.asInfoCard()?.let { InfoCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "summary" -> card.asSummaryCard()?.let { SummaryCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "contact" -> card.asContactCard()?.let { ContactCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "sms" -> card.asSMSCard()?.let { SMSCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "app" -> card.asAppCard()?.let { AppCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "settings" -> card.asSettingsCard()?.let { SettingsCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
         // 未知类型 → 回退
         else -> FallbackCard(card, onActionClick, modifier)
     }

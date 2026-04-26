@@ -1,9 +1,12 @@
 package ai.openclaw.android.ui
 
 import android.util.Log
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -11,7 +14,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.a2ui.compose.data.Component
 import org.a2ui.compose.rendering.A2UIRenderer
 import org.a2ui.compose.rendering.ComponentRegistry
@@ -23,6 +40,8 @@ import org.a2ui.compose.rendering.SurfaceContext
  * 接收 [A2UI]...[/A2UI] 包裹的 JSON 内容，自动识别协议版本：
  * - 标准协议 (v0.8/v0.9/v0.10)：直接渲染
  * - 旧格式 ({"type":"weather","data":{...}})：自动转为标准协议后渲染
+ *
+ * 失败时自动回退显示原始 JSON 内容，不再空白。
  */
 @Composable
 fun A2UIComposeRenderer(
@@ -33,12 +52,20 @@ fun A2UIComposeRenderer(
     val surfaceId = remember(content) { "chat_${System.currentTimeMillis()}" }
     val registry = remember { ComponentRegistry(renderer) }
     var ready by remember { mutableStateOf(false) }
+    var renderError by remember { mutableStateOf<String?>(null) }
+    val rawJson = remember(content) { extractA2UIJsons(content).firstOrNull() }
 
     LaunchedEffect(content, surfaceId) {
         ready = false
+        renderError = null
         val jsonSegments = extractA2UIJsons(content)
-        if (jsonSegments.isEmpty()) return@LaunchedEffect
+        if (jsonSegments.isEmpty()) {
+            renderError = "No A2UI content found"
+            ready = true
+            return@LaunchedEffect
+        }
 
+        var anySuccess = false
         for (jsonStr in jsonSegments) {
             val protocolJson = if (isStandardProtocol(jsonStr)) {
                 jsonStr
@@ -48,21 +75,78 @@ fun A2UIComposeRenderer(
             if (protocolJson != null) {
                 runCatching {
                     renderer.processMessage(protocolJson)
+                    anySuccess = true
                 }.onFailure { e ->
-                    Log.e("A2UIComposeRenderer", "processMessage failed", e)
+                    Log.e("A2UIComposeRenderer", "processMessage failed: ${e.message}")
+                    renderError = e.message ?: "Unknown rendering error"
                 }
+            } else {
+                renderError = "Failed to parse A2UI JSON"
             }
+        }
+
+        if (!anySuccess && renderError == null) {
+            renderError = "A2UI rendering returned no content"
         }
         ready = true
     }
 
-    if (ready) {
-        Column(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (renderError != null) {
+            // Fallback: display raw JSON so user can at least see what was returned
+            A2UIFallbackCard(
+                error = renderError!!,
+                rawJson = rawJson ?: extractA2UIJsons(content).firstOrNull() ?: "",
+                modifier = Modifier.fillMaxWidth()
+            )
+            return@Column
+        }
+
+        if (ready) {
             val context = renderer.getSurfaceContext(surfaceId)
             val rootComponent = renderer.getComponent(surfaceId, "root")
             if (context != null && rootComponent != null) {
                 renderComponentRecursive(rootComponent, context, registry)
+            } else {
+                A2UIFallbackCard(
+                    error = "No renderable components found",
+                    rawJson = rawJson ?: "",
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
+        }
+    }
+}
+
+/**
+ * Fallback card shown when A2UI rendering fails.
+ * Displays error type + truncated raw JSON so users aren't looking at blank bubbles.
+ */
+@Composable
+private fun A2UIFallbackCard(
+    error: String,
+    rawJson: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Color(0x15FF6B00))
+            .padding(12.dp)
+    ) {
+        Text(
+            text = "⚠️ A2UI 渲染失败: $error",
+            fontSize = 12.sp,
+            color = Color(0xFFFF8C00)
+        )
+        if (rawJson.isNotEmpty()) {
+            Text(
+                text = if (rawJson.length > 200) rawJson.take(200) + "…" else rawJson,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+                color = Color.Gray,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
     }
 }
@@ -112,100 +196,41 @@ private fun isStandardProtocol(json: String): Boolean {
 
 // ==================== 旧格式 → 标准协议转换 ====================
 
+// Use kotlinx.serialization JSON parser instead of regex for robustness
+private val legacyJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
+
 /**
  * 将旧格式 {"type":"X","data":{...},"actions":[...]} 转为 v0.10 标准协议
+ * Uses kotlinx.serialization JSON parser (robust against whitespace/escaping issues)
  */
 private fun convertLegacyCardToProtocol(jsonStr: String, surfaceId: String): String? {
     return try {
-        val parsed = parseSimpleJson(jsonStr)
-        val type = parsed["type"]?.toString() ?: return null
-        val data = parsed["data"] as? Map<*, *> ?: emptyMap<String, Any?>()
-        val actions = parsed["actions"] as? List<*> ?: emptyList<Any>()
+        val root = legacyJson.parseToJsonElement(jsonStr)
+        val rootObj = root.jsonObject
+        val type = rootObj["type"]?.jsonPrimitive?.content ?: return null
+        val dataObj = rootObj["data"]?.jsonObject
+        val data: Map<String, Any?> = dataObj?.mapValues { (_, v) -> jsonElementToAny(v) } ?: emptyMap()
+        val actionsArr = rootObj["actions"]?.jsonArray
+        val actions: List<Any> = actionsArr?.mapNotNull { jsonElementToAny(it) } ?: emptyList()
 
         buildProtocolMessage(type, data, actions, surfaceId)
     } catch (e: Exception) {
-        Log.w("A2UIComposeRenderer", "Failed to convert legacy card: $jsonStr", e)
+        Log.w("A2UIComposeRenderer", "Failed to convert legacy card: ${e.message}")
         null
     }
 }
 
-/** 简易 JSON 解析 */
-private fun parseSimpleJson(json: String): Map<String, Any?> {
-    val result = mutableMapOf<String, Any?>()
-    val trimmed = json.trim()
-    if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return result
-
-    val typeMatch = Regex("\"type\"\\s*:\\s*\"([^\"]+)\"").find(trimmed)
-    typeMatch?.let { result["type"] = it.groupValues[1] }
-
-    val dataStart = trimmed.indexOf("\"data\"")
-    if (dataStart >= 0) {
-        val braceStart = trimmed.indexOf("{", dataStart)
-        if (braceStart >= 0) {
-            val dataStr = extractBraceBlock(trimmed, braceStart)
-            result["data"] = parseSimpleKeyValueMap(dataStr)
-        }
+/** Convert JsonElement to plain Kotlin types (String, Number, Boolean, Map, List) */
+private fun jsonElementToAny(element: JsonElement): Any? = when (element) {
+    is JsonPrimitive -> when {
+        element.isString -> element.content
+        element.booleanOrNull != null -> element.booleanOrNull!!
+        element.doubleOrNull != null -> element.doubleOrNull!!
+        else -> element.toString()
     }
-
-    val actionsStart = trimmed.indexOf("\"actions\"")
-    if (actionsStart >= 0) {
-        val bracketStart = trimmed.indexOf("[", actionsStart)
-        if (bracketStart >= 0) {
-            val actionsStr = extractBracketBlock(trimmed, bracketStart)
-            result["actions"] = parseActionsArray(actionsStr)
-        }
-    }
-
-    return result
-}
-
-private fun parseSimpleKeyValueMap(json: String): Map<String, Any?> {
-    val result = mutableMapOf<String, Any?>()
-    val regex = Regex("\"([^\"]+)\"\\s*:\\s*\"([^\"]*)\"")
-    for (match in regex.findAll(json)) {
-        result[match.groupValues[1]] = match.groupValues[2]
-    }
-    val arrayRegex = Regex("\"([^\"]+)\"\\s*:\\s*(\\[.*?\\])")
-    for (match in arrayRegex.findAll(json)) {
-        result[match.groupValues[1]] = match.groupValues[2]
-    }
-    return result
-}
-
-private fun parseActionsArray(json: String): List<Map<String, String>> {
-    val result = mutableListOf<Map<String, String>>()
-    val itemRegex = Regex("\\{([^}]+)\\}")
-    for (match in itemRegex.findAll(json)) {
-        val item = mutableMapOf<String, String>()
-        val kvRegex = Regex("\"([^\"]+)\"\\s*:\\s*\"([^\"]*)\"")
-        for (kv in kvRegex.findAll(match.value)) {
-            item[kv.groupValues[1]] = kv.groupValues[2]
-        }
-        if (item.isNotEmpty()) result.add(item)
-    }
-    return result
-}
-
-private fun extractBraceBlock(s: String, start: Int): String {
-    var depth = 0
-    for (i in start until s.length) {
-        when (s[i]) {
-            '{' -> depth++
-            '}' -> { depth--; if (depth == 0) return s.substring(start, i + 1) }
-        }
-    }
-    return s.substring(start)
-}
-
-private fun extractBracketBlock(s: String, start: Int): String {
-    var depth = 0
-    for (i in start until s.length) {
-        when (s[i]) {
-            '[' -> depth++
-            ']' -> { depth--; if (depth == 0) return s.substring(start, i + 1) }
-        }
-    }
-    return s.substring(start)
+    is JsonObject -> element.mapValues { (_, v) -> jsonElementToAny(v) }
+    is JsonArray -> element.map { jsonElementToAny(it) ?: "" }
+    else -> element.toString()
 }
 
 // ==================== 构建标准协议消息 ====================
