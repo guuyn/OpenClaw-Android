@@ -868,7 +868,7 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                     Text(text = label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 4.dp))
                 }
                 options.forEach { option ->
-                    val optVal = option.value.toString()
+                    val optVal = option.value?.toString() ?: return@forEach
                     val isSelected = selectedValues.contains(optVal)
                     
                     val onClickAction = {
@@ -907,7 +907,7 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                         if (isMultiple) Checkbox(checked = isSelected, onCheckedChange = null)
                         else RadioButton(selected = isSelected, onClick = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = option.label)
+                        Text(text = option.label ?: "Unknown")
                     }
                 }
             }
@@ -1239,11 +1239,11 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.fillMaxWidth(0.9f)) {
                     options.forEach { option ->
                         DropdownMenuItem(
-                            text = { Text(text = option.label) },
+                            text = { Text(text = option.label ?: "Unknown") },
                             onClick = {
                                 selectedOption = option; expanded = false
                                 component.value?.let { dv ->
-                                    if (dv is DynamicValue.PathValue) renderer.updateDataModel(context.surfaceId, dv.path, option.value)
+                                    if (dv is DynamicValue.PathValue && option.value != null) renderer.updateDataModel(context.surfaceId, dv.path, option.value)
                                 }
                             }
                         )
