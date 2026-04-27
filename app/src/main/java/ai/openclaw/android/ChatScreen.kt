@@ -882,6 +882,7 @@ private fun UserMessageBubble(
                 }
             }
             val segments = remember(message.content) { A2UICardParser.parse(message.content) }
+            val a2uiRenderer = rememberA2UIRenderer()
             for (segment in segments) {
                 when (segment) {
                     is MessageSegment.Text -> {
@@ -898,11 +899,13 @@ private fun UserMessageBubble(
                         )
                     }
                     is MessageSegment.StandardProtocol -> {
-                        val a2uiRenderer = rememberA2UIRenderer()
+                        // ✅ A2UI 卡片使用负边距突破气泡 padding，实现全宽显示
                         A2UIComposeRenderer(
                             content = "[A2UI]${segment.json}[/A2UI]",
                             renderer = a2uiRenderer,
-                            modifier = Modifier.padding(vertical = 4.dp)
+                            modifier = Modifier
+                                .padding(vertical = 4.dp)
+                                .padding(start = (-14).dp, end = (-12).dp)
                         )
                     }
                 }
@@ -980,6 +983,20 @@ private fun AiMessageBubble(
                         )
                     }
                     is MessageSegment.StandardProtocol -> {
+                        A2UIComposeRenderer(
+                            content = "[A2UI]${segment.json}[/A2UI]",
+                            renderer = a2uiRenderer,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }                    is MessageSegment.StandardProtocol -> {
+                        A2UIComposeRenderer(
+                            content = "[A2UI]${segment.json}[/A2UI]",
+                            renderer = a2uiRenderer,
+                            modifier = Modifier
+                                .padding(vertical = 4.dp)
+                                .padding(start = (-14).dp, end = (-12).dp)
+                        )
+                    }                    is MessageSegment.StandardProtocol -> {
                         A2UIComposeRenderer(
                             content = "[A2UI]${segment.json}[/A2UI]",
                             renderer = a2uiRenderer,

@@ -113,6 +113,11 @@ class AgentSession(
 3. Respond in the same language as the user.
 4. Simple greetings need no tools or A2UI.
 
+## Device Context
+- **Screen**: A2UI cards render at **full screen width** (no margins). Use `padding` for inner spacing.
+- **Container width**: ~360-420dp (typical phone). Design for 360dp minimum.
+- **Theme**: Dark mode. Use dark backgrounds (`#1a1a2e`, `#0a0a1a`) with light text.
+
 ## A2UI Protocol (v0.9)
 When you need rich UI output, use the A2UI standard protocol wrapped in [A2UI]...[/A2UI].
 
