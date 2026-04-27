@@ -232,49 +232,64 @@ object AgentPromptLoader {
 3. Respond in the same language as the user.
 4. Simple greetings need no tools or A2UI.
 
-## A2UI Format
-After receiving tool results, wrap the response using the standard A2UI protocol:
+## A2UI Protocol (v0.9)
+When you need rich UI output, use the A2UI standard protocol wrapped in [A2UI]...[/A2UI].
+
+### Message Structure
+- `createSurface`: {"surfaceId": "...", "catalogId": "..."}
+- `updateComponents`: {"surfaceId": "...", "components": [...]}
+- `updateDataModel`: {"surfaceId": "...", "path": "...", "value": ...}
+- `deleteSurface`: {"surfaceId": "..."}
+
+### Component Format (v0.9)
+Each component is a flat JSON object: {"id": "...", "component": "...", ...fields}
+
+**String values are plain strings, NOT wrappers:**
+- ✅ "text": "Hello"  ❌ "text": {"literalString": "Hello"}
+- ✅ "children": ["a", "b"]  ❌ "children": {"explicitList": ["a", "b"]}
+
+### Available Components
+- **Layout**: Row (children, justify, align), Column (children, justify, align), List (children, direction)
+- **Display**: Text (text, variant), Image (url, fit, variant), Icon (name), Divider (axis)
+- **Interactive**: Button (child, action, variant), TextField (label, value, placeholder, variant), CheckBox (label, value), Slider (value, minValue, maxValue, step), DateTimeInput (label, value, enableDate, enableTime), ChoicePicker (options, selections, variant, maxAllowedSelections, label)
+- **Container**: Card (child), Modal (trigger, content), Tabs (tabs), Accordion (children)
+- **Custom**: StockCard, CandlestickChart, LineChart, GaugeChart, HeatmapChart, RadarChart, Video, AudioPlayer, Spacer, ProgressBar, Switch, Dropdown
+
+### Design Guidelines — Make It Look Premium
+- Wrap content in a `Card` for elevation and rounded corners
+- Use `Column` with sections (header/body/footer), not flat stacking
+- Use `Row` with `justify: "spaceBetween"` for label-value pairs
+- Use `Divider` between sections
+- Add `Icon` or emoji next to titles
+- `h1` for hero value, `h3` for titles, `body` for content, `caption` for metadata
+
+### Example: Premium Weather Card
 [A2UI]
-{
-  "version": "v0.10",
-  "createSurface": {
-    "surfaceId": "unique_surface_id",
-    "catalogId": "app_catalog"
-  },
-  "updateComponents": {
-    "surfaceId": "unique_surface_id",
-    "components": [
-      {
-        "id": "root",
-        "component": "Card",
-        "child": "content_id"
-      },
-      {
-        "id": "content_id",
-        "component": "Column",
-        "children": {
-          "array": ["title_id", "value_id"]
-        }
-      },
-      {
-        "id": "title_id",
-        "component": "Text",
-        "text": {"literalString": "Title"}
-      },
-      {
-        "id": "value_id",
-        "component": "Text",
-        "text": {"literalString": "Value"}
-      }
-    ]
-  }
-}
+{"version":"v0.9","createSurface":{"surfaceId":"wp","catalogId":"app"},"updateComponents":{"surfaceId":"wp","components":[
+  {"id":"root","component":"Card","child":"content"},
+  {"id":"content","component":"Column","children":["hdr","d1","details","d2","ft"]},
+  {"id":"hdr","component":"Row","children":["city","ico"],"justify":"spaceBetween","align":"center"},
+  {"id":"city","component":"Text","text":"西安","variant":"h3"},
+  {"id":"ico","component":"Text","text":"☁️","variant":"h1"},
+  {"id":"d1","component":"Divider","axis":"horizontal"},
+  {"id":"details","component":"Column","children":["r1","r2"]},
+  {"id":"r1","component":"Row","children":["l1","v1"],"justify":"spaceBetween"},
+  {"id":"l1","component":"Text","text":"温度","variant":"caption"},
+  {"id":"v1","component":"Text","text":"21°C","variant":"body"},
+  {"id":"r2","component":"Row","children":["l2","v2"],"justify":"spaceBetween"},
+  {"id":"l2","component":"Text","text":"湿度","variant":"caption"},
+  {"id":"v2","component":"Text","text":"45%","variant":"body"},
+  {"id":"d2","component":"Divider","axis":"horizontal"},
+  {"id":"ft","component":"Text","text":"多云 · 空气质量 良","variant":"caption"}
+]}}
 [/A2UI]
 
-Legacy format is also supported for backward compatibility:
-[A2UI]{"type":"weather","data":{"title":"西安 · 天气","city":"西安","condition":"晴","temperature":"20°C","feelsLike":"18°C","humidity":"45%","wind":"南风 3级","forecast":[],"alert":null}}[/A2UI]
-
-Available components: Text, Button, Row, Column, TextField, CheckBox, Card, Image, Icon, Divider, Slider, ChoicePicker, List, Tabs, Modal, DateTimeInput, Video, AudioPlayer, Surface, Spacer, ProgressBar, Switch, Dropdown, StockCard, CandlestickChart, LineChart, GaugeChart, MiniGauge, HeatmapChart, RadarChart, BubbleChart, StreamingLineChart, InteractiveLineChart.
+### Critical Rules
+1. NEVER invent version numbers — only v0.8, v0.9, v0.10. Prefer v0.9.
+2. NEVER invent component names or field names — use only those listed above.
+3. String values are plain strings, no {"literalString":...} wrapper.
+4. Children are plain arrays, no {"explicitList":...} wrapper.
+5. Actions: {"event": {"name": "..."}}.
 
 ## Dynamic Skills
 You can create new skills dynamically using the `generate_skill` tool.

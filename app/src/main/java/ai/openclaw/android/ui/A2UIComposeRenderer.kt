@@ -43,17 +43,32 @@ import org.a2ui.compose.rendering.SurfaceContext
  *
  * 失败时自动回退显示原始 JSON 内容，不再空白。
  */
+/** 从 JSON 中提取 surfaceId（标准协议用） */
+private fun extractSurfaceId(json: String?): String {
+    if (json == null) return "chat_${System.currentTimeMillis()}"
+    return try {
+        val root = kotlinx.serialization.json.Json.parseToJsonElement(json).jsonObject
+        // Try createSurface first, then updateComponents
+        root["createSurface"]?.jsonObject?.get("surfaceId")?.jsonPrimitive?.content
+            ?: root["updateComponents"]?.jsonObject?.get("surfaceId")?.jsonPrimitive?.content
+            ?: "chat_${System.currentTimeMillis()}"
+    } catch (e: Exception) {
+        "chat_${System.currentTimeMillis()}"
+    }
+}
+
 @Composable
 fun A2UIComposeRenderer(
     content: String,
     renderer: A2UIRenderer,
     modifier: Modifier = Modifier
 ) {
-    val surfaceId = remember(content) { "chat_${System.currentTimeMillis()}" }
     val registry = remember { ComponentRegistry(renderer) }
     var ready by remember { mutableStateOf(false) }
     var renderError by remember { mutableStateOf<String?>(null) }
     val rawJson = remember(content) { extractA2UIJsons(content).firstOrNull() }
+    // Extract actual surfaceId from JSON (standard protocol) or generate (legacy)
+    val surfaceId = remember(content) { extractSurfaceId(rawJson) }
 
     LaunchedEffect(content, surfaceId) {
         ready = false
@@ -68,17 +83,35 @@ fun A2UIComposeRenderer(
         var anySuccess = false
         for (jsonStr in jsonSegments) {
             val protocolJson = if (isStandardProtocol(jsonStr)) {
-                jsonStr
+                // Standard protocol: JSON already has correct surfaceId
+                normalizeToJsonL(jsonStr)
             } else {
+                // Legacy: inject our generated surfaceId
                 convertLegacyCardToProtocol(jsonStr, surfaceId)
             }
             if (protocolJson != null) {
-                runCatching {
-                    renderer.processMessage(protocolJson)
-                    anySuccess = true
-                }.onFailure { e ->
-                    Log.e("A2UIComposeRenderer", "processMessage failed: ${e.message}")
-                    renderError = e.message ?: "Unknown rendering error"
+                // JSONL format: split into individual JSON objects and process each
+                val lines = protocolJson.lines().filter { it.isNotBlank() }
+                if (lines.size > 1) {
+                    // Multiple operations in JSONL format
+                    for (line in lines) {
+                        runCatching {
+                            renderer.processMessage(line.trim())
+                            anySuccess = true
+                        }.onFailure { e ->
+                            Log.e("A2UIComposeRenderer", "processMessage failed for line: ${e.message}")
+                            Log.d("A2UIComposeRenderer", "Failed line: ${line.take(100)}")
+                        }
+                    }
+                } else {
+                    // Single JSON object
+                    runCatching {
+                        renderer.processMessage(protocolJson)
+                        anySuccess = true
+                    }.onFailure { e ->
+                        Log.e("A2UIComposeRenderer", "processMessage failed: ${e.message}")
+                        renderError = e.message ?: "Unknown rendering error"
+                    }
                 }
             } else {
                 renderError = "Failed to parse A2UI JSON"
@@ -192,6 +225,42 @@ private fun isStandardProtocol(json: String): Boolean {
            json.contains("\"deleteSurface\"") ||
            json.contains("\"surfaceUpdate\"") ||
            json.contains("\"beginRendering\"")
+}
+
+/**
+ * 将单个 JSON 对象转换为 JSONL 格式
+ * 输入：{"version":"v0.10","createSurface":{...},"updateComponents":{...}}
+ * 输出：每行一个 JSON 对象的 JSONL 格式
+ */
+private fun normalizeToJsonL(json: String): String {
+    return try {
+        val root = kotlinx.serialization.json.Json.parseToJsonElement(json).jsonObject
+        val lines = mutableListOf<String>()
+        
+        // Extract createSurface
+        root["createSurface"]?.let { createSurface ->
+            val version = root["version"]?.jsonPrimitive?.content ?: "v0.10"
+            lines.add("""{"version":"$version","createSurface":${createSurface.toString()}}""")
+        }
+        
+        // Extract updateComponents
+        root["updateComponents"]?.let { updateComponents ->
+            val version = root["version"]?.jsonPrimitive?.content ?: "v0.10"
+            lines.add("""{"version":"$version","updateComponents":${updateComponents.toString()}}""")
+        }
+        
+        // Extract updateDataModel
+        root["updateDataModel"]?.let { updateDataModel ->
+            val version = root["version"]?.jsonPrimitive?.content ?: "v0.10"
+            lines.add("""{"version":"$version","updateDataModel":${updateDataModel.toString()}}""")
+        }
+        
+        // If no known fields, return original
+        if (lines.isEmpty()) json else lines.joinToString("\n")
+    } catch (e: Exception) {
+        Log.w("A2UIComposeRenderer", "Failed to normalize JSON to JSONL: ${e.message}")
+        json
+    }
 }
 
 // ==================== 旧格式 → 标准协议转换 ====================

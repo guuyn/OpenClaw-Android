@@ -71,6 +71,8 @@ object AnyMapSerializer : KSerializer<Map<String, Any?>> {
                 val d = element.doubleOrNull!!
                 if (d == d.toLong().toDouble()) d.toLong() else d
             }
+            // JSON null: isString=false, content="null"
+            element.content == "null" -> null
             else -> element.content
         }
         is JsonObject -> element.toAnyMap()
@@ -144,14 +146,36 @@ data class A2UICard(
 data class CardAction(
     @SerialName("label") val label: String,
     @SerialName("action") val action: String,
-    @SerialName("style") val style: ButtonStyle = ButtonStyle.Secondary
+    @SerialName("style") @Serializable(with = ButtonStyleSerializer::class) val style: ButtonStyle = ButtonStyle.Secondary
 )
 
 /** 按钮样式 */
 @Serializable
 enum class ButtonStyle {
+    @kotlinx.serialization.SerialName("Primary")
     Primary,    // 主操作（确认、发送）— 实心大按钮
-    Secondary   // 次操作（取消、修改）— 文字按钮
+    @kotlinx.serialization.SerialName("Secondary")
+    Secondary,   // 次操作（取消、修改）— 文字按钮
+    @kotlinx.serialization.SerialName("primary")
+    primary,    // 兼容小写
+    @kotlinx.serialization.SerialName("secondary")
+    secondary   // 兼容小写
+}
+
+/** 按钮样式序列化器（兼容大小写） */
+object ButtonStyleSerializer : KSerializer<ButtonStyle> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("ButtonStyle", PrimitiveKind.STRING)
+    override fun serialize(encoder: Encoder, value: ButtonStyle) {
+        encoder.encodeString(value.name.lowercase().replaceFirstChar { it.uppercase() })
+    }
+    override fun deserialize(decoder: Decoder): ButtonStyle {
+        val value = decoder.decodeString()
+        return when (value.lowercase()) {
+            "primary" -> ButtonStyle.Primary
+            "secondary" -> ButtonStyle.Secondary
+            else -> ButtonStyle.Secondary
+        }
+    }
 }
 
 /** 风险等级 */
@@ -573,15 +597,19 @@ object A2UICardParser {
             val jsonStr = content.substring(jsonStart, endIdx).trim()
 
             // 1. Detect standard protocol (JSONL with createSurface/updateComponents)
-            if (isStandardProtocolJson(jsonStr)) {
+            val isStandard = isStandardProtocolJson(jsonStr)
+            android.util.Log.d("A2UICardParser", "Parsing A2UI: isStandard=$isStandard, preview=${jsonStr.take(80)}")
+            if (isStandard) {
                 segments.add(MessageSegment.StandardProtocol(jsonStr))
             } else {
                 // 2. Try v2 JSON parse (legacy card format)
                 val card = tryParseV2(jsonStr)
                 if (card != null) {
+                    android.util.Log.d("A2UICardParser", "Parsed as A2UICard: type=${card.type}")
                     segments.add(MessageSegment.A2UICard(card))
                 } else {
                     // 3. Fallback to v1 format
+                    android.util.Log.d("A2UICardParser", "tryParseV2 failed, using parseV1 fallback")
                     segments.add(MessageSegment.A2UICard(parseV1(jsonStr)))
                 }
             }
@@ -607,7 +635,8 @@ object A2UICardParser {
 
     /**
      * 检测 JSON 是否为标准协议格式 (JSONL with createSurface/updateComponents)
-     * Standard protocol v0.8/v0.9/v0.10 uses JSONL with these fields
+     * Standard protocol v0.8/v0.9/v0.10 uses these operation keys
+     * Note: keys may be quoted ("createSurface") or unquoted depending on formatting
      */
     private fun isStandardProtocolJson(jsonStr: String): Boolean {
         return jsonStr.contains("createSurface") ||
@@ -615,13 +644,21 @@ object A2UICardParser {
                jsonStr.contains("updateDataModel") ||
                jsonStr.contains("deleteSurface") ||
                jsonStr.contains("surfaceUpdate") ||
-               jsonStr.contains("beginRendering")
+               jsonStr.contains("beginRendering") ||
+               jsonStr.contains("version") && (jsonStr.contains("\"createSurface\"") || jsonStr.contains("\"updateComponents\""))
     }
 
     /** 尝试 v2 JSON 解析 */
-    private fun tryParseV2(jsonStr: String): A2UICard? = runCatching {
-        json.decodeFromString<A2UICard>(jsonStr)
-    }.getOrNull()
+    private fun tryParseV2(jsonStr: String): A2UICard? {
+        val result = runCatching {
+            json.decodeFromString<A2UICard>(jsonStr)
+        }
+        result.onFailure { e ->
+            android.util.Log.e("A2UICardParser", "tryParseV2 failed: ${e.message}")
+            android.util.Log.d("A2UICardParser", "JSON: ${jsonStr.take(200)}")
+        }
+        return result.getOrNull()
+    }
 
     /** v1 旧格式解析（type\ndata\n... 或简单 JSON） */
     private fun parseV1(text: String): A2UICard {

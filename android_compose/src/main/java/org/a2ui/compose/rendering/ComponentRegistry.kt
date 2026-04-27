@@ -7,6 +7,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +28,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusState
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -46,7 +53,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -147,7 +156,35 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                 "label" -> MaterialTheme.typography.labelLarge
                 else -> MaterialTheme.typography.bodyLarge
             }
-            Text(text = text, style = textStyle, color = MaterialTheme.colorScheme.onSurface)
+            
+            // 获取颜色配置
+            val txtColor = component.textColor?.let { parseColor(it) } ?: MaterialTheme.colorScheme.onSurface
+            val bgColor = component.backgroundColor?.let { parseColor(it) }
+            
+            // 构建修饰符
+            var textModifier = Modifier.semantics(mergeDescendants = true) {
+                component.accessibilityLabel?.let { contentDescription = it }
+                component.accessibilityRole?.let { roleValue ->
+                when (roleValue.lowercase()) {
+                    "button" -> role = Role.Button
+                    "checkbox" -> role = Role.Checkbox
+                    "switch" -> role = Role.Switch
+                    "radio" -> role = Role.RadioButton
+                    "image" -> role = Role.Image
+                    else -> {} // Ignore other roles for now to avoid compilation errors
+                }
+            }
+            }
+            
+            // 添加内边距
+            textModifier = textModifier.padding((component.padding ?: 0).dp)
+            
+            Text(
+                text = text, 
+                style = textStyle, 
+                color = txtColor,
+                modifier = if (bgColor != null) textModifier.background(bgColor) else textModifier
+            )
         }
 
         // ==================== Button ====================
@@ -157,8 +194,6 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
             val isPrimary = component.variant == "primary" || component.primary == true
             val isBorderless = component.variant == "borderless" || component.variant == "text"
             val isEnabled = (resolve(context, component.value) as? Boolean) ?: true
-
-            val buttonModifier = Modifier.fillMaxWidth().semantics { role = Role.Button }
 
             val onClick: () -> Unit = {
                 component.action?.let { renderer.handleAction(context.surfaceId, it) }
@@ -174,6 +209,40 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                 } else {
                     val text = resolve(context, component.text) as? String ?: ""
                     Text(text = text)
+                }
+            }
+            
+            // 获取颜色配置
+            val bgColor = component.backgroundColor?.let { parseColor(it) } ?: MaterialTheme.colorScheme.primary
+            val bgModifier = if (component.gradient != null && component.gradient.size >= 2) {
+                Modifier.background(Brush.verticalGradient(component.gradient.map { parseColor(it)!! }))
+            } else {
+                Modifier.background(bgColor)
+            }
+            
+            // 构建修饰符
+            var buttonModifier = Modifier.fillMaxWidth()
+            
+            // 添加内边距
+            buttonModifier = buttonModifier.padding((component.padding ?: 0).dp)
+            
+            // 添加圆角
+            if (component.cornerRadius != null) {
+                buttonModifier = buttonModifier.clip(RoundedCornerShape((component.cornerRadius ?: 12).dp))
+            }
+            
+            buttonModifier = buttonModifier.then(bgModifier).semantics(mergeDescendants = true) {
+                role = Role.Button
+                component.accessibilityLabel?.let { contentDescription = it }
+                component.accessibilityRole?.let { roleValue ->
+                    when (roleValue.lowercase()) {
+                        "button" -> role = Role.Button
+                        "checkbox" -> role = Role.Checkbox
+                        "switch" -> role = Role.Switch
+                        "radio" -> role = Role.RadioButton
+                        "image" -> role = Role.Image
+                        else -> {} // Ignore other roles for now to avoid compilation errors
+                    }
                 }
             }
 
@@ -196,8 +265,35 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                 "start" -> Alignment.Top; "center" -> Alignment.CenterVertically
                 "end" -> Alignment.Bottom; else -> Alignment.Top
             }
+            
+            // 获取颜色配置
+            val bgColor = component.backgroundColor?.let { parseColor(it) }
+            
+            // 构建修饰符
+            var rowModifier = Modifier.fillMaxWidth()
+            
+            // 添加内边距
+            if (component.padding != null) {
+                rowModifier = rowModifier.padding((component.padding ?: 0).dp)
+            }
+            
+            // 添加圆角
+            if (component.cornerRadius != null) {
+                rowModifier = rowModifier.clip(RoundedCornerShape((component.cornerRadius ?: 12).dp))
+            }
+            
+            // 添加阴影
+            if (component.shadow != null) {
+                rowModifier = rowModifier.shadow(elevation = (component.shadow ?: 4).dp, clip = false)
+            }
+            
+            // 添加背景色
+            if (bgColor != null) {
+                rowModifier = rowModifier.background(bgColor)
+            }
+            
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = rowModifier,
                 horizontalArrangement = justifyContent,
                 verticalAlignment = alignItems
             ) { renderChildren(component, context) }
@@ -215,8 +311,35 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                 "start" -> Alignment.Start; "center" -> Alignment.CenterHorizontally
                 "end" -> Alignment.End; else -> Alignment.Start
             }
+            
+            // 获取颜色配置
+            val bgColor = component.backgroundColor?.let { parseColor(it) }
+            
+            // 构建修饰符
+            var colModifier = Modifier.fillMaxWidth()
+            
+            // 添加内边距
+            if (component.padding != null) {
+                colModifier = colModifier.padding((component.padding ?: 0).dp)
+            }
+            
+            // 添加圆角
+            if (component.cornerRadius != null) {
+                colModifier = colModifier.clip(RoundedCornerShape((component.cornerRadius ?: 12).dp))
+            }
+            
+            // 添加阴影
+            if (component.shadow != null) {
+                colModifier = colModifier.shadow(elevation = (component.shadow ?: 4).dp, clip = false)
+            }
+            
+            // 添加背景色
+            if (bgColor != null) {
+                colModifier = colModifier.background(bgColor)
+            }
+            
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = colModifier,
                 verticalArrangement = justifyContent,
                 horizontalAlignment = alignItems
             ) { renderChildren(component, context) }
@@ -289,13 +412,37 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                 } else null,
                 singleLine = variant == "shortText",
-                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = keyboardType,
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { 
+                        // v0.9: Trigger action on Enter key press (Submit action)
+                        component.action?.let { action ->
+                            renderer.handleAction(context.surfaceId, action)
+                        }
+                    }
+                ),
                 visualTransformation = visualTransformation,
-                modifier = Modifier.fillMaxWidth().semantics {
-                    contentDescription = buildString {
-                        append(label)
-                        if (required) append(", required field")
-                        if (isError && hasBeenTouched) append(", error: $errorMessage")
+                modifier = Modifier.fillMaxWidth().onFocusChanged { focusState ->
+                    if (!focusState.hasFocus) {
+                        // v0.9: Trigger action on blur (Blur action)
+                        component.action?.let { action ->
+                            renderer.handleAction(context.surfaceId, action)
+                        }
+                    }
+                }.semantics {
+                    component.accessibilityLabel?.let { contentDescription = it }
+                    component.accessibilityRole?.let { roleValue ->
+                        when (roleValue.lowercase()) {
+                            "button" -> role = Role.Button
+                            "checkbox" -> role = Role.Checkbox
+                            "switch" -> role = Role.Switch
+                            "radio" -> role = Role.RadioButton
+                            "image" -> role = Role.Image
+                            else -> {} // Ignore other roles for now to avoid compilation errors
+                        }
                     }
                 }
             )
@@ -333,10 +480,43 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
 
         // ==================== Card ====================
         register("Card") { component, context ->
+            // 获取颜色配置
+            val bgColor = component.backgroundColor?.let { parseColor(it) } ?: MaterialTheme.colorScheme.surface
+            val bgModifier = if (component.gradient != null && component.gradient.size >= 2) {
+                Modifier.background(Brush.verticalGradient(component.gradient.map { parseColor(it)!! }))
+            } else {
+                Modifier.background(bgColor)
+            }
+            
+            // 构建修饰符
+            var cardModifier = Modifier.fillMaxWidth().padding(8.dp).semantics(mergeDescendants = true) {
+                component.accessibilityLabel?.let { contentDescription = it }
+                component.accessibilityRole?.let { roleValue ->
+                    when (roleValue.lowercase()) {
+                        "button" -> role = Role.Button
+                        "checkbox" -> role = Role.Checkbox
+                        "switch" -> role = Role.Switch
+                        "radio" -> role = Role.RadioButton
+                        "image" -> role = Role.Image
+                        else -> {} // Ignore other roles for now to avoid compilation errors
+                    }
+                }
+            }
+            
+            // 添加内边距
+            cardModifier = cardModifier.padding((component.padding ?: 0).dp)
+            
+            // 如果启用毛玻璃效果
+            if (component.blur != null && component.blur!! > 0) {
+                val themeConfig = a2uiThemeConfig()
+                cardModifier = cardModifier.glassmorphism(themeConfig)
+            }
+            
             Card(
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                shape = RoundedCornerShape(12.dp)
+                modifier = cardModifier,
+                elevation = CardDefaults.cardElevation(defaultElevation = (component.shadow ?: 4).dp),
+                shape = RoundedCornerShape((component.cornerRadius ?: 12).dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent) // 让背景色由修饰符控制
             ) {
                 // ✅ 同时支持 child 和 children
                 val childId = component.child
@@ -502,13 +682,44 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                 "header" -> Modifier.fillMaxWidth().height(250.dp) to RoundedCornerShape(0.dp)
                 else -> Modifier.fillMaxWidth().height(200.dp) to RoundedCornerShape(8.dp)
             }
+            
+            // 获取颜色配置
+            val bgColor = component.backgroundColor?.let { parseColor(it) }
+            
+            // 构建修饰符
+            var imageModifier = imgModifier
+            
+            // 添加内边距
+            if (component.padding != null) {
+                imageModifier = imageModifier.padding((component.padding ?: 0).dp)
+            }
+            
+            // 添加圆角
+            if (component.cornerRadius != null) {
+                imageModifier = imageModifier.clip(RoundedCornerShape((component.cornerRadius ?: 8).dp))
+            }
+            
+            // 添加阴影
+            if (component.shadow != null) {
+                imageModifier = imageModifier.shadow(elevation = (component.shadow ?: 4).dp, clip = false)
+            }
+            
+            // 添加模糊
+            if (component.blur != null && component.blur!! > 0) {
+                imageModifier = imageModifier.blur(radius = (component.blur ?: 0).dp)
+            }
+            
+            // 添加背景色
+            if (bgColor != null) {
+                imageModifier = imageModifier.background(bgColor)
+            }
 
             if (url.isNotEmpty()) {
                 // ✅ URL scheme 校验
                 val isAllowed = A2UIRenderer.ALLOWED_URL_SCHEMES.any { url.startsWith(it) }
                 if (!isAllowed) return@register
 
-                Box(modifier = imgModifier.clip(imgShape).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                Box(modifier = imageModifier.then(if (bgColor != null) Modifier else imgModifier.clip(imgShape).background(MaterialTheme.colorScheme.surfaceVariant))) {
                     AsyncImage(
                         model = url, contentDescription = altText,
                         modifier = Modifier.fillMaxSize(), contentScale = contentScale
@@ -518,19 +729,52 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
         }
 
         // ==================== Icon ====================
-        // v0.9: name 属性, v0.8: name 属性 (literalString)
+        // v0.10: icon 属性, v0.9: name 属性, v0.8: name 属性 (literalString)
         // fallback: text 属性（向后兼容旧实现）
         register("Icon") { component, context ->
-            val iconName = resolve(context, component.name) as? String
-                ?: resolve(context, component.text) as? String
+            val iconName = component.icon
+                ?: (resolve(context, component.name) as? String)
+                ?: (resolve(context, component.text) as? String)
                 ?: "star"
 
-            val iconVector = ICON_MAP[iconName] ?: Icons.Default.Star
+            val iconSize = component.size ?: 24
+            val iconVector = ICON_MAP[iconName] ?: ICON_MAP[iconName.lowercase()] ?: ICON_MAP[iconName.replaceFirstChar { it.uppercaseChar() }] ?: Icons.Default.Star
+            
+            // 获取颜色配置
+            val bgColor = component.backgroundColor?.let { parseColor(it) }
+            
+            // 构建修饰符
+            var iconModifier = Modifier.size(iconSize.dp)
+            
+            // 添加内边距
+            if (component.padding != null) {
+                iconModifier = iconModifier.padding((component.padding ?: 0).dp)
+            }
+            
+            // 添加圆角
+            if (component.cornerRadius != null) {
+                iconModifier = iconModifier.clip(RoundedCornerShape((component.cornerRadius ?: 8).dp))
+            }
+            
+            // 添加阴影
+            if (component.shadow != null) {
+                iconModifier = iconModifier.shadow(elevation = (component.shadow ?: 4).dp, clip = false)
+            }
+            
+            // 添加模糊
+            if (component.blur != null && component.blur!! > 0) {
+                iconModifier = iconModifier.blur(radius = (component.blur ?: 0).dp)
+            }
+            
+            // 添加背景色
+            if (bgColor != null) {
+                iconModifier = iconModifier.background(bgColor)
+            }
 
             Icon(
                 imageVector = iconVector,
                 contentDescription = iconName,
-                modifier = Modifier.size(24.dp),
+                modifier = iconModifier,
                 tint = MaterialTheme.colorScheme.onSurface
             )
         }
@@ -557,8 +801,9 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
         // ==================== Slider ====================
         register("Slider") { component, context ->
             val value = (resolve(context, component.value) as? Number)?.toFloat() ?: 0f
-            val min = (component.min ?: 0.0).toFloat()
-            val max = (component.max ?: 100.0).toFloat()
+            // v0.9: minValue/maxValue aliases; v0.8: min/max
+            val min = ((component.minValue ?: component.min) ?: 0.0).toFloat()
+            val max = ((component.maxValue ?: component.max) ?: 100.0).toFloat()
             val label = resolve(context, component.label) as? String
 
             var sliderValue by rememberSaveable { mutableStateOf(value) }
@@ -589,12 +834,14 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
         }
 
         // ==================== ChoicePicker ====================
-        // v0.9: variant (mutuallyExclusive/multipleSelection), options, value (DynamicStringList)
-        // v0.8: MultipleChoice with selections, maxAllowedSelections
+        // v0.9: variant (mutuallyExclusive/multipleSelection), options, selections (instead of value), maxAllowedSelections
+        // v0.8: MultipleChoice with value, maxAllowedSelections
         register("ChoicePicker") { component, context ->
-            val currentValue = resolve(context, component.value)
+            // v0.9: use selections instead of value
+            val currentValue = resolve(context, component.selections) ?: resolve(context, component.value)
             val options = component.options ?: emptyList()
             val isMultiple = component.variant == "multipleSelection" || component.multiple == true
+            val maxAllowedSelections = component.maxAllowedSelections ?: if (isMultiple) Int.MAX_VALUE else 1
             val label = resolve(context, component.label) as? String
 
             var selectedValues by rememberSaveable {
@@ -623,18 +870,37 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                 options.forEach { option ->
                     val optVal = option.value.toString()
                     val isSelected = selectedValues.contains(optVal)
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                            .clickable {
-                                val newSet = if (isMultiple) {
-                                    if (isSelected) selectedValues - optVal else selectedValues + optVal
-                                } else { setOf(optVal) }
-                                selectedValues = newSet
-                                val newValue: Any = if (isMultiple) newSet.toList() else newSet.first()
-                                component.value?.let { dv ->
-                                    if (dv is DynamicValue.PathValue) renderer.updateDataModel(context.surfaceId, dv.path, newValue)
+                    
+                    val onClickAction = {
+                        val newSet = if (isMultiple) {
+                            if (isSelected) {
+                                selectedValues - optVal
+                            } else {
+                                // Check if we've reached max selection limit
+                                if (selectedValues.size >= maxAllowedSelections && maxAllowedSelections > 0) {
+                                    // Remove first item if at limit and not infinite
+                                    selectedValues.drop(1).toSet() + optVal
+                                } else {
+                                    selectedValues + optVal
                                 }
                             }
+                        } else { 
+                            setOf(optVal) 
+                        }
+                        selectedValues = newSet
+                        val newValue: Any = if (isMultiple) newSet.toList() else newSet.first()
+                        // Try updating with selections first (v0.9), fall back to value (v0.8)
+                        component.selections?.let { dv ->
+                            if (dv is DynamicValue.PathValue) renderer.updateDataModel(context.surfaceId, dv.path, newValue)
+                        } ?: component.value?.let { dv ->
+                            if (dv is DynamicValue.PathValue) renderer.updateDataModel(context.surfaceId, dv.path, newValue)
+                        }
+                        Unit
+                    }
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .clickable(onClick = onClickAction)
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -986,6 +1252,143 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
             }
         }
 
+        // ==================== Accordion ====================
+        // v0.9: new component using Material3 ExpandableCard
+        register("Accordion") { component, context ->
+            val children = component.children
+            
+            Column(modifier = Modifier.fillMaxWidth()) {
+                when (children) {
+                    is ChildList.ArrayChildList -> {
+                        children.array.forEachIndexed { index, childId ->
+                            // For accordion items from array, treat each child as an accordion panel
+                            renderer.getComponent(context.surfaceId, childId)?.let { childComponent ->
+                                val title = resolve(context, childComponent.label) as? String 
+                                    ?: resolve(context, childComponent.text) as? String 
+                                    ?: "Section ${index + 1}"
+                                val contentChildId = childComponent.child
+                                
+                                var expanded by rememberSaveable { mutableStateOf(false) }
+                                
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable { expanded = !expanded },
+                                    elevation = CardDefaults.cardElevation(defaultElevation = if (expanded) 8.dp else 4.dp)
+                                ) {
+                                    Column {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = title,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Icon(
+                                                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                                contentDescription = if (expanded) "Collapse" else "Expand",
+                                                modifier = Modifier.padding(start = 8.dp)
+                                            )
+                                        }
+                                        
+                                        AnimatedVisibility(
+                                            visible = expanded,
+                                            enter = fadeIn() + slideInVertically(),
+                                            exit = fadeOut() + slideOutVertically()
+                                        ) {
+                                            Divider(modifier = Modifier.fillMaxWidth())
+                                            contentChildId?.let { contentId ->
+                                                renderer.getComponent(context.surfaceId, contentId)?.let { contentComponent ->
+                                                    Box(modifier = Modifier.padding(16.dp)) {
+                                                        render(contentComponent, context.copy(renderDepth = context.renderDepth + 1))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    is ChildList.ObjectChildList -> {
+                        // Handle template-based accordion items
+                        val dataPath = children.objectChild.path
+                        val dataItems = resolve(context, DynamicValue.PathValue<Any>(dataPath)) as? List<*>?
+                        val templateId = children.objectChild.componentId
+                        
+                        dataItems?.forEachIndexed { index, item ->
+                            renderer.getComponent(context.surfaceId, templateId)?.let { templateComponent ->
+                                val title = resolve(context, templateComponent.label) as? String 
+                                    ?: resolve(context, templateComponent.text) as? String 
+                                    ?: "Item ${index + 1}"
+                                val contentChildId = templateComponent.child
+                                
+                                var expanded by rememberSaveable { mutableStateOf(false) }
+                                
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable { expanded = !expanded },
+                                    elevation = CardDefaults.cardElevation(defaultElevation = if (expanded) 8.dp else 4.dp)
+                                ) {
+                                    Column {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = title,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Icon(
+                                                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                                contentDescription = if (expanded) "Collapse" else "Expand",
+                                                modifier = Modifier.padding(start = 8.dp)
+                                            )
+                                        }
+                                        
+                                        AnimatedVisibility(
+                                            visible = expanded,
+                                            enter = fadeIn() + slideInVertically(),
+                                            exit = fadeOut() + slideOutVertically()
+                                        ) {
+                                            Divider(modifier = Modifier.fillMaxWidth())
+                                            contentChildId?.let { contentId ->
+                                                renderer.getComponent(context.surfaceId, contentId)?.let { contentComponent ->
+                                                    Box(modifier = Modifier.padding(16.dp)) {
+                                                        render(contentComponent, context.copy(renderDepth = context.renderDepth + 1))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else -> {
+                        // Empty accordion or fallback
+                        Text(
+                            text = "No items to display",
+                            modifier = Modifier.padding(16.dp),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+        }
+        
         // v0.8 兼容: MultipleChoice -> ChoicePicker
         register("MultipleChoice") { component, context ->
             components["ChoicePicker"]?.invoke(component, context)
@@ -1758,6 +2161,17 @@ private val ICON_MAP = mapOf(
     "volumeOff" to Icons.Default.VolumeOff,
     "volumeUp" to Icons.Default.VolumeUp,
     "warning" to Icons.Default.Warning,
+    // weather icons
+    "sunny" to Icons.Default.WbSunny,
+    "Sunny" to Icons.Default.WbSunny,
+    "cloudy" to Icons.Default.Cloud,
+    "Cloudy" to Icons.Default.Cloud,
+    "rainy" to Icons.Default.WaterDrop,
+    "Rainy" to Icons.Default.WaterDrop,
+    "acUnit" to Icons.Default.AcUnit,
+    "thunderstorm" to Icons.Default.Thunderstorm,
+    "wbCloudy" to Icons.Default.WbCloudy,
+    "wbSunny" to Icons.Default.WbSunny,
     // legacy snake_case fallbacks
     "arrow_back" to Icons.Default.ArrowBack,
     "arrow_forward" to Icons.Default.ArrowForward,

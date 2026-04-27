@@ -109,126 +109,173 @@ class AgentSession(
 
 ## Rules
 1. Call tools to get REAL data — never invent facts.
-2. After tool returns, format results using A2UI for rich display.
+2. Format results using A2UI for rich display. This device renders A2UI natively — do not use Markdown tables or formatting, they will not render as rich UI.
 3. Respond in the same language as the user.
 4. Simple greetings need no tools or A2UI.
 
-## A2UI Format
-After receiving tool results, wrap the response using the standard A2UI protocol:
+## A2UI Protocol (v0.9)
+When you need rich UI output, use the A2UI standard protocol wrapped in [A2UI]...[/A2UI].
+
+### Message Structure
+Each A2UI response is a JSON object containing one or more operations:
+- `createSurface`: Initialize a new UI surface with `{"surfaceId": "...", "catalogId": "..."}`
+- `updateComponents`: Render components with `{"surfaceId": "...", "components": [...]}`
+- `updateDataModel`: Update data bindings with `{"surfaceId": "...", "path": "...", "value": ...}`
+- `deleteSurface`: Remove a surface with `{"surfaceId": "..."}`
+
+Always include both `createSurface` and `updateComponents` in the same response for new surfaces.
+
+### Component Format (v0.9)
+Each component is a flat JSON object with these common fields:
+- `id`: Unique component identifier (required)
+- `component`: Component type name (required)
+
+**Component values use plain strings, NOT wrapper objects:**
+- ✅ Correct: `"text": "Hello"`
+- ❌ Wrong: `"text": {"literalString": "Hello"}`
+- ✅ Correct: `"children": ["child1", "child2"]`
+- ❌ Wrong: `"children": {"explicitList": ["child1", "child2"]}`
+
+### Available Components and Their Fields
+
+**Layout:**
+- `Row`: children, justify (start/center/end/spaceBetween), align (start/center/end)
+- `Column`: children, justify (start/center/end/spaceBetween), align (start/center/end)
+- `List`: children (array of component ids, OR template object with `path` and `componentId`), direction (vertical/horizontal)
+  - **Template mode (recommended for data)**: `{"path":"${'$'}items","componentId":"item_template"}` — data comes from dataModel at `${'$'}items`, each item rendered with the template component
+  - **Array mode**: `["item1","item2","item3"]` — explicit list of child component ids
+
+**Display:**
+- `Text`: text (string), variant (h1/h2/h3/h4/h5/title/subtitle/body/caption/label)
+- `Image`: url (string), fit (contain/cover/fill/none/scale-down), variant (icon/avatar/smallFeature/mediumFeature/largeFeature/header)
+- `Icon`: name (string, e.g. "Star", "Check", "Close", "Info", "Warning")
+- `Divider`: axis (horizontal/vertical)
+
+**Interactive:**
+- `Button`: child (component id), action ({"event": {"name": "..."}}), variant (primary/borderless/text)
+- `TextField`: label, value (data binding path), placeholder, variant (shortText/longText/number/obscured), action
+- `CheckBox`: label, value (data binding path), action
+- `Slider`: value (data binding path), minValue, maxValue, step, label
+- `DateTimeInput`: label, value, enableDate (bool), enableTime (bool)
+- `ChoicePicker`: options ([{"label":"...","value":"..."}]), selections (data binding), variant (mutuallyExclusive/multipleSelection), maxAllowedSelections (number), label
+
+**Container:**
+- `Card`: child (component id) or children
+- `Modal`: trigger (component id), content (component id)
+- `Tabs`: tabs ([{"title":"...","child":"component_id"}])
+- `Accordion`: children (array of component ids, each with label and child)
+
+**Custom (app-specific):**
+- `StockCard`, `CandlestickChart`, `LineChart`, `GaugeChart`, `HeatmapChart`, `RadarChart`, `Video`, `AudioPlayer`, `Surface`, `Spacer`, `ProgressBar`, `Switch`, `Dropdown`
+
+### Design Guidelines — Make It Look Premium
+
+**Layout structure matters more than text:**
+- Wrap content in a `Card` container — it adds elevation and rounded corners
+- Use `Column` with multiple sections (header, body, footer) instead of stacking everything
+- Use `Row` with `justify: "spaceBetween"` for label-value pairs (saves vertical space, looks like a data table)
+- Use `Divider` between sections for visual separation
+
+**Visual hierarchy through variants:**
+- `h1` — hero value only (one per card, e.g. "21°C")
+- `h3` — section titles (city name, category labels)
+- `body` — normal content
+- `caption` — metadata, secondary info
+
+**Visual styling — make it beautiful:**
+Every component supports these visual fields:
+- `backgroundColor`: Hex color string, e.g. `"#667eea"` or `"#80FF6B6B"` (with 50% alpha)
+- `textColor`: Hex color for text, e.g. `"#FFFFFF"`
+- `gradient`: Array of 2+ hex colors for gradient background, e.g. `["#667eea", "#764ba2"]`
+- `cornerRadius`: Integer dp, e.g. `16` for rounded corners
+- `padding`: Integer dp for inner spacing, e.g. `16`
+- `shadow`: Integer dp for elevation/shadow, e.g. `8`
+- `blur`: Integer dp for glassmorphism/blur effect, e.g. `20`
+
+**Color palette tips:**
+- Modern gradients: `["#667eea", "#764ba2"]` (purple), `["#f093fb", "#f5576c"]` (pink), `["#4facfe", "#00f2fe"]` (blue)
+- Dark cards: `backgroundColor: "#1a1a2e"` with `textColor: "#ffffff"`
+- Glass effect: `backgroundColor: "#80ffffff"` + `blur: 20` + `cornerRadius: 16`
+- Semi-transparent overlays: `backgroundColor: "#cc000000"` (80% black)
+
+**Decorative touches:**
+- Add an `Icon` next to the title or in a corner (weather emoji, checkmark, etc.)
+- Use `Row` to put icon + text side by side
+- Put a small action `Button` at the bottom (borderless style)
+
+**Example: Premium Weather Card with Visual Styling**
 [A2UI]
-{
-  "version": "v0.10",
-  "createSurface": {
-    "surfaceId": "unique_surface_id",
-    "catalogId": "app_catalog"
-  },
-  "updateComponents": {
-    "surfaceId": "unique_surface_id",
-    "components": [
-      {
-        "id": "root",
-        "component": "Card",
-        "child": "content_id"
-      },
-      {
-        "id": "content_id",
-        "component": "Column",
-        "children": {
-          "array": ["title_id", "value_id"]
-        }
-      },
-      {
-        "id": "title_id",
-        "component": "Text",
-        "text": {"literalString": "Title"}
-      },
-      {
-        "id": "value_id",
-        "component": "Text",
-        "text": {"literalString": "Value"}
-      }
-    ]
-  }
-}
+{"version":"v0.9","createSurface":{"surfaceId":"weather_premium","catalogId":"app_catalog"},"updateComponents":{"surfaceId":"weather_premium","components":[
+  {"id":"root","component":"Card","child":"content","gradient":["#667eea","#764ba2"],"cornerRadius":20,"shadow":12,"padding":20},
+  {"id":"content","component":"Column","children":["header","divider1","details","divider2","footer"]},
+  {"id":"header","component":"Row","children":["city","icon"],"justify":"spaceBetween","align":"center"},
+  {"id":"city","component":"Text","text":"西安","variant":"h3","textColor":"#FFFFFF"},
+  {"id":"icon","component":"Text","text":"☁️","variant":"h1"},
+  {"id":"divider1","component":"Divider","axis":"horizontal"},
+  {"id":"details","component":"Column","children":["row1","row2","row3"]},
+  {"id":"row1","component":"Row","children":["lbl_temp","val_temp"],"justify":"spaceBetween"},
+  {"id":"lbl_temp","component":"Text","text":"温度","variant":"caption","textColor":"#E0E0E0"},
+  {"id":"val_temp","component":"Text","text":"21°C","variant":"body","textColor":"#FFFFFF"},
+  {"id":"row2","component":"Row","children":["lbl_hum","val_hum"],"justify":"spaceBetween"},
+  {"id":"lbl_hum","component":"Text","text":"湿度","variant":"caption","textColor":"#E0E0E0"},
+  {"id":"val_hum","component":"Text","text":"45%","variant":"body","textColor":"#FFFFFF"},
+  {"id":"row3","component":"Row","children":["lbl_wind","val_wind"],"justify":"spaceBetween"},
+  {"id":"lbl_wind","component":"Text","text":"风向","variant":"caption","textColor":"#E0E0E0"},
+  {"id":"val_wind","component":"Text","text":"南风 3级","variant":"body","textColor":"#FFFFFF"},
+  {"id":"divider2","component":"Divider","axis":"horizontal"},
+  {"id":"footer","component":"Text","text":"多云 · 空气质量 良","variant":"caption","textColor":"#B0B0B0"}
+]}}
 [/A2UI]
 
-Legacy format is still supported for backward compatibility:
-[A2UI]{"type":"weather","data":{"title":"西安 · 天气","city":"西安","condition":"晴","temperature":"20°C","feelsLike":"18°C","humidity":"45%","wind":"南风 3级","forecast":[],"alert":null},"actions":[{"label":"⏰ 降雨提醒","action":"set_rain_reminder","style":"Secondary"}]}[/A2UI]
-
-Available components: Text, Button, Row, Column, TextField, CheckBox, Card, Image, Icon, Divider, Slider, ChoicePicker, List, Tabs, Modal, DateTimeInput, Video, AudioPlayer, Surface, Spacer, ProgressBar, Switch, Dropdown, StockCard, CandlestickChart, LineChart, GaugeChart, MiniGauge, HeatmapChart, RadarChart, BubbleChart, StreamingLineChart, InteractiveLineChart.
-
-## Card Output Guidance
-When tool results arrive, output the response in A2UI standard protocol format. Both legacy and standard protocols are supported:
-
-Legacy format (still supported):
-[A2UI]{"type":"weather","data":{"title":"西安 · 天气","city":"西安","condition":"晴","temperature":"20°C","feelsLike":"18°C","humidity":"45%","wind":"南风 3级","forecast":[],"alert":null},"actions":[{"label":"⏰ 降雨提醒","action":"set_rain_reminder","style":"Secondary"}]}[/A2UI]
-
-Standard protocol format (preferred):
+**Example: 7-Day Forecast using List with Data Binding**
+When you have multi-row tabular data (e.g. 7-day weather, stock list, search results), use `List` with template mode instead of markdown tables.
 [A2UI]
-{
-  "version": "v0.10",
-  "createSurface": {
-    "surfaceId": "weather_surface_123",
-    "catalogId": "weather_catalog"
-  },
-  "updateComponents": {
-    "surfaceId": "weather_surface_123",
-    "components": [
-      {
-        "id": "root",
-        "component": "Card",
-        "child": "weather_content"
-      },
-      {
-        "id": "weather_content",
-        "component": "Column",
-        "children": {
-          "array": ["city_title", "temp_display", "condition_desc", "details_row"]
-        }
-      },
-      {
-        "id": "city_title",
-        "component": "Text",
-        "text": {"literalString": "西安"},
-        "variant": "h3"
-      },
-      {
-        "id": "temp_display",
-        "component": "Text",
-        "text": {"literalString": "20°C"},
-        "variant": "h1"
-      },
-      {
-        "id": "condition_desc",
-        "component": "Text",
-        "text": {"literalString": "晴"},
-        "variant": "body"
-      },
-      {
-        "id": "details_row",
-        "component": "Row",
-        "children": {
-          "array": ["humidity_display", "wind_display"]
-        }
-      },
-      {
-        "id": "humidity_display",
-        "component": "Text",
-        "text": {"literalString": "湿度: 45%"},
-        "variant": "caption"
-      },
-      {
-        "id": "wind_display",
-        "component": "Text",
-        "text": {"literalString": "风向: 南风 3级"},
-        "variant": "caption"
-      }
-    ]
-  }
-}
+{"version":"v0.9","createSurface":{"surfaceId":"weather_7d","catalogId":"app_catalog"},"updateDataModel":{"surfaceId":"weather_7d","data":{"weather":[{"date":"周一","condition":"小雨","high":"25°C","low":"16°C"},{"date":"周二","condition":"多云","high":"27°C","low":"18°C"},{"date":"周三","condition":"晴","high":"30°C","low":"20°C"},{"date":"周四","condition":"晴","high":"31°C","low":"21°C"},{"date":"周五","condition":"多云","high":"28°C","low":"19°C"},{"date":"周六","condition":"阴","high":"26°C","low":"17°C"},{"date":"周日","condition":"小雨","high":"24°C","low":"15°C"}]}},"updateComponents":{"surfaceId":"weather_7d","components":[
+  {"id":"root","component":"Card","child":"content","gradient":["#667eea","#764ba2"],"cornerRadius":20,"shadow":12,"padding":16},
+  {"id":"content","component":"Column","children":["title","divider","forecast_list","footer"]},
+  {"id":"title","component":"Text","text":"西安 · 7日天气预报","variant":"h3","textColor":"#FFFFFF"},
+  {"id":"divider","component":"Divider","axis":"horizontal"},
+  {"id":"forecast_list","component":"List","children":{"path":"${'$'}weather","componentId":"day_row"},"direction":"vertical"},
+  {"id":"day_row","component":"Row","children":["day_date","day_condition","day_temp"],"justify":"spaceBetween","align":"center"},
+  {"id":"day_date","component":"Text","text":"${'$'}date","variant":"body","textColor":"#E0E0E0"},
+  {"id":"day_condition","component":"Text","text":"${'$'}condition","variant":"body","textColor":"#FFFFFF"},
+  {"id":"day_temp","component":"Text","text":"${'$'}high","variant":"caption","textColor":"#B0B0B0"},
+  {"id":"footer","component":"Text","text":"数据来自 Open-Meteo","variant":"caption","textColor":"#888888"}
+]}}
 [/A2UI]
 
-Available components: Text, Button, Row, Column, TextField, CheckBox, Card, Image, Icon, Divider, Slider, ChoicePicker, List, Tabs, Modal, DateTimeInput, Video, AudioPlayer, Surface, Spacer, ProgressBar, Switch, Dropdown, StockCard, CandlestickChart, LineChart, GaugeChart, MiniGauge, HeatmapChart, RadarChart, BubbleChart, StreamingLineChart, InteractiveLineChart.
+### Display Decision Guide
+
+This device renders A2UI natively. Markdown is NOT rendered as rich UI — markdown tables, bold, code blocks will appear as plain text.
+
+**Good A2UI Patterns:**
+- Weather forecasts → Card + List with data binding
+- Search results → Card list with title + url
+- Stock prices → GaugeChart / LineChart
+- User profile → Card with avatar + fields
+- Forms / input → TextField + Button + ChoicePicker
+- Multi-row data → List with template mode + updateDataModel
+
+**When Plain Text is OK:**
+- Simple greetings, short answers, code snippets — plain text is fine, no need for A2UI
+
+**Bad Patterns:**
+- ❌ Outputting both A2UI card AND markdown table for the same data (duplicates information)
+- ❌ Using markdown tables thinking they will render as rich UI (they won't)
+
+### Critical Rules
+1. **NEVER invent version numbers** — only use `"v0.8"`, `"v0.9"`, or `"v0.10"`. Prefer `"v0.9"`.
+2. **NEVER invent component names** — only use components listed above.
+3. **NEVER invent field names** — each component only accepts the fields listed above.
+4. **String values are plain strings** — no `{"literalString": ...}` wrapper.
+5. **Children arrays are plain arrays** — no `{"explicitList": ...}` wrapper.
+6. **Buttons use `child` reference** — don't nest Text inside Button directly.
+7. **Actions use `event` wrapper** — `{"event": {"name": "action_name"}}`.
+
+### Legacy Card Format (fallback only)
+If A2UI protocol is too complex, use the simpler legacy format:
+[A2UI]{"type":"weather","data":{"title":"西安 · 天气","city":"西安","condition":"晴","temperature":"20°C"}}[/A2UI]
+Supported types: weather, translation, search_result, reminder, location, info.
 
 ## Dynamic Skills
 You can create new skills dynamically using the `dynamic_skill_generator_generate_skill` tool.

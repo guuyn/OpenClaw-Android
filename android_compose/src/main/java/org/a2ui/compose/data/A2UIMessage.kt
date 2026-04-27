@@ -177,8 +177,8 @@ class DynamicValueSerializer<T>(private val tSerializer: KSerializer<T>) : KSeri
             }
             element is JsonObject && "path" in element ->
                 DynamicValue.PathValue(element["path"]!!.jsonPrimitive.content)
-            element is JsonObject && "literal" in element -> {
-                val lit = element["literal"]!!
+            element is JsonObject && ("literal" in element || "literalString" in element) -> {
+                val lit = element["literal"] ?: element["literalString"]!!
                 val value: Any = when {
                     lit is JsonPrimitive && lit.isString -> lit.content
                     lit is JsonPrimitive && lit.booleanOrNull != null -> lit.boolean
@@ -229,6 +229,8 @@ class Component(
     val align: String? = null,
     val min: Double? = null,
     val max: Double? = null,
+    val minValue: Double? = null,
+    val maxValue: Double? = null,
     val step: Double? = null,
     val options: List<Option>? = null,
     val multiple: Boolean? = null,
@@ -252,7 +254,19 @@ class Component(
     val selections: @Serializable(with = AnyDynamicValueSerializer::class) DynamicValue<@Contextual Any>? = null,
     val maxAllowedSelections: Int? = null,
     val textFieldType: String? = null,
-    val description: @Serializable(with = StringDynamicValueSerializer::class) DynamicValue<String>? = null
+    val description: @Serializable(with = StringDynamicValueSerializer::class) DynamicValue<String>? = null,
+    val icon: String? = null,
+    val size: Int? = null,
+    val accessibilityLabel: String? = null,
+    val accessibilityRole: String? = null,
+    // Visual styling (v0.9+)
+    val backgroundColor: String? = null,
+    val textColor: String? = null,
+    val gradient: List<String>? = null,
+    val cornerRadius: Int? = null,
+    val padding: Int? = null,
+    val shadow: Int? = null,
+    val blur: Int? = null
 )
 
 @Serializable
