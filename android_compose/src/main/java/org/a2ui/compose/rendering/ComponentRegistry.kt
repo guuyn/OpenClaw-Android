@@ -488,8 +488,8 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                 Modifier.background(bgColor)
             }
             
-            // 构建修饰符
-            var cardModifier = Modifier.fillMaxWidth().padding(8.dp).semantics(mergeDescendants = true) {
+            // 构建修饰符 — 去掉默认左右 padding，让卡片内容贴边
+            var cardModifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
                 component.accessibilityLabel?.let { contentDescription = it }
                 component.accessibilityRole?.let { roleValue ->
                     when (roleValue.lowercase()) {
@@ -503,8 +503,8 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                 }
             }
             
-            // 添加内边距
-            cardModifier = cardModifier.padding((component.padding ?: 0).dp)
+            // 添加内边距（默认 12dp，让内容有呼吸感）
+            cardModifier = cardModifier.padding((component.padding ?: 12).dp)
             
             // 如果启用毛玻璃效果
             if (component.blur != null && component.blur!! > 0) {
@@ -512,10 +512,19 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                 cardModifier = cardModifier.glassmorphism(themeConfig)
             }
             
+            // 圆角处理 — 支持 cornerStyle 控制融合效果
+            val cornerRadius = component.cornerRadius ?: 12
+            val shape = when (component.variant) {
+                "top" -> RoundedCornerShape(topStart = cornerRadius.dp, topEnd = cornerRadius.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
+                "middle" -> RoundedCornerShape(0.dp)  // 中间卡片无圆角，实现融合
+                "bottom" -> RoundedCornerShape(bottomStart = cornerRadius.dp, bottomEnd = cornerRadius.dp, topStart = 0.dp, topEnd = 0.dp)
+                else -> RoundedCornerShape(cornerRadius.dp)  // 默认独立卡片
+            }
+            
             Card(
                 modifier = cardModifier,
                 elevation = CardDefaults.cardElevation(defaultElevation = (component.shadow ?: 4).dp),
-                shape = RoundedCornerShape((component.cornerRadius ?: 12).dp),
+                shape = shape,
                 colors = CardDefaults.cardColors(containerColor = Color.Transparent) // 让背景色由修饰符控制
             ) {
                 // ✅ 同时支持 child 和 children

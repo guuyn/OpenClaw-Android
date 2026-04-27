@@ -160,7 +160,7 @@ Each component is a flat JSON object with these common fields:
 - `ChoicePicker`: options ([{"label":"...","value":"..."}]), selections (data binding), variant (mutuallyExclusive/multipleSelection), maxAllowedSelections (number), label
 
 **Container:**
-- `Card`: child (component id) or children
+- `Card`: child (component id) or children, **variant** (top/middle/bottom for fused card groups, or omit for standalone)
 - `Modal`: trigger (component id), content (component id)
 - `Tabs`: tabs ([{"title":"...","child":"component_id"}])
 - `Accordion`: children (array of component ids, each with label and child)
@@ -176,6 +176,7 @@ Each component is a flat JSON object with these common fields:
 - Use `Column` with multiple sections (header, body, footer) instead of stacking everything
 - Use `Row` with `justify: "spaceBetween"` for label-value pairs (saves vertical space, looks like a data table)
 - Use `Divider` between sections for visual separation
+- **Fused card groups**: When showing multiple related cards vertically, use `variant: "top"` for first card, `"middle"` for middle cards, `"bottom"` for last card — this removes inner corners for a seamless look
 
 **Visual hierarchy through variants:**
 - `h1` — hero value only (one per card, e.g. "21°C")
