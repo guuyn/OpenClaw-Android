@@ -167,6 +167,7 @@ Each component is a flat JSON object with these common fields:
 
 **Custom (app-specific):**
 - `StockCard`, `CandlestickChart`, `LineChart`, `GaugeChart`, `HeatmapChart`, `RadarChart`, `Video`, `AudioPlayer`, `Surface`, `Spacer`, `ProgressBar`, `Switch`, `Dropdown`
+- `BubbleChart`, `MiniGauge`, `MultipleChoice`, `InteractiveLineChart`, `StreamingLineChart`
 
 ### Design Guidelines — Make It Look Premium
 
@@ -241,6 +242,83 @@ When you have multi-row tabular data (e.g. 7-day weather, stock list, search res
   {"id":"day_condition","component":"Text","text":"${'$'}condition","variant":"body","textColor":"#FFFFFF"},
   {"id":"day_temp","component":"Text","text":"${'$'}high","variant":"caption","textColor":"#B0B0B0"},
   {"id":"footer","component":"Text","text":"数据来自 Open-Meteo","variant":"caption","textColor":"#888888"}
+]}}
+[/A2UI]
+
+**Example: Tabs Navigation**
+Use Tabs for multi-page content (e.g., stock overview + chart + news).
+[A2UI]
+{"version":"v0.9","createSurface":{"surfaceId":"tabs_demo","catalogId":"app_catalog"},"updateComponents":{"surfaceId":"tabs_demo","components":[
+  {"id":"root","component":"Tabs","tabs":[{"title":"概览","child":"tab_overview"},{"title":"图表","child":"tab_chart"},{"title":"详情","child":"tab_detail"}]},
+  {"id":"tab_overview","component":"Column","children":["ov_title","ov_value","ov_change"]},
+  {"id":"ov_title","component":"Text","text":"上证指数","variant":"h3"},
+  {"id":"ov_value","component":"Text","text":"3,285.67","variant":"h1"},
+  {"id":"ov_change","component":"Text","text":"+1.23%","variant":"body","textColor":"#4CAF50"},
+  {"id":"tab_chart","component":"LineChart","text":"3200,3220,3180,3250,3285"},
+  {"id":"tab_detail","component":"Column","children":["dt_volume","dt_turnover"]},
+  {"id":"dt_volume","component":"Text","text":"成交量: 3.2亿手","variant":"body"},
+  {"id":"dt_turnover","component":"Text","text":"成交额: 4,521亿","variant":"body"}
+]}}
+[/A2UI]
+
+**Example: Accordion (Collapsible Sections)**
+Use Accordion for expandable FAQ, settings, or grouped information.
+[A2UI]
+{"version":"v0.9","createSurface":{"surfaceId":"accordion_demo","catalogId":"app_catalog"},"updateComponents":{"surfaceId":"accordion_demo","components":[
+  {"id":"root","component":"Column","children":["title","accordion","footer"]},
+  {"id":"title","component":"Text","text":"常见问题","variant":"h3"},
+  {"id":"accordion","component":"Accordion","children":["section1","section2","section3"]},
+  {"id":"section1","component":"Column","children":["s1_label","s1_content"],"label":"如何添加设备？","child":"s1_content"},
+  {"id":"s1_label","component":"Text","text":"如何添加设备？","variant":"body"},
+  {"id":"s1_content","component":"Text","text":"进入设置 → 设备管理 → 添加新设备","variant":"caption"},
+  {"id":"section2","component":"Column","children":["s2_label","s2_content"],"label":"如何重置密码？","child":"s2_content"},
+  {"id":"s2_label","component":"Text","text":"如何重置密码？","variant":"body"},
+  {"id":"s2_content","component":"Text","text":"登录账户 → 安全设置 → 重置密码","variant":"caption"},
+  {"id":"section3","component":"Column","children":["s3_label","s3_content"],"label":"如何导出数据？","child":"s3_content"},
+  {"id":"s3_label","component":"Text","text":"如何导出数据？","variant":"body"},
+  {"id":"s3_content","component":"Text","text":"设置 → 数据管理 → 导出为 CSV","variant":"caption"},
+  {"id":"footer","component":"Text","text":"更多帮助请联系客服","variant":"caption"}
+]}}
+[/A2UI]
+
+**Example: Form (TextField + Button + Validation)**
+Use TextField + Button for user input (search, login, settings).
+[A2UI]
+{"version":"v0.9","createSurface":{"surfaceId":"form_demo","catalogId":"app_catalog"},"updateDataModel":{"surfaceId":"form_demo","data":{"searchInput":""}},"updateComponents":{"surfaceId":"form_demo","components":[
+  {"id":"root","component":"Card","child":"content","cornerRadius":16,"padding":20},
+  {"id":"content","component":"Column","children":["title","search_field","search_btn"]},
+  {"id":"title","component":"Text","text":"搜索股票","variant":"h3"},
+  {"id":"search_field","component":"TextField","label":"输入股票代码或名称","value":"${'$'}searchInput","placeholder":"例如: 000001 或 平安银行","variant":"shortText","action":{"event":{"name":"onInput"}}},
+  {"id":"search_btn","component":"Button","child":"btn_text","variant":"primary","action":{"event":{"name":"onSearch"}}},
+  {"id":"btn_text","component":"Text","text":"搜索","variant":"body","textColor":"#FFFFFF"}
+]}}
+[/A2UI]
+
+**Example: MiniGauge (Simple Metric)**
+Use MiniGauge for single percentage values (CPU usage, battery, progress).
+[A2UI]
+{"version":"v0.9","createSurface":{"surfaceId":"gauge_demo","catalogId":"app_catalog"},"updateComponents":{"surfaceId":"gauge_demo","components":[
+  {"id":"root","component":"Column","children":["title","cpu_gauge","mem_gauge"]},
+  {"id":"title","component":"Text","text":"系统资源","variant":"h3"},
+  {"id":"cpu_gauge","component":"MiniGauge","text":"75","variant":"100","usageHint":"#FF9800"},
+  {"id":"mem_gauge","component":"MiniGauge","text":"62","variant":"100","usageHint":"#2196F3"}
+]}}
+[/A2UI]
+
+**Example: Charts (LineChart, GaugeChart, CandlestickChart)**
+Use chart components for financial/data visualization. Data format: comma-separated values or JSON.
+[A2UI]
+{"version":"v0.9","createSurface":{"surfaceId":"charts_demo","catalogId":"app_catalog"},"updateComponents":{"surfaceId":"charts_demo","components":[
+  {"id":"root","component":"Card","child":"content","cornerRadius":16,"padding":16},
+  {"id":"content","component":"Column","children":["title","line_chart","divider","gauge_row","candle_title","candle_chart"]},
+  {"id":"title","component":"Text","text":"股票走势","variant":"h3"},
+  {"id":"line_chart","component":"LineChart","text":"3200,3220,3180,3250,3285,3270,3300"},
+  {"id":"divider","component":"Divider","axis":"horizontal"},
+  {"id":"gauge_row","component":"Row","children":["bull_gauge","bear_gauge"],"justify":"spaceAround"},
+  {"id":"bull_gauge","component":"GaugeChart","text":"75","variant":"100"},
+  {"id":"bear_gauge","component":"GaugeChart","text":"25","variant":"100"},
+  {"id":"candle_title","component":"Text","text":"K线图","variant":"body"},
+  {"id":"candle_chart","component":"CandlestickChart","text":"open:3200,high:3250,low:3180,close:3230|open:3230,high:3280,low:3210,close:3270|open:3270,high:3310,low:3260,close:3300"}
 ]}}
 [/A2UI]
 
