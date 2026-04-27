@@ -215,7 +215,8 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
             // 获取颜色配置
             val bgColor = component.backgroundColor?.let { parseColor(it) } ?: MaterialTheme.colorScheme.primary
             val bgModifier = if (component.gradient != null && component.gradient.size >= 2) {
-                Modifier.background(Brush.verticalGradient(component.gradient.map { parseColor(it)!! }))
+                val colors = component.gradient.mapNotNull { parseColor(it) }
+                if (colors.size >= 2) Modifier.background(Brush.verticalGradient(colors)) else Modifier.background(bgColor)
             } else {
                 Modifier.background(bgColor)
             }
@@ -483,7 +484,8 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
             // 获取颜色配置
             val bgColor = component.backgroundColor?.let { parseColor(it) } ?: MaterialTheme.colorScheme.surface
             val bgModifier = if (component.gradient != null && component.gradient.size >= 2) {
-                Modifier.background(Brush.verticalGradient(component.gradient.map { parseColor(it)!! }))
+                val colors = component.gradient.mapNotNull { parseColor(it) }
+                if (colors.size >= 2) Modifier.background(Brush.verticalGradient(colors)) else Modifier.background(bgColor)
             } else {
                 Modifier.background(bgColor)
             }
@@ -930,8 +932,20 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
             when (val children = component.children) {
                 is ChildList.ObjectChildList -> {
                     val dataPath = children.objectChild.path
-                    val dataItems = resolve(context, DynamicValue.PathValue<Any>(dataPath)) as? List<*>
+                    // ✅ 安全解析：捕获类型转换异常
+                    val dataItems = runCatching { resolve(context, DynamicValue.PathValue<Any>(dataPath)) as? List<*> }.getOrNull()
                     val templateId = children.objectChild.componentId
+
+                    if (dataItems.isNullOrEmpty() || templateId.isNullOrEmpty()) {
+                        // 空列表或模板缺失时显示提示
+                        Text(
+                            text = if (templateId.isNullOrEmpty()) "模板组件未找到" else "列表为空",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                        return@register
+                    }
 
                     if (isHorizontal) {
                         LazyRow(
@@ -939,16 +953,13 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                             contentPadding = PaddingValues(8.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            dataItems?.let { items ->
-                                itemsIndexed(items, key = { index, _ -> index }) { index, _ ->
-                                    renderer.getComponent(context.surfaceId, templateId)?.let { template ->
-                                        // ✅ Collection Scope: 传递 scopePath
-                                        val itemScope = "$dataPath/$index"
-                                        render(template, context.copy(
-                                            renderDepth = context.renderDepth + 1,
-                                            scopePath = itemScope
-                                        ))
-                                    }
+                            items(dataItems.size, key = { it }) { index ->
+                                renderer.getComponent(context.surfaceId, templateId)?.let { template ->
+                                    val itemScope = "$dataPath/$index"
+                                    render(template, context.copy(
+                                        renderDepth = context.renderDepth + 1,
+                                        scopePath = itemScope
+                                    ))
                                 }
                             }
                         }
@@ -958,25 +969,27 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                             contentPadding = PaddingValues(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            dataItems?.let { items ->
-                                itemsIndexed(items, key = { index, _ -> index }) { index, _ ->
-                                    renderer.getComponent(context.surfaceId, templateId)?.let { template ->
-                                        val itemScope = "$dataPath/$index"
-                                        render(template, context.copy(
-                                            renderDepth = context.renderDepth + 1,
-                                            scopePath = itemScope
-                                        ))
-                                    }
+                            items(dataItems.size, key = { it }) { index ->
+                                renderer.getComponent(context.surfaceId, templateId)?.let { template ->
+                                    val itemScope = "$dataPath/$index"
+                                    render(template, context.copy(
+                                        renderDepth = context.renderDepth + 1,
+                                        scopePath = itemScope
+                                    ))
                                 }
                             }
                         }
                     }
                 }
                 is ChildList.ArrayChildList -> {
+                    // ✅ 过滤 null ID，避免 LazyList key 异常
+                    val validIds = children.array.filterNotNull()
+                    if (validIds.isEmpty()) return@register
+
                     if (isHorizontal) {
                         LazyRow(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(8.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            itemsIndexed(children.array, key = { _, id -> id }) { _, childId ->
+                            itemsIndexed(validIds, key = { _, id -> id }) { _, childId ->
                                 renderer.getComponent(context.surfaceId, childId)?.let {
                                     render(it, context.copy(renderDepth = context.renderDepth + 1))
                                 }
@@ -985,7 +998,7 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                     } else {
                         LazyColumn(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            itemsIndexed(children.array, key = { _, id -> id }) { _, childId ->
+                            itemsIndexed(validIds, key = { _, id -> id }) { _, childId ->
                                 renderer.getComponent(context.surfaceId, childId)?.let {
                                     render(it, context.copy(renderDepth = context.renderDepth + 1))
                                 }
