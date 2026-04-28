@@ -42,6 +42,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.isEditable
 import androidx.compose.ui.semantics.editableText
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -450,7 +451,9 @@ fun ChatScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 8.dp)
+                .testTag("message_list")
+                .semantics { contentDescription = "message_list" },
             verticalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(vertical = 8.dp)
         ) {
@@ -485,7 +488,11 @@ fun ChatScreen(
                     ) {
                         Text("🤖", fontSize = 16.sp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        SciFiThinkingDots()
+                        SciFiThinkingDots(
+                            modifier = Modifier
+                                .testTag("loading_dots")
+                                .semantics { contentDescription = "loading_dots" }
+                        )
                     }
                 }
             }
@@ -632,6 +639,7 @@ fun ChatScreen(
                                 .testTag("message_input")
                                 .focusable()
                                 .semantics(mergeDescendants = true) {
+                                    this.contentDescription = "message_input"
                                     this.isEditable = true
                                     this.editableText = androidx.compose.ui.text.buildAnnotatedString {
                                         append(inputText.takeIf { it.isNotEmpty() } ?: "输入消息...")
@@ -662,6 +670,8 @@ fun ChatScreen(
                         interactionSource = sendInteraction,
                         modifier = Modifier
                             .size(40.dp)
+                            .testTag("send_button")
+                            .semantics { contentDescription = "send_button" }
                             .then(
                                 if (sendEnabled) Modifier.sciFiGlow(radius = 4.dp)
                                 else Modifier
@@ -809,7 +819,10 @@ fun MessageBubble(
     }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(if (isUser) "user_message" else "ai_message")
+            .semantics { contentDescription = if (isUser) "user_message" else "ai_message" },
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
         if (isUser) {
@@ -1231,10 +1244,10 @@ fun VoiceButton(
 }
 
 @Composable
-private fun SciFiThinkingDots() {
+private fun SciFiThinkingDots(modifier: Modifier = Modifier) {
     val infiniteTransition = rememberInfiniteTransition()
     Row(
-        modifier = Modifier.padding(8.dp),
+        modifier = modifier.padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

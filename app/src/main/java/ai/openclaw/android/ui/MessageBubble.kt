@@ -98,7 +98,8 @@ fun EnhancedMessageBubble(
                     tonalElevation = if (isUser) 0.dp else 1.dp,
                     shadowElevation = if (isUser) 2.dp else 0.dp,
                     modifier = Modifier
-                        .widthIn(max = 320.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
                         .then(
                             if (!isUser) Modifier.border(
                                 width = 1.dp,

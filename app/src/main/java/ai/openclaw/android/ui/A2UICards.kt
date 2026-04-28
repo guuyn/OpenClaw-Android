@@ -28,6 +28,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -179,7 +182,9 @@ fun WeatherCard(
     onActionClick: (CardAction) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    CardContainer(modifier = modifier) {
+    CardContainer(modifier = modifier
+        .testTag("weather_card")
+        .semantics { contentDescription = "weather_card" }) {
         // 头部
         CardHeader(icon = "🌤️", title = data.title)
 
@@ -1482,25 +1487,28 @@ fun A2UICardRouter(
     onActionClick: (CardAction) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val taggedModifier = modifier
+        .testTag("card_${card.type}")
+        .semantics { contentDescription = "card_${card.type}" }
     when (card.type) {
         // P0 核心卡片（Task 3）— null-safe with fallback
-        "weather" -> card.asWeatherCard()?.let { WeatherCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "search_result" -> card.asSearchResultCard()?.let { SearchResultCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "translation" -> card.asTranslationCard()?.let { TranslationCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "reminder" -> card.asReminderCard()?.let { ReminderCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "calendar" -> card.asCalendarCard()?.let { CalendarCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "location" -> card.asLocationCard()?.let { LocationCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "action_confirm" -> card.asActionConfirmCard()?.let { ActionConfirmCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "weather" -> card.asWeatherCard()?.let { WeatherCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "search_result" -> card.asSearchResultCard()?.let { SearchResultCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "translation" -> card.asTranslationCard()?.let { TranslationCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "reminder" -> card.asReminderCard()?.let { ReminderCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "calendar" -> card.asCalendarCard()?.let { CalendarCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "location" -> card.asLocationCard()?.let { LocationCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "action_confirm" -> card.asActionConfirmCard()?.let { ActionConfirmCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
         // 全局卡片（Task 4）— null-safe with fallback
-        "error" -> card.asErrorCard()?.let { ErrorCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "info" -> card.asInfoCard()?.let { InfoCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "summary" -> card.asSummaryCard()?.let { SummaryCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "contact" -> card.asContactCard()?.let { ContactCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "sms" -> card.asSMSCard()?.let { SMSCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "app" -> card.asAppCard()?.let { AppCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
-        "settings" -> card.asSettingsCard()?.let { SettingsCard(it, card.actions, onActionClick, modifier) } ?: FallbackCard(card, onActionClick, modifier)
+        "error" -> card.asErrorCard()?.let { ErrorCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "info" -> card.asInfoCard()?.let { InfoCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "summary" -> card.asSummaryCard()?.let { SummaryCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "contact" -> card.asContactCard()?.let { ContactCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "sms" -> card.asSMSCard()?.let { SMSCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "app" -> card.asAppCard()?.let { AppCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
+        "settings" -> card.asSettingsCard()?.let { SettingsCard(it, card.actions, onActionClick, taggedModifier) } ?: FallbackCard(card, onActionClick, taggedModifier)
         // 未知类型 → 回退
-        else -> FallbackCard(card, onActionClick, modifier)
+        else -> FallbackCard(card, onActionClick, taggedModifier)
     }
 }
 
@@ -1550,7 +1558,7 @@ fun WeatherCard(data: Map<String, String>, modifier: Modifier = Modifier) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         shape = RoundedCornerShape(16.dp),
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier.testTag("weather_card").fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
