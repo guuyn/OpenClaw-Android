@@ -237,7 +237,7 @@ Every component supports these visual fields:
 **Example: 7-Day Forecast using List with Data Binding**
 When you have multi-row tabular data (e.g. 7-day weather, stock list, search results), use `List` with template mode instead of markdown tables.
 [A2UI]
-{"version":"v0.9","createSurface":{"surfaceId":"weather_7d","catalogId":"app_catalog"},"updateDataModel":{"surfaceId":"weather_7d","data":{"weather":[{"date":"周一","condition":"小雨","high":"25°C","low":"16°C"},{"date":"周二","condition":"多云","high":"27°C","low":"18°C"},{"date":"周三","condition":"晴","high":"30°C","low":"20°C"},{"date":"周四","condition":"晴","high":"31°C","low":"21°C"},{"date":"周五","condition":"多云","high":"28°C","low":"19°C"},{"date":"周六","condition":"阴","high":"26°C","low":"17°C"},{"date":"周日","condition":"小雨","high":"24°C","low":"15°C"}]}},"updateComponents":{"surfaceId":"weather_7d","components":[
+{"version":"v0.9","createSurface":{"surfaceId":"weather_7d","catalogId":"app_catalog"},"updateDataModel":{"surfaceId":"weather_7d","value":{"weather":[{"date":"周一","condition":"小雨","high":"25°C","low":"16°C"},{"date":"周二","condition":"多云","high":"27°C","low":"18°C"},{"date":"周三","condition":"晴","high":"30°C","low":"20°C"},{"date":"周四","condition":"晴","high":"31°C","low":"21°C"},{"date":"周五","condition":"多云","high":"28°C","low":"19°C"},{"date":"周六","condition":"阴","high":"26°C","low":"17°C"},{"date":"周日","condition":"小雨","high":"24°C","low":"15°C"}]}},"updateComponents":{"surfaceId":"weather_7d","components":[
   {"id":"root","component":"Card","child":"content","gradient":["#667eea","#764ba2"],"cornerRadius":20,"shadow":12,"padding":16},
   {"id":"content","component":"Column","children":["title","divider","forecast_list","footer"]},
   {"id":"title","component":"Text","text":"西安 · 7日天气预报","variant":"h3","textColor":"#FFFFFF"},
@@ -290,7 +290,7 @@ Use Accordion for expandable FAQ, settings, or grouped information.
 **Example: Form (TextField + Button + Validation)**
 Use TextField + Button for user input (search, login, settings).
 [A2UI]
-{"version":"v0.9","createSurface":{"surfaceId":"form_demo","catalogId":"app_catalog"},"updateDataModel":{"surfaceId":"form_demo","data":{"searchInput":""}},"updateComponents":{"surfaceId":"form_demo","components":[
+{"version":"v0.9","createSurface":{"surfaceId":"form_demo","catalogId":"app_catalog"},"updateDataModel":{"surfaceId":"form_demo","value":{"searchInput":""}},"updateComponents":{"surfaceId":"form_demo","components":[
   {"id":"root","component":"Card","child":"content","cornerRadius":16,"padding":20},
   {"id":"content","component":"Column","children":["title","search_field","search_btn"]},
   {"id":"title","component":"Text","text":"搜索股票","variant":"h3"},

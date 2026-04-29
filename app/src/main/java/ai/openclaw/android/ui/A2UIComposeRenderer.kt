@@ -249,10 +249,21 @@ private fun normalizeToJsonL(json: String): String {
             lines.add("""{"version":"$version","updateComponents":${updateComponents.toString()}}""")
         }
         
-        // Extract updateDataModel
-        root["updateDataModel"]?.let { updateDataModel ->
+        // Extract updateDataModel (with data→value compatibility fix)
+        root["updateDataModel"]?.let { raw ->
             val version = root["version"]?.jsonPrimitive?.content ?: "v0.10"
-            lines.add("""{"version":"$version","updateDataModel":${updateDataModel.toString()}}""")
+            val obj = raw.jsonObject
+            val fixed = if (obj.containsKey("data") && !obj.containsKey("value")) {
+                // LLM 常生成 data 字段，A2UI 协议实际要求 value
+                val path = obj["path"]?.jsonPrimitive?.content ?: "/"
+                val surfaceId = obj["surfaceId"]?.jsonPrimitive?.content ?: ""
+                val dataVal = obj["data"] ?: kotlinx.serialization.json.JsonNull
+                val surfaceField = if (surfaceId.isNotEmpty()) "\"surfaceId\":\"$surfaceId\"," else ""
+                """{"version":"$version","updateDataModel":{$surfaceField"path":"$path","value":$dataVal}}"""
+            } else {
+                """{"version":"$version","updateDataModel":$raw}"""
+            }
+            lines.add(fixed)
         }
         
         // If no known fields, return original

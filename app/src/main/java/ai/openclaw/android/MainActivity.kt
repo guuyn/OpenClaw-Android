@@ -55,6 +55,7 @@ import ai.openclaw.android.personalcenter.PersonalCenterScreen
 import ai.openclaw.android.personalcenter.PersonalCenterViewModel
 import ai.openclaw.android.personalcenter.PersonalCenterViewModelFactory
 import ai.openclaw.android.viewmodel.ChatViewModel
+import ai.openclaw.android.viewmodel.ChatViewModelFactory
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CoroutineScope
@@ -132,7 +133,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // Initialize ViewModel
-        chatViewModel = ViewModelProvider(this)[ChatViewModel::class.java]
+        chatViewModel = ViewModelProvider(this, ChatViewModelFactory(application))[ChatViewModel::class.java]
 
         // Register broadcast receiver for test injection (Activity level)
         val testReceiver = object : BroadcastReceiver() {
