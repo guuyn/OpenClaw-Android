@@ -43,10 +43,8 @@ import androidx.compose.ui.unit.dp
 import ai.openclaw.android.ui.theme.OpenClawTheme
 import ai.openclaw.android.model.ModelProvider
 import ai.openclaw.android.agent.SessionEvent
-import ai.openclaw.android.domain.AgentResponse
 import ai.openclaw.android.domain.Deliverable
-import ai.openclaw.android.domain.DeviceCapabilities
-import ai.openclaw.android.domain.ResponseRouter
+
 import ai.openclaw.android.domain.ResponseType
 import ai.openclaw.android.domain.RichContent
 import ai.openclaw.android.voice.VoiceInteractionManager
@@ -56,6 +54,8 @@ import ai.openclaw.android.notification.NotificationScreen
 import ai.openclaw.android.personalcenter.PersonalCenterScreen
 import ai.openclaw.android.personalcenter.PersonalCenterViewModel
 import ai.openclaw.android.personalcenter.PersonalCenterViewModelFactory
+import ai.openclaw.android.viewmodel.ChatViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +63,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
-import androidx.compose.runtime.mutableStateListOf
+
 
 /** Unwrap ContextWrapper to find the Activity */
 private fun Context.findActivity(): Activity? = when (this) {
@@ -77,6 +77,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val VOLUME_LONG_PRESS_MS = 300L // 长按阈值
     }
+
+    private lateinit var chatViewModel: ChatViewModel
 
     private var gatewayContract: GatewayContract? = null
     private var serviceBound = false
@@ -109,6 +111,8 @@ class MainActivity : ComponentActivity() {
             val localBinder = binder as GatewayService.LocalBinder
             gatewayContract = localBinder.getGatewayContract()
             serviceBound = true
+            // 注入 RealGateway（非测试模式时生效）
+            chatViewModel.updateGatewayContract(gatewayContract)
             Log.d("MainActivity", "GatewayService bound")
         }
 
@@ -119,8 +123,64 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 获取当前 GatewayContract 的提供者，用于 ViewModel 切换回 RealGateway
+     */
+    private fun gatewayContractProvider(): GatewayContract? = gatewayContract
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Initialize ViewModel
+        chatViewModel = ViewModelProvider(this)[ChatViewModel::class.java]
+
+        // Register broadcast receiver for test injection (Activity level)
+        val testReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                try {
+                    when (intent?.action) {
+                        "ai.openclaw.android.DEBUG_SEND_MESSAGE" -> {
+                            val text = intent.getStringExtra("message") ?: return
+                            Log.d("MainActivity", "[DEBUG BROADCAST] Received: $text")
+                            chatViewModel.sendMessage(text)
+                        }
+                        "ai.openclaw.android.TEST_A2UI_JSON" -> {
+                            val a2uiJson = intent.getStringExtra("a2ui_json") ?: return
+                            Log.d("MainActivity", "[TEST A2UI] Received JSON: $a2uiJson")
+                            chatViewModel.testInjectA2UI(a2uiJson)
+                        }
+                        "ai.openclaw.android.INJECT_A2UI_TEST" -> {
+                            try {
+                                var a2uiJson = intent.getStringExtra("a2ui_json")
+                                if (a2uiJson == null || a2uiJson.isBlank()) {
+                                    val filePath = intent.getStringExtra("a2ui_file")
+                                        ?: "${this@MainActivity.filesDir.absolutePath}/test_input.json"
+                                    val file = java.io.File(filePath)
+                                    if (!file.exists()) {
+                                        Log.e("MainActivity", "[INJECT A2UI TEST] File does not exist: $filePath")
+                                        return
+                                    }
+                                    a2uiJson = file.readText()
+                                    Log.d("MainActivity", "[INJECT A2UI TEST] Read from file: $filePath")
+                                }
+                                chatViewModel.testInjectA2UI(a2uiJson)
+                            } catch (e: Exception) {
+                                Log.e("MainActivity", "[INJECT A2UI TEST] Error: ${e.message}", e)
+                                chatViewModel.testInjectA2UI("[A2UI注入错误] ${e.message}")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "[BROADCAST ERROR] ${e.message}", e)
+                }
+            }
+        }
+        val testFilter = IntentFilter().apply {
+            addAction("ai.openclaw.android.DEBUG_SEND_MESSAGE")
+            addAction("ai.openclaw.android.TEST_A2UI_JSON")
+            addAction("ai.openclaw.android.INJECT_A2UI_TEST")
+        }
+        registerReceiver(testReceiver, testFilter, Context.RECEIVER_EXPORTED)
 
         // Ensure GatewayService is running (model + memory + skills)
         GatewayService.start(this)
@@ -133,6 +193,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             OpenClawTheme {
                 MainScreen(
+                    chatViewModel = chatViewModel,
                     gatewayContractProvider = { gatewayContract },
                     initialTab = intent?.getIntExtra("tab_index", 0) ?: 0
                 )
@@ -208,17 +269,22 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int = 0) {
+fun MainScreen(
+    chatViewModel: ChatViewModel,
+    gatewayContractProvider: () -> GatewayContract?,
+    initialTab: Int = 0
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var selectedTab by remember { mutableStateOf(0) }
 
-    // Chat state
-    val messages = remember { mutableStateListOf<ChatMessage>() }
-    var isLoading by remember { mutableStateOf(false) }
-    var lastDeliverable by remember { mutableStateOf<Deliverable?>(null) }
-    var lastRichContent by remember { mutableStateOf<RichContent?>(null) }
+    // Chat state — consumed from ViewModel via StateFlow
+    val messages by chatViewModel.messages.collectAsStateWithLifecycle()
+    val isLoading by chatViewModel.isLoading.collectAsStateWithLifecycle()
+    val lastDeliverable by chatViewModel.lastDeliverable.collectAsStateWithLifecycle()
+    val lastRichContent by chatViewModel.lastRichContent.collectAsStateWithLifecycle()
+    val isTestMode by chatViewModel.isTestMode.collectAsStateWithLifecycle()
 
     // Configuration state
     var modelApiKey by remember { mutableStateOf("") }
@@ -241,12 +307,6 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
     }
 
     val permManager = remember { context.permissionManager() }
-
-    // Response router (initialized once)
-    val responseRouter = remember {
-        val capabilities = DeviceCapabilities.fromContext(context)
-        ResponseRouter(capabilities)
-    }
 
     // Voice manager for TTS (single instance — hoisted to MainScreen)
     val voiceManager = remember { VoiceInteractionManager(context) }
@@ -280,13 +340,6 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
         if (granted) {
             startVoiceCollect(voiceManager, scope)
         }
-    }
-
-    // Parse and route LLM response
-    fun parseAndRoute(text: String): Pair<AgentResponse, Deliverable> {
-        val response = parseAgentResponse(text, responseRouter)
-        val deliverable = responseRouter.route(response)
-        return response to deliverable
     }
 
     // Permission request launcher for chat-triggered requests
@@ -375,99 +428,9 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
         serviceRunning = ConfigManager.isServiceEnabled()
     }
 
+    // Send message — delegates to ViewModel
     val sendMessage: (String, List<ai.openclaw.android.model.ImageContent>) -> Unit = { text, images ->
-        Log.d("MainScreen", "=== sendMessage called ===")
-        LogManager.shared.log("INFO", "Chat", "User: $text")
-
-        messages.add(ChatMessage(role = "user", content = text, images = images.ifEmpty { null }))
-        isLoading = true
-
-        scope.launch {
-            try {
-                val contract = gatewayContractProvider()
-                if (contract == null || !contract.isReady()) {
-                    messages.add(ChatMessage(role = "assistant", content = "服务未就绪，请稍候或检查设置"))
-                    isLoading = false
-                    return@launch
-                }
-
-                val responseId = java.util.UUID.randomUUID().toString()
-                messages.add(ChatMessage(id = responseId, role = "assistant", content = ""))
-                val responseIndex = messages.lastIndex
-
-                contract.sendMessage(text, images.ifEmpty { null }).collect { event ->
-                    when (event) {
-                        is SessionEvent.Token -> {
-                            val current = messages[responseIndex]
-                            messages[responseIndex] = current.copy(
-                                content = current.content + event.text
-                            )
-                        }
-                        is SessionEvent.ToolExecuting -> {
-                            val current = messages[responseIndex]
-                            messages[responseIndex] = current.copy(
-                                content = current.content + "\n[调用工具: ${event.name}...]\n"
-                            )
-                        }
-                        is SessionEvent.ToolResult -> { }
-                        is SessionEvent.ReflectionStart -> {
-                            val current = messages[responseIndex]
-                            messages[responseIndex] = current.copy(
-                                content = current.content + "\n[🔄 反思中: ${event.role}...]\n"
-                            )
-                        }
-                        is SessionEvent.ReflectionComplete -> { }
-                        is SessionEvent.Complete -> {
-                            val (response, deliverable) = parseAndRoute(event.fullText)
-                            lastDeliverable = deliverable
-                            lastRichContent = when (deliverable) {
-                                is Deliverable.RichText -> deliverable.content
-                                is Deliverable.Mixed -> deliverable.rich
-                                else -> null
-                            }
-                            val displayText = when (deliverable) {
-                                is Deliverable.PlainText -> deliverable.text
-                                is Deliverable.Voice -> deliverable.text
-                                is Deliverable.RichText -> response.fallbackText
-                                is Deliverable.Mixed -> response.fallbackText
-                            }
-                            val current = messages[responseIndex]
-                            messages[responseIndex] = current.copy(content = displayText)
-                            isLoading = false
-                            LogManager.shared.log("INFO", "Chat", "Assistant: ${event.fullText.take(100)}")
-                        }
-                        is SessionEvent.Error -> {
-                            val current = messages[responseIndex]
-                            messages[responseIndex] = current.copy(
-                                content = current.content.ifEmpty { "错误: ${event.message}" }
-                            )
-                            isLoading = false
-                            LogManager.shared.log("ERROR", "Chat", "Error: ${event.message}")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("MainScreen", "Chat error: ${e.message}", e)
-                messages.add(ChatMessage(role = "assistant", content = "错误: ${e.message}"))
-                isLoading = false
-            }
-        }
-    }
-
-    // ==================== 🔬 DEBUG: Broadcast for testing without keyboard ====================
-    DisposableEffect(Unit) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                val text = intent?.getStringExtra("message") ?: return
-                Log.d("MainScreen", "[DEBUG BROADCAST] Received: $text")
-                sendMessage(text, emptyList())
-            }
-        }
-        val filter = IntentFilter("ai.openclaw.android.DEBUG_SEND_MESSAGE")
-        context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        onDispose {
-            context.unregisterReceiver(receiver)
-        }
+        chatViewModel.sendMessage(text, images)
     }
 
     Scaffold(
@@ -630,6 +593,13 @@ fun MainScreen(gatewayContractProvider: () -> GatewayContract?, initialTab: Int 
                 onConfigExpandedChange = { configExpanded = it },
                 logExpanded = logExpanded,
                 onLogExpandedChange = { logExpanded = it },
+                testModeEnabled = isTestMode,
+                onTestModeToggle = {
+                    chatViewModel.setTestMode(
+                        enabled = !isTestMode,
+                        contractProvider = gatewayContractProvider
+                    )
+                },
                 onSaveConfig = {
                     scope.launch {
                         val contract = gatewayContractProvider()
@@ -694,6 +664,8 @@ fun SettingsScreen(
     onConfigExpandedChange: (Boolean) -> Unit,
     logExpanded: Boolean,
     onLogExpandedChange: (Boolean) -> Unit,
+    testModeEnabled: Boolean,
+    onTestModeToggle: () -> Unit,
     onSaveConfig: () -> Unit,
     permissionManager: PermissionManager,
     onRequestPermissions: (Array<String>) -> Unit,
@@ -747,6 +719,42 @@ fun SettingsScreen(
                     Button(onClick = onServiceToggle) {
                         Text(if (serviceRunning) "Stop" else "Start")
                     }
+                }
+            }
+        }
+
+        // Test Mode Card
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.BugReport,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            text = "测试模式",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = if (testModeEnabled) "启用 - 使用 Mock 数据" else "禁用 - 使用真实数据",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (testModeEnabled)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = testModeEnabled,
+                        onCheckedChange = { onTestModeToggle() }
+                    )
                 }
             }
         }
@@ -1044,68 +1052,6 @@ fun openBatteryOptimizationSettings(context: Context) {
     val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
     intent.data = Uri.parse("package:${context.packageName}")
     context.startActivity(intent)
-}
-
-/**
- * Parse LLM response text into an AgentResponse.
- * Standalone version for MainActivity (non-ViewModel context).
- */
-private fun parseAgentResponse(text: String, router: ResponseRouter): AgentResponse {
-    val jsonStart = text.indexOf('{')
-    val jsonEnd = text.lastIndexOf('}')
-
-    if (jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart) {
-        return AgentResponse(
-            type = ResponseType.TEXT,
-            voiceText = text.take(60),
-            richContent = null,
-            fallbackText = text
-        )
-    }
-
-    return try {
-        val jsonStr = text.substring(jsonStart, jsonEnd + 1)
-        val json = org.json.JSONObject(jsonStr)
-
-        val typeStr = json.optString("type", "TEXT")
-        val type = when (typeStr.uppercase()) {
-            "VOICE" -> ResponseType.VOICE
-            "BOTH" -> ResponseType.BOTH
-            else -> ResponseType.TEXT
-        }
-
-        val voiceText = json.optString("voice_text").takeIf { it.isNotEmpty() }
-        val fallbackText = json.optString("fallback_text", text)
-
-        val richContent = if (json.has("rich_content") && !json.isNull("rich_content")) {
-            val rc = json.getJSONObject("rich_content")
-            val rcType = rc.optString("type").takeIf { it.isNotEmpty() }
-            val rcData = if (rc.has("data") && !rc.isNull("data")) {
-                val dataObj = rc.getJSONObject("data")
-                val map = mutableMapOf<String, Any>()
-                for (key in dataObj.keys()) {
-                    map[key] = dataObj.get(key)
-                }
-                map
-            } else null
-            RichContent.fromJson(rcType, rcData)
-        } else null
-
-        AgentResponse(
-            type = type,
-            voiceText = voiceText,
-            richContent = richContent,
-            fallbackText = fallbackText.ifBlank { text }
-        )
-    } catch (e: Exception) {
-        Log.w("MainActivity", "Failed to parse AgentResponse JSON, using fallback", e)
-        AgentResponse(
-            type = ResponseType.TEXT,
-            voiceText = text.take(60),
-            richContent = null,
-            fallbackText = text
-        )
-    }
 }
 
 fun hasNotificationListenerPermission(context: Context): Boolean {

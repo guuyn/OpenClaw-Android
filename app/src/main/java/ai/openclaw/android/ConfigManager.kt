@@ -21,6 +21,7 @@ object ConfigManager {
     private const val KEY_SERVICE_ENABLED = "service_enabled"
     private const val KEY_FEISHU_APP_ID = "feishu_app_id"
     private const val KEY_FEISHU_APP_SECRET = "feishu_app_secret"
+    private const val KEY_TEST_MODE_ENABLED = "test_mode_enabled"
     
     private lateinit var prefs: SharedPreferences
     private lateinit var secretPrefs: SharedPreferences
@@ -119,6 +120,18 @@ object ConfigManager {
     
     fun hasFeishuCredentials(): Boolean {
         return getFeishuAppId().isNotEmpty() && getFeishuAppSecret().isNotEmpty()
+    }
+    
+    // ==================== Test Mode Configuration ====================
+    
+    fun isTestModeEnabled(): Boolean {
+        return if (::prefs.isInitialized) prefs.getBoolean(KEY_TEST_MODE_ENABLED, false) else false
+    }
+    
+    fun setTestModeEnabled(enabled: Boolean) {
+        if (::prefs.isInitialized) {
+            prefs.edit().putBoolean(KEY_TEST_MODE_ENABLED, enabled).apply()
+        }
     }
     
     // ==================== Bulk Operations ====================

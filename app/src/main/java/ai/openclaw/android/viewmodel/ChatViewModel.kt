@@ -4,43 +4,51 @@ import android.content.Context
 import android.util.Log
 import ai.openclaw.android.ChatMessage
 import ai.openclaw.android.ConfigManager
+import ai.openclaw.android.GatewayContract
 import ai.openclaw.android.LogManager
+import ai.openclaw.android.MockDataProvider
 import ai.openclaw.android.agent.AgentSession
+import ai.openclaw.android.gateway.MessageGateway
+import ai.openclaw.android.gateway.MockGateway
+import ai.openclaw.android.gateway.MockScenario
+import ai.openclaw.android.gateway.RealGateway
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import ai.openclaw.android.agent.SessionEvent
 import ai.openclaw.android.data.local.AppDatabase
-import ai.openclaw.android.domain.memory.EmbeddingService
-import ai.openclaw.android.domain.memory.HybridSearchEngine
-import ai.openclaw.android.ml.EmbeddingServiceFactory
 import ai.openclaw.android.domain.AgentResponse
+import ai.openclaw.android.domain.AgentResponseParser
 import ai.openclaw.android.domain.Deliverable
 import ai.openclaw.android.domain.DeviceCapabilities
 import ai.openclaw.android.domain.ResponseRouter
-import ai.openclaw.android.domain.RichContent
 import ai.openclaw.android.domain.ResponseType
+import ai.openclaw.android.domain.RichContent
+import ai.openclaw.android.domain.memory.EmbeddingService
 import ai.openclaw.android.domain.memory.FallbackMemoryExtractor
+import ai.openclaw.android.domain.memory.HybridSearchEngine
 import ai.openclaw.android.domain.memory.LlmMemoryExtractor
 import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.domain.session.HybridSessionManager
 import ai.openclaw.android.domain.session.TokenCounter
+import ai.openclaw.android.ml.EmbeddingServiceFactory
+import ai.openclaw.android.model.AnthropicClient
+import ai.openclaw.android.model.ImageContent
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
 import ai.openclaw.android.model.OpenAIClient
-import ai.openclaw.android.model.AnthropicClient
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.skill.SkillManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 
 /**
  * 聊天 ViewModel
  *
  * 管理聊天消息列表、AgentSession 生命周期、消息发送与流式响应
+ * 统一通过 GatewayContract（优先）或 AgentSession（回退）发送消息
  */
 class ChatViewModel(
     private val skillManager: SkillManager,
@@ -73,13 +81,91 @@ class ChatViewModel(
     private val _lastRichContent = MutableStateFlow<RichContent?>(null)
     val lastRichContent: StateFlow<RichContent?> = _lastRichContent.asStateFlow()
 
+    // ==================== 测试模式 ====================
+
+    private val _isTestMode = MutableStateFlow(ConfigManager.isTestModeEnabled())
+    val isTestMode: StateFlow<Boolean> = _isTestMode.asStateFlow()
+
+    fun setTestMode(
+        enabled: Boolean,
+        scenario: MockScenario = MockScenario.PlainText,
+        contractProvider: (() -> GatewayContract?)? = null
+    ) {
+        _isTestMode.value = enabled
+        ConfigManager.setTestModeEnabled(enabled)
+        switchGateway(useMock = enabled, scenario = scenario, contractProvider = contractProvider)
+        if (enabled) {
+            loadMockData()
+        } else {
+            clearHistory()
+        }
+    }
+
     // ==================== 内部依赖 ====================
 
+    /** 消息网关（可切换 RealGateway / MockGateway） */
+    private var messageGateway: MessageGateway? = null
     private var agentSession: AgentSession? = null
     private var modelClient: ModelClient? = null
     private var localLLMClient: LocalLLMClient? = null
     private var sessionManager: HybridSessionManager? = null
     private var responseRouter: ResponseRouter? = null
+    private val agentResponseParser = AgentResponseParser()
+
+    /**
+     * Set the GatewayContract after service binding.
+     * Called from Activity when GatewayService connects.
+     * 正常模式下将 GatewayContract 包装为 RealGateway。
+     * 测试模式下忽略，保持 MockGateway。
+     */
+    fun updateGatewayContract(contract: GatewayContract?) {
+        if (contract != null && !_isTestMode.value) {
+            messageGateway = RealGateway { contract }
+            Log.d(TAG, "GatewayContract updated → RealGateway")
+        } else if (contract == null) {
+            messageGateway = null
+            Log.d(TAG, "GatewayContract cleared")
+        }
+    }
+
+    /**
+     * 设置 MessageGateway（直接注入，支持测试模式切换）
+     */
+    fun setMessageGateway(gateway: MessageGateway?) {
+        messageGateway = gateway
+        Log.d(TAG, "MessageGateway set: ${gateway?.javaClass?.simpleName ?: "null"}")
+    }
+
+    /**
+     * 动态切换网关实现（测试模式 ↔ 正常模式）
+     * @param useMock true 使用 MockGateway，false 恢复 RealGateway
+     * @param scenario MockGateway 场景（仅 useMock=true 时有效）
+     * @param contractProvider GatewayContract 提供者（用于恢复 RealGateway）
+     */
+    fun switchGateway(
+        useMock: Boolean,
+        scenario: MockScenario = MockScenario.PlainText,
+        contractProvider: (() -> GatewayContract?)? = null
+    ) {
+        if (useMock) {
+            val mg = MockGateway(scenario)
+            messageGateway = mg
+            Log.d(TAG, "Switched to MockGateway (scenario=$scenario)")
+        } else {
+            // 恢复 RealGateway
+            val contract = contractProvider?.invoke()
+            if (contract != null) {
+                messageGateway = RealGateway { contract }
+                Log.d(TAG, "Switched to RealGateway")
+            } else {
+                messageGateway = null
+                Log.d(TAG, "Switched to waiting for RealGateway (no contract)")
+            }
+        }
+    }
+
+    /** 获取当前 MockGateway（用于运行时切换场景） */
+    fun getMockGateway(): MockGateway? = messageGateway as? MockGateway
 
     // ==================== 初始化 ====================
 
@@ -218,110 +304,136 @@ class ChatViewModel(
 
     /**
      * 发送用户消息并接收流式响应
+     * 优先使用 GatewayContract，回退到 AgentSession
      */
-    fun sendMessage(text: String) {
+    fun sendMessage(text: String, images: List<ImageContent> = emptyList()) {
         Log.d(TAG, "=== sendMessage called ===")
         LogManager.shared.log("INFO", "Chat", "User: $text")
 
         val currentMessages = _messages.value.toMutableList()
-        currentMessages.add(ChatMessage(role = "user", content = text))
+        currentMessages.add(ChatMessage(role = "user", content = text, images = images.ifEmpty { null }))
         _messages.value = currentMessages
-        _isLoading.value = true
 
+        _isLoading.value = true
         viewModelScope.launch {
             try {
+                val gateway = messageGateway
+                if (gateway != null && gateway.isReady()) {
+                    sendMessageViaGateway(gateway, text, images)
+                    return@launch
+                }
+
+                // Fallback to AgentSession (no gateway available)
                 val session = agentSession
                 if (session == null) {
                     val msgs = _messages.value.toMutableList()
-                    msgs.add(ChatMessage(role = "assistant", content = "请先在设置中配置 API Key"))
+                    msgs.add(ChatMessage(role = "assistant", content = "服务未就绪，请稍候或检查设置"))
                     _messages.value = msgs
                     _isLoading.value = false
                     return@launch
                 }
-
-                val responseId = java.util.UUID.randomUUID().toString()
-                val msgs = _messages.value.toMutableList()
-                msgs.add(ChatMessage(id = responseId, role = "assistant", content = ""))
-                _messages.value = msgs
-                val responseIndex = msgs.lastIndex
-
-                session.handleMessageStream(text).collect { event ->
-                    when (event) {
-                        is SessionEvent.Token -> {
-                            val updated = _messages.value.toMutableList()
-                            val current = updated[responseIndex]
-                            updated[responseIndex] = current.copy(
-                                content = current.content + event.text
-                            )
-                            _messages.value = updated
-                        }
-                        is SessionEvent.ToolExecuting -> {
-                            val updated = _messages.value.toMutableList()
-                            val current = updated[responseIndex]
-                            updated[responseIndex] = current.copy(
-                                content = current.content + "\n[调用工具: ${event.name}...]\n"
-                            )
-                            _messages.value = updated
-                        }
-                        is SessionEvent.ToolResult -> { }
-                        is SessionEvent.ReflectionStart -> {
-                            val updated = _messages.value.toMutableList()
-                            val current = updated[responseIndex]
-                            updated[responseIndex] = current.copy(
-                                content = current.content + "\n[🔄 反思中: ${event.role}...]\n"
-                            )
-                            _messages.value = updated
-                        }
-                        is SessionEvent.ReflectionComplete -> { }
-                        is SessionEvent.Complete -> {
-                            val parsedResponse = parseAgentResponse(event.fullText)
-                            val deliverable = responseRouter?.route(parsedResponse)
-                                ?: Deliverable.PlainText(parsedResponse.fallbackText)
-
-                            _lastDeliverable.value = deliverable
-                            _lastRichContent.value = when (deliverable) {
-                                is Deliverable.RichText -> deliverable.content
-                                is Deliverable.Mixed -> deliverable.rich
-                                else -> null
-                            }
-
-                            // For UI display, use the routed text content
-                            val displayText = when (deliverable) {
-                                is Deliverable.PlainText -> deliverable.text
-                                is Deliverable.Voice -> deliverable.text
-                                is Deliverable.RichText -> parsedResponse.fallbackText
-                                is Deliverable.Mixed -> {
-                                    // Prefer rich content text if available, else fallback
-                                    deliverable.rich?.let { parsedResponse.fallbackText }
-                                        ?: parsedResponse.fallbackText
-                                }
-                            }
-
-                            val updated = _messages.value.toMutableList()
-                            updated[responseIndex] = updated[responseIndex].copy(
-                                content = displayText
-                            )
-                            _messages.value = updated
-                            _isLoading.value = false
-                            LogManager.shared.log("INFO", "Chat", "Assistant: ${event.fullText.take(100)}")
-                        }
-                        is SessionEvent.Error -> {
-                            val updated = _messages.value.toMutableList()
-                            updated[responseIndex] = updated[responseIndex].copy(
-                                content = updated[responseIndex].content.ifEmpty { "错误: ${event.message}" }
-                            )
-                            _messages.value = updated
-                            _isLoading.value = false
-                            LogManager.shared.log("ERROR", "Chat", "Error: ${event.message}")
-                        }
-                    }
-                }
+                sendMessageViaSession(session, text)
             } catch (e: Exception) {
                 Log.e(TAG, "Chat error: ${e.message}", e)
                 val updated = _messages.value.toMutableList()
                 updated.add(ChatMessage(role = "assistant", content = "错误: ${e.message}"))
                 _messages.value = updated
                 _isLoading.value = false
+            }
+        }
+    }
+
+    /** 通过 MessageGateway 发送消息（统一路径，RealGateway / MockGateway 均走此方法） */
+    private suspend fun sendMessageViaGateway(
+        gateway: MessageGateway,
+        text: String,
+        images: List<ImageContent>
+    ) {
+        val responseId = java.util.UUID.randomUUID().toString()
+        val msgs = _messages.value.toMutableList()
+        msgs.add(ChatMessage(id = responseId, role = "assistant", content = ""))
+        _messages.value = msgs
+        val responseIndex = msgs.lastIndex
+
+        gateway.sendMessage(text, images.ifEmpty { null }).collect { event ->
+            handleSessionEvent(event, responseIndex)
+        }
+    }
+
+    /** 通过 AgentSession 发送消息 */
+    private suspend fun sendMessageViaSession(session: AgentSession, text: String) {
+        val responseId = java.util.UUID.randomUUID().toString()
+        val msgs = _messages.value.toMutableList()
+        msgs.add(ChatMessage(id = responseId, role = "assistant", content = ""))
+        _messages.value = msgs
+        val responseIndex = msgs.lastIndex
+
+        session.handleMessageStream(text).collect { event ->
+            handleSessionEvent(event, responseIndex)
+        }
+    }
+
+    /** 统一处理 SessionEvent */
+    private suspend fun handleSessionEvent(event: SessionEvent, responseIndex: Int) {
+        when (event) {
+            is SessionEvent.Token -> {
+                val updated = _messages.value.toMutableList()
+                val current = updated[responseIndex]
+                updated[responseIndex] = current.copy(content = current.content + event.text)
+                _messages.value = updated
+            }
+            is SessionEvent.ToolExecuting -> {
+                val updated = _messages.value.toMutableList()
+                val current = updated[responseIndex]
+                updated[responseIndex] = current.copy(
+                    content = current.content + "\n[调用工具: ${event.name}...]\n"
+                )
+                _messages.value = updated
+            }
+            is SessionEvent.ToolResult -> { }
+            is SessionEvent.ReflectionStart -> {
+                val updated = _messages.value.toMutableList()
+                val current = updated[responseIndex]
+                updated[responseIndex] = current.copy(
+                    content = current.content + "\n[🔄 反思中: ${event.role}...]\n"
+                )
+                _messages.value = updated
+            }
+            is SessionEvent.ReflectionComplete -> { }
+            is SessionEvent.Complete -> {
+                val parsedResponse = parseAgentResponse(event.fullText)
+                val deliverable = responseRouter?.route(parsedResponse)
+                    ?: Deliverable.PlainText(parsedResponse.fallbackText)
+
+                _lastDeliverable.value = deliverable
+                _lastRichContent.value = when (deliverable) {
+                    is Deliverable.RichText -> deliverable.content
+                    is Deliverable.Mixed -> deliverable.rich
+                    else -> null
+                }
+
+                val displayText = when (deliverable) {
+                    is Deliverable.PlainText -> deliverable.text
+                    is Deliverable.Voice -> deliverable.text
+                    is Deliverable.RichText -> parsedResponse.fallbackText
+                    is Deliverable.Mixed -> deliverable.rich?.let { parsedResponse.fallbackText }
+                        ?: parsedResponse.fallbackText
+                }
+
+                val updated = _messages.value.toMutableList()
+                updated[responseIndex] = updated[responseIndex].copy(content = displayText)
+                _messages.value = updated
+                _isLoading.value = false
+                LogManager.shared.log("INFO", "Chat", "Assistant: ${event.fullText.take(100)}")
+            }
+            is SessionEvent.Error -> {
+                val updated = _messages.value.toMutableList()
+                updated[responseIndex] = updated[responseIndex].copy(
+                    content = updated[responseIndex].content.ifEmpty { "错误: ${event.message}" }
+                )
+                _messages.value = updated
+                _isLoading.value = false
+                LogManager.shared.log("ERROR", "Chat", "Error: ${event.message}")
             }
         }
     }
@@ -417,75 +529,39 @@ class ChatViewModel(
         _messages.value = emptyList()
     }
 
+    // ==================== 测试注入 ====================
+
+    /**
+     * 从广播接收器注入 A2UI 测试数据
+     */
+    fun testInjectA2UI(a2uiJson: String) {
+        if (a2uiJson.isBlank()) {
+            Log.w(TAG, "[INJECT A2UI TEST] Empty JSON, skipping")
+            return
+        }
+        Log.d(TAG, "[INJECT A2UI TEST] Received JSON: ${a2uiJson.take(100)}")
+        val a2uiWrapped = "[A2UI]\n$a2uiJson\n[/A2UI]"
+        val currentMessages = _messages.value.toMutableList()
+        currentMessages.add(ChatMessage(role = "assistant", content = a2uiWrapped))
+        _messages.value = currentMessages
+        Log.d(TAG, "[INJECT A2UI TEST] Message added to list")
+    }
+
+    /**
+     * 加载 Mock 测试数据
+     */
+    private fun loadMockData() {
+        _messages.value = MockDataProvider.getAllScenarios()
+    }
+
     // ==================== AgentResponse 解析 ====================
 
     /**
      * Parse LLM response text into an AgentResponse.
      *
-     * Attempts to find a JSON object in the response text. If parsing fails
-     * or no JSON is found, falls back to a TEXT response with the full text
-     * as fallback_text.
+     * Delegates to [AgentResponseParser] for pure-logic testability.
      */
-    fun parseAgentResponse(text: String): AgentResponse {
-        // Try to extract JSON from the response
-        val jsonStart = text.indexOf('{')
-        val jsonEnd = text.lastIndexOf('}')
-
-        if (jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart) {
-            // No JSON found — treat as plain text
-            return AgentResponse(
-                type = ResponseType.TEXT,
-                voiceText = text.take(60),
-                richContent = null,
-                fallbackText = text
-            )
-        }
-
-        return try {
-            val jsonStr = text.substring(jsonStart, jsonEnd + 1)
-            val json = JSONObject(jsonStr)
-
-            val typeStr = json.optString("type", "TEXT")
-            val type = when (typeStr.uppercase()) {
-                "VOICE" -> ResponseType.VOICE
-                "BOTH" -> ResponseType.BOTH
-                else -> ResponseType.TEXT
-            }
-
-            val voiceText = json.optString("voice_text").takeIf { it.isNotEmpty() }
-            val fallbackText = json.optString("fallback_text", text)
-
-            // Parse rich_content if present
-            val richContent = if (json.has("rich_content") && !json.isNull("rich_content")) {
-                val rc = json.getJSONObject("rich_content")
-                val rcType = rc.optString("type").takeIf { it.isNotEmpty() }
-                val rcData = if (rc.has("data") && !rc.isNull("data")) {
-                    val dataObj = rc.getJSONObject("data")
-                    val map = mutableMapOf<String, Any>()
-                    for (key in dataObj.keys()) {
-                        map[key] = dataObj.get(key)
-                    }
-                    map
-                } else null
-                RichContent.fromJson(rcType, rcData)
-            } else null
-
-            AgentResponse(
-                type = type,
-                voiceText = voiceText,
-                richContent = richContent,
-                fallbackText = fallbackText.ifBlank { text }
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse AgentResponse JSON, using fallback", e)
-            AgentResponse(
-                type = ResponseType.TEXT,
-                voiceText = text.take(60),
-                richContent = null,
-                fallbackText = text
-            )
-        }
-    }
+    fun parseAgentResponse(text: String): AgentResponse = agentResponseParser.parse(text)
 
     override fun onCleared() {
         super.onCleared()

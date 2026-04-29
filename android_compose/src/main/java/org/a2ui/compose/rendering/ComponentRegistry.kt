@@ -112,9 +112,22 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
             renderDepthError(component)
             return
         }
-        customComponents[component.component]?.invoke(component, context)
-            ?: components[component.component]?.invoke(component, context)
-            ?: renderDefault(component, context)
+        // ✅ 错误边界：安全查找并渲染组件，防止异常导致消息列表崩溃
+        // 注意：Compose 编译器不允许 try-catch 包裹 @Composable 调用，
+        // 因此将 try-catch 限制在非 Composable 的 Map 查找操作上
+        val factory = try {
+            customComponents[component.component]
+                ?: components[component.component]
+        } catch (e: Throwable) {
+            android.util.Log.e("ComponentRegistry", "Component lookup failed: ${component.component}, error: ${e.message}", e)
+            null
+        }
+
+        if (factory != null) {
+            factory.invoke(component, context)
+        } else {
+            renderDefault(component, context)
+        }
     }
 
     @Composable
@@ -128,6 +141,31 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                     text = "Render depth limit exceeded: ${component.component}",
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
+            }
+        }
+    }
+
+    /** 渲染异常时的降级卡片 */
+    @Composable
+    private fun renderError(component: Component, error: Throwable) {
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+        ) {
+            Box(modifier = Modifier.padding(16.dp)) {
+                Column {
+                    Text(
+                        text = "⚠️ 组件渲染失败: ${component.component}",
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = error.message ?: "Unknown error",
+                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
     }

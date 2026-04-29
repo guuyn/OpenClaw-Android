@@ -63,6 +63,15 @@ class EventBus private constructor(
         fun reset() {
             instance = null
         }
+
+        /**
+         * 测试专用工厂方法 — 绕过单例，注入 Mock 依赖
+         */
+        internal fun forTesting(
+            ruleDao: TriggerRuleDao,
+            logDao: TriggerLogDao,
+            actionExecutor: ActionExecutor
+        ): EventBus = EventBus(ruleDao, logDao, actionExecutor)
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -75,6 +84,20 @@ class EventBus private constructor(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean = size > 100
     }
     private val DEDUP_TTL_MS = 5 * 60 * 1000L // 5 minutes
+
+    // ==================== 测试支持方法 ====================
+
+    /** 返回冷却映射（供测试断言使用） */
+    internal fun getCooldowns(): Map<String, Long> = cooldowns.toMap()
+
+    /** 返回去重缓存（供测试断言使用） */
+    internal fun getDedupCache(): Map<String, Long> = dedupCache.toMap()
+
+    /** 重置运行时状态（冷却 + 去重），供测试隔离使用 */
+    internal fun resetState() {
+        cooldowns.clear()
+        dedupCache.clear()
+    }
 
     /**
      * 发布事件到总线

@@ -912,13 +912,15 @@ private fun UserMessageBubble(
                         )
                     }
                     is MessageSegment.StandardProtocol -> {
-                        // ✅ A2UI 卡片使用负边距突破气泡 padding，实现全宽显示
-                        A2UIComposeRenderer(
+                        // ✅ A2UI 卡片使用 offset 突破气泡 padding，实现全宽显示
+                        // （Compose 不允许负 padding，改用 offset）
+                        A2UIRendererWithErrorBoundary(
                             content = "[A2UI]${segment.json}[/A2UI]",
                             renderer = a2uiRenderer,
                             modifier = Modifier
                                 .padding(vertical = 4.dp)
-                                .padding(start = (-14).dp, end = (-12).dp)
+                                .offset(x = (-14).dp)
+                                .width(IntrinsicSize.Max)
                         )
                     }
                 }
@@ -996,24 +998,15 @@ private fun AiMessageBubble(
                         )
                     }
                     is MessageSegment.StandardProtocol -> {
-                        A2UIComposeRenderer(
-                            content = "[A2UI]${segment.json}[/A2UI]",
-                            renderer = a2uiRenderer,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-                    }                    is MessageSegment.StandardProtocol -> {
-                        A2UIComposeRenderer(
+                        // ✅ A2UI 卡片使用 offset 突破气泡 padding，实现全宽显示
+                        // （Compose 不允许负 padding，改用 offset）
+                        A2UIRendererWithErrorBoundary(
                             content = "[A2UI]${segment.json}[/A2UI]",
                             renderer = a2uiRenderer,
                             modifier = Modifier
                                 .padding(vertical = 4.dp)
-                                .padding(start = (-14).dp, end = (-12).dp)
-                        )
-                    }                    is MessageSegment.StandardProtocol -> {
-                        A2UIComposeRenderer(
-                            content = "[A2UI]${segment.json}[/A2UI]",
-                            renderer = a2uiRenderer,
-                            modifier = Modifier.padding(vertical = 4.dp)
+                                .offset(x = (-14).dp)
+                                .width(IntrinsicSize.Max)
                         )
                     }
                 }
@@ -1133,6 +1126,52 @@ private fun CodeBlockContent(block: RichContent.CodeBlock) {
         )
     }
 }
+
+// ==================== Error Boundary Component ====================
+
+/**
+ * A2UI renderer with error boundary protection.
+ * Uses LaunchedEffect to pre-validate content before rendering.
+ */
+@Composable
+fun A2UIRendererWithErrorBoundary(
+    content: String,
+    renderer: A2UIRenderer,
+    modifier: Modifier = Modifier
+) {
+    var renderError by remember { mutableStateOf<String?>(null) }
+    
+    LaunchedEffect(content) {
+        renderError = null
+        try {
+            // Pre-validate: try to parse A2UI tags
+            if (content.contains("[A2UI]") && !content.contains("[/A2UI]")) {
+                renderError = "Malformed A2UI content: missing closing tag"
+            }
+        } catch (e: Exception) {
+            renderError = e.message ?: "Unknown error"
+        }
+    }
+    
+    if (renderError != null) {
+        // Show error card instead of crashing
+        InlineErrorCard(
+            errorCode = "A2UI_RENDER_ERROR",
+            message = "A2UI 渲染失败: $renderError",
+            onRetry = null,
+            modifier = modifier
+        )
+    } else {
+        A2UIComposeRenderer(
+            content = content,
+            renderer = renderer,
+            modifier = modifier
+        )
+    }
+}
+
+// A2UIRendererSafely removed - Compose doesn't support try-catch around composables
+// Error handling is done in A2UIComposeRenderer via runCatching in processMessage
 
 // ==================== Voice UI Components ====================
 

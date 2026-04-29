@@ -400,3 +400,241 @@ private fun typeTitle(type: String) = when (type) {
     "settings" -> "⚙️ 设置"
     else -> type.replaceFirstChar { it.uppercase() }
 }
+
+// ==================== 测试工具（纯函数，供 JVM 单元测试使用）====================
+
+/**
+ * 可测试的 A2UI 协议解析工具集。
+ * 与文件级私有函数逻辑一致，但以 public object 暴露，方便单元测试调用。
+ */
+object A2UIParseUtils {
+
+    // ---- extractA2UIJsons ----
+
+    /** 提取所有 [A2UI]...[/A2UI] 内的 JSON 字符串 */
+    fun extractA2UIJsons(content: String): List<String> {
+        val results = mutableListOf<String>()
+        val startTag = "[A2UI]"
+        val endTag = "[/A2UI]"
+        var cursor = 0
+        while (cursor < content.length) {
+            val startIdx = content.indexOf(startTag, cursor)
+            if (startIdx == -1) break
+            val jsonStart = startIdx + startTag.length
+            val endIdx = content.indexOf(endTag, jsonStart)
+            if (endIdx == -1) break
+            results.add(content.substring(jsonStart, endIdx).trim())
+            cursor = endIdx + endTag.length
+        }
+        return results
+    }
+
+    // ---- isStandardProtocol ----
+
+    /** 判断 JSON 是否已经是标准 A2UI 协议格式 */
+    fun isStandardProtocol(json: String): Boolean {
+        return json.contains("\"createSurface\"") ||
+               json.contains("\"updateComponents\"") ||
+               json.contains("\"updateDataModel\"") ||
+               json.contains("\"deleteSurface\"") ||
+               json.contains("\"surfaceUpdate\"") ||
+               json.contains("\"beginRendering\"")
+    }
+
+    // ---- normalizeToJsonL ----
+
+    /**
+     * 将单个 JSON 对象转换为 JSONL 格式
+     * 输入：{"version":"v0.10","createSurface":{...},"updateComponents":{...}}
+     * 输出：每行一个 JSON 对象的 JSONL 格式
+     */
+    fun normalizeToJsonL(json: String): String {
+        return try {
+            val root = kotlinx.serialization.json.Json.parseToJsonElement(json).jsonObject
+            val lines = mutableListOf<String>()
+            root["createSurface"]?.let { createSurface ->
+                val version = root["version"]?.jsonPrimitive?.content ?: "v0.10"
+                lines.add("""{"version":"$version","createSurface":${createSurface.toString()}}""")
+            }
+            root["updateComponents"]?.let { updateComponents ->
+                val version = root["version"]?.jsonPrimitive?.content ?: "v0.10"
+                lines.add("""{"version":"$version","updateComponents":${updateComponents.toString()}}""")
+            }
+            root["updateDataModel"]?.let { updateDataModel ->
+                val version = root["version"]?.jsonPrimitive?.content ?: "v0.10"
+                lines.add("""{"version":"$version","updateDataModel":${updateDataModel.toString()}}""")
+            }
+            if (lines.isEmpty()) json else lines.joinToString("\n")
+        } catch (e: Exception) {
+            json
+        }
+    }
+
+    // ---- convertLegacyCardToProtocol ----
+
+    private val legacyJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
+
+    /** 将旧格式 {"type":"X","data":{...},"actions":[...]} 转为 v0.10 标准协议 */
+    fun convertLegacyCardToProtocol(jsonStr: String, surfaceId: String): String? {
+        return try {
+            val root = legacyJson.parseToJsonElement(jsonStr)
+            val rootObj = root.jsonObject
+            val type = rootObj["type"]?.jsonPrimitive?.content ?: return null
+            val dataObj = rootObj["data"]?.jsonObject
+            val data: Map<String, Any?> = dataObj?.mapValues { (_, v) -> jsonElementToAny(v) } ?: emptyMap()
+            val actionsArr = rootObj["actions"]?.jsonArray
+            val actions: List<Any> = actionsArr?.mapNotNull { jsonElementToAny(it) } ?: emptyList()
+            buildProtocolMessage(type, data, actions, surfaceId)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun jsonElementToAny(element: JsonElement): Any? = when (element) {
+        is JsonPrimitive -> when {
+            element.isString -> element.content
+            element.booleanOrNull != null -> element.booleanOrNull!!
+            element.doubleOrNull != null -> element.doubleOrNull!!
+            else -> element.content
+        }
+        is JsonObject -> element.mapValues { (_, v) -> jsonElementToAny(v) }
+        is JsonArray -> element.mapNotNull { jsonElementToAny(it) }
+        else -> ""
+    }
+
+    private fun jsonElementToSafeString(element: JsonElement): String {
+        val raw = when (element) {
+            is JsonPrimitive -> element.content
+            is JsonObject -> "[object]"
+            is JsonArray -> "[array]"
+            else -> element.toString()
+        }
+        val truncated = if (raw.length > 200) raw.take(200) + "…" else raw
+        return truncated.filter { it.code >= 0x20 || it in listOf('\t', '\n', '\r') || it.code >= 0x80 }
+    }
+
+    private fun buildProtocolMessage(
+        type: String,
+        data: Map<*, *>,
+        actions: List<*>,
+        surfaceId: String
+    ): String {
+        val components = mutableListOf<String>()
+        val childIds = mutableListOf("header")
+        if (data.isNotEmpty()) childIds.add("body")
+        if (actions.isNotEmpty()) childIds.add("footer")
+        components.add("""{"id":"root","component":"Column","children":{"array":${jsonArr(childIds)}}}""")
+        val title = data["title"]?.toString() ?: typeTitle(type)
+        components.add("""{"id":"header","component":"Text","text":"${esc(title)}","variant":"h4"}""")
+        if (data.isNotEmpty()) {
+            val bodyChildren = mutableListOf<String>()
+            data.forEach { (key, value) ->
+                if (key == "title") return@forEach
+                val rowId = "row_${key}"
+                val labelId = "label_${key}"
+                val valueId = "val_${key}"
+                bodyChildren.add(rowId)
+                components.add("""{"id":"$rowId","component":"Row","children":{"array":["$labelId","$valueId"]},"justify":"spaceBetween"}""")
+                components.add("""{"id":"$labelId","component":"Text","text":"${esc(key.toString())}:","variant":"caption"}""")
+                val displayValue = when (value) {
+                    is List<*> -> value.joinToString(", ") { safeDisplayValue(it) }
+                    is Map<*, *> -> safeDisplayValue(value)
+                    null -> ""
+                    else -> safeDisplayValue(value)
+                }
+                components.add("""{"id":"$valueId","component":"Text","text":"${esc(displayValue)}","variant":"body"}""")
+            }
+            components.add("""{"id":"body","component":"Column","children":{"array":${jsonArr(bodyChildren)}}}""")
+        }
+        if (actions.isNotEmpty()) {
+            val actionIds = actions.mapIndexed { idx, _ -> "btn_$idx" }
+            components.add("""{"id":"footer","component":"Column","children":{"array":${jsonArr(actionIds)}}}""")
+            actions.forEachIndexed { idx, action ->
+                val a = action as? Map<*, *> ?: return@forEachIndexed
+                val label = a["label"]?.toString() ?: "Action"
+                val style = if (a["style"]?.toString() == "Secondary") "borderless" else "primary"
+                val actionName = a["action"]?.toString() ?: "unknown"
+                components.add("""{"id":"btn_$idx","component":"Button","text":"${esc(label)}","variant":"$style","action":{"event":{"name":"$actionName"}}}""")
+            }
+        }
+        val componentsJson = components.joinToString(",")
+        return """{"version":"v0.10","createSurface":{"surfaceId":"$surfaceId","catalogId":"https://a2ui.org/specification/v0_10/standard_catalog.json"}}
+{"version":"v0.10","updateComponents":{"surfaceId":"$surfaceId","components":[$componentsJson]}}"""
+    }
+
+    private fun jsonArr(items: List<String>) = items.joinToString(",", "[", "]") { "\"$it\"" }
+
+    // ---- esc ----
+
+    /** 安全转义字符串中的 JSON 特殊字符 */
+    fun esc(s: String): String {
+        return s
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+            .replace("\b", "\\b")
+            .replace("\u000C", "\\f")
+            .filter { it.code >= 0x20 || it == '\n' || it == '\r' || it == '\t' }
+    }
+
+    // ---- safeDisplayValue ----
+
+    /** 安全地将任意值转为可显示的字符串 */
+    fun safeDisplayValue(value: Any?): String {
+        return try {
+            when (value) {
+                null -> ""
+                is String -> if (value.length > 500) value.take(500) + "…" else value
+                is Number -> value.toString()
+                is Boolean -> value.toString()
+                is List<*> -> value.joinToString(", ") { safeDisplayValue(it) }
+                is Map<*, *> -> value.entries.joinToString(", ") { "${it.key}=${safeDisplayValue(it.value)}" }
+                else -> {
+                    val str = value.toString()
+                    if (str.contains('@') && str.length < 50) ""
+                    else if (str.length > 500) str.take(500) + "…"
+                    else str
+                }
+            }
+        } catch (e: Exception) {
+            "[conversion error]"
+        }
+    }
+
+    // ---- typeTitle ----
+
+    /** 获取类型对应的标题 */
+    fun typeTitle(type: String): String = when (type) {
+        "weather" -> "🌤️ 天气"
+        "search_result" -> "🔍 搜索结果"
+        "translation" -> "🌐 翻译"
+        "reminder" -> "⏰ 提醒"
+        "calendar" -> "📅 日程"
+        "location" -> "📍 位置"
+        "error" -> "⚠️ 错误"
+        "info" -> "ℹ️ 信息"
+        "summary" -> "📋 摘要"
+        "contact" -> "👤 联系人"
+        "sms" -> "💬 短信"
+        "app" -> "📱 应用"
+        "settings" -> "⚙️ 设置"
+        else -> type.replaceFirstChar { it.uppercase() }
+    }
+
+    // ---- extractSurfaceId ----
+
+    /** 从 JSON 中提取 surfaceId */
+    fun extractSurfaceId(json: String?): String {
+        if (json == null) return "chat_${System.currentTimeMillis()}"
+        return try {
+            val root = kotlinx.serialization.json.Json.parseToJsonElement(json).jsonObject
+            root["createSurface"]?.jsonObject?.get("surfaceId")?.jsonPrimitive?.content
+                ?: root["updateComponents"]?.jsonObject?.get("surfaceId")?.jsonPrimitive?.content
+                ?: "chat_${System.currentTimeMillis()}"
+        } catch (e: Exception) {
+            "chat_${System.currentTimeMillis()}"
+        }
+    }
+}
