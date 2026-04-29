@@ -80,13 +80,47 @@ class DataModelState {
         val key = keys[index]
         val value = map[key]
 
-        if (index == keys.size - 1) {
-            return value
-        }
-
+        // 先处理 Map/List 嵌套，再处理终端返回
         if (value is Map<*, *>) {
             @Suppress("UNCHECKED_CAST")
             return getNestedValue(value as Map<String, Any?>, keys, index + 1)
+        }
+
+        // ✅ 支持 List 索引（如 /forecast/0/date）
+        // 当前 value 是 List，下一个 key 应该是索引
+        if (value is List<*>) {
+            // 用下一个 key 作为索引
+            val nextIndex = index + 1
+            if (nextIndex < keys.size) {
+                val idxKey = keys[nextIndex]
+                val idx = idxKey.toIntOrNull()
+                if (idx != null && idx in value.indices) {
+                    val item = value[idx]
+                    // 还有更多 key 要处理
+                    if (nextIndex + 1 < keys.size) {
+                        if (item is Map<*, *>) {
+                            @Suppress("UNCHECKED_CAST")
+                            return getNestedValue(item as Map<String, Any?>, keys, nextIndex + 1)
+                        }
+                    } else {
+                        // 索引是最后一个 key，返回 List 元素
+                        return item
+                    }
+                }
+                // 索引无效，返回 null
+                return null
+            }
+            // 没有下一个 key 作为索引，如果当前是最后一个 key，返回整个 List
+            if (index == keys.size - 1) {
+                return value
+            }
+            // 还有更多 key 但 value 是 List 且无法索引，返回 null
+            return null
+        }
+
+        // 终端值：最后一个 key 或无法继续遍历
+        if (index == keys.size - 1) {
+            return value
         }
 
         return null

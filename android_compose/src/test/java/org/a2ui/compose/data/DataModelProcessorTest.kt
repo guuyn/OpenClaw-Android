@@ -132,4 +132,61 @@ class DataModelProcessorTest {
         assertNull(processor.getDataModel("surface1"))
         assertNull(processor.getDataModel("surface2"))
     }
+
+    // ============ Bug Fix Tests ============
+    // Bug: $forecast 路径解析失败 + List 子项 scopePath 含 $ 前缀导致模板渲染失败
+    // Fix: resolveDynamicValueWithScope 去掉 $ 前缀 + DataModelState 支持 List 索引
+
+    @Test
+    fun testDollarPrefixPathValue() {
+        // $forecast 应正确解析为 /forecast
+        processor.createSurface("weather")
+        processor.updateDataModel("weather", "/forecast", listOf("day1", "day2", "day3"))
+
+        val pathValue = DynamicValue.PathValue<String>("\$forecast")
+        val result = processor.resolveDynamicValue("weather", pathValue)
+        @Suppress("UNCHECKED_CAST")
+        val list = result as? List<*>
+        assertNotNull(result)
+        assertEquals(3, list?.size)
+        assertEquals("day1", list?.get(0))
+    }
+
+    @Test
+    fun testScopePathWithDollarPrefix() {
+        // 模拟 List 组件渲染子项：scopePath="$forecast/0", path="$date"
+        // 应正确解析为 /forecast/0/date
+        processor.createSurface("weather")
+        processor.updateDataModel("weather", "/forecast", listOf(
+            mapOf("date" to "4/29", "condition" to "Sunny"),
+            mapOf("date" to "4/30", "condition" to "Cloudy")
+        ))
+
+        // 模拟 scopePath="$forecast/0", 模板 path="$date"
+        val dateValue = DynamicValue.PathValue<String>("\$date")
+        val result = processor.resolveDynamicValueWithScope("weather", dateValue, "\$forecast/0")
+        assertEquals("4/29", result)
+
+        // 测试第二个索引
+        val result2 = processor.resolveDynamicValueWithScope("weather", dateValue, "\$forecast/1")
+        assertEquals("4/30", result2)
+
+        // 测试 condition 字段
+        val condValue = DynamicValue.PathValue<String>("\$condition")
+        val result3 = processor.resolveDynamicValueWithScope("weather", condValue, "\$forecast/0")
+        assertEquals("Sunny", result3)
+    }
+
+    @Test
+    fun testNestedListIndexPath() {
+        // 直接通过 /forecast/0/date 路径访问
+        processor.createSurface("weather2")
+        processor.updateDataModel("weather2", "/forecast", listOf(
+            mapOf("date" to "4/29", "high" to "24.5°", "low" to "11.9°")
+        ))
+
+        assertEquals("4/29", processor.getValue("weather2", "/forecast/0/date"))
+        assertEquals("24.5°", processor.getValue("weather2", "/forecast/0/high"))
+        assertEquals("11.9°", processor.getValue("weather2", "/forecast/0/low"))
+    }
 }

@@ -59,6 +59,9 @@ class DataModelProcessor {
      *
      * 当 scopePath 不为 null 时，相对路径（不以 / 开头）会在 scopePath 下解析。
      * 例如 scopePath="/users/0"，相对路径 "name" 解析为 "/users/0/name"
+     *
+     * A2UI 约定以 $ 开头的路径表示数据绑定（如 $forecast、$date），
+     * 解析时自动去掉 $ 前缀转为标准路径。
      */
     fun resolveDynamicValueWithScope(surfaceId: String, value: DynamicValue<*>?, scopePath: String?): Any? {
         if (value == null) return null
@@ -66,12 +69,22 @@ class DataModelProcessor {
         return when (value) {
             is DynamicValue.LiteralValue<*> -> value.literal
             is DynamicValue.PathValue<*> -> {
-                val resolvedPath = if (scopePath != null && !value.path.startsWith("/")) {
-                    // 相对路径：在 scopePath 下解析
-                    "$scopePath/${value.path}"
+                // A2UI $ 前缀 -> 标准路径
+                var rawPath = value.path
+                if (rawPath.startsWith("$")) rawPath = rawPath.substring(1)
+
+                // 标准化 scopePath：也去掉 $ 前缀并确保以 / 开头
+                val normalizedScopePath = scopePath?.let { sp ->
+                    val stripped = if (sp.startsWith("$")) sp.substring(1) else sp
+                    if (stripped.startsWith("/")) stripped else "/$stripped"
+                }
+
+                val resolvedPath = if (normalizedScopePath != null && !rawPath.startsWith("/")) {
+                    // 相对路径：在 normalized scopePath 下解析
+                    "$normalizedScopePath/$rawPath"
                 } else {
-                    // 绝对路径：直接解析
-                    value.path
+                    // 绝对路径：直接解析（确保以 / 开头）
+                    if (rawPath.startsWith("/")) rawPath else "/$rawPath"
                 }
                 getValue(surfaceId, resolvedPath)
             }
