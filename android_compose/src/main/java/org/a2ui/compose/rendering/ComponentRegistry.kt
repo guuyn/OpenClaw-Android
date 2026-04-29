@@ -1002,12 +1002,13 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                             }
                         }
                     } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(8.dp),
+                        // ⚠️ 不能用 LazyColumn，外层滚动容器会导致无限高度约束
+                        // 改用 Column 循环渲染（天气预报数据量小，不需要 Lazy）
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(dataItems.size, key = { it }) { index ->
+                            dataItems.forEachIndexed { index, _ ->
                                 renderer.getComponent(context.surfaceId, templateId)?.let { template ->
                                     val itemScope = "$dataPath/$index"
                                     render(template, context.copy(
@@ -1034,9 +1035,12 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
                             }
                         }
                     } else {
-                        LazyColumn(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            itemsIndexed(validIds, key = { _, id -> id }) { _, childId ->
+                        // ⚠️ 不能用 LazyColumn，外层滚动容器会导致无限高度约束
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            validIds.forEach { childId ->
                                 renderer.getComponent(context.surfaceId, childId)?.let {
                                     render(it, context.copy(renderDepth = context.renderDepth + 1))
                                 }

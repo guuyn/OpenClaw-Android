@@ -173,7 +173,12 @@ class DynamicValueSerializer<T>(private val tSerializer: KSerializer<T>) : KSeri
                     element.doubleOrNull != null -> element.double
                     else -> element.content
                 }
-                DynamicValue.LiteralValue(value as T)
+                // ✅ A2UI 数据绑定：$ 前缀 → PathValue
+                if (element.isString && element.content.startsWith("$")) {
+                    DynamicValue.PathValue<T>(element.content.substring(1))
+                } else {
+                    DynamicValue.LiteralValue(value as T)
+                }
             }
             element is JsonObject && "path" in element ->
                 DynamicValue.PathValue(element["path"]!!.jsonPrimitive.content)

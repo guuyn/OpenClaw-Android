@@ -912,15 +912,14 @@ private fun UserMessageBubble(
                         )
                     }
                     is MessageSegment.StandardProtocol -> {
-                        // ✅ A2UI 卡片使用 offset 突破气泡 padding，实现全宽显示
-                        // （Compose 不允许负 padding，改用 offset）
+                        // ⚠️ 不能使用 IntrinsicSize，因为 A2UI 可能包含 LazyColumn
                         A2UIRendererWithErrorBoundary(
                             content = "[A2UI]${segment.json}[/A2UI]",
                             renderer = a2uiRenderer,
                             modifier = Modifier
                                 .padding(vertical = 4.dp)
                                 .offset(x = (-14).dp)
-                                .width(IntrinsicSize.Max)
+                                .fillMaxWidth()
                         )
                     }
                 }
@@ -998,15 +997,14 @@ private fun AiMessageBubble(
                         )
                     }
                     is MessageSegment.StandardProtocol -> {
-                        // ✅ A2UI 卡片使用 offset 突破气泡 padding，实现全宽显示
-                        // （Compose 不允许负 padding，改用 offset）
+                        // ⚠️ 不能使用 IntrinsicSize，因为 A2UI 可能包含 LazyColumn
                         A2UIRendererWithErrorBoundary(
                             content = "[A2UI]${segment.json}[/A2UI]",
                             renderer = a2uiRenderer,
                             modifier = Modifier
                                 .padding(vertical = 4.dp)
                                 .offset(x = (-14).dp)
-                                .width(IntrinsicSize.Max)
+                                .fillMaxWidth()
                         )
                     }
                 }
