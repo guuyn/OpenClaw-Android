@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import ai.openclaw.android.LogManager
+import ai.openclaw.android.util.CrashRecord
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -165,6 +166,8 @@ class LocalLLMClient(private val context: Context) : ModelClient {
                 }
             } catch (e: Throwable) {
                 onLog("❌ $backendName 初始化失败: ${e.javaClass.simpleName}: ${e.message}")
+                // 【Bugly 埋点】记录 Backend 类型和异常
+                CrashRecord.logLocalLLMError("backend_init_failed_$backendName", e)
                 if (backendName == "GPU" && prefs != null) {
                     prefs.edit().putBoolean(KEY_GPU_INIT_PENDING, false).apply()
                 }
@@ -284,6 +287,8 @@ class LocalLLMClient(private val context: Context) : ModelClient {
             _state.value = LoadState.ERROR
             Log.e(TAG, "Failed to initialize LiteRT-LM engine", e)
             LogManager.shared.log("ERROR", TAG, "初始化异常: ${e.javaClass.simpleName}: ${e.message}")
+            // 【Bugly 埋点】Native 引擎初始化失败是关键错误
+            CrashRecord.logLocalLLMError("engine_init_failed", e)
             false
         }
     }
@@ -331,6 +336,8 @@ class LocalLLMClient(private val context: Context) : ModelClient {
             Result.success(wrapResponse(result.first, result.second))
         } catch (e: Exception) {
             Log.e(TAG, "Chat failed", e)
+            // 【Bugly 埋点】
+            CrashRecord.logLocalLLMError("chat_failed", e)
             Result.failure(e)
         }
     }
@@ -379,11 +386,15 @@ class LocalLLMClient(private val context: Context) : ModelClient {
                 // Extract tool call info from the error message as a fallback.
                 val textToolCalls = parseToolCallsFromError(e.message ?: "")
                 if (textToolCalls != null) {
+                    // fallback 成功，只记录 warning
+                    CrashRecord.logLocalLLMWarning("stream_parse_fallback", e.message)
                     val text = stripToolCallTokens(fullText.toString())
                     Log.i(TAG, "Extracted ${textToolCalls.size} tool call(s) from text fallback")
                     emit(ChatEvent.Complete(wrapResponse(text, textToolCalls)))
                 } else {
                     Log.e(TAG, "Stream failed", e)
+                    // 【Bugly 埋点】
+                    CrashRecord.logLocalLLMError("stream_failed", e)
                     emit(ChatEvent.Error(e.message ?: "Generation failed"))
                 }
             }

@@ -7,15 +7,25 @@ import ai.openclaw.android.data.model.SummaryEntity
 import ai.openclaw.android.model.LocalLLMClient
 import ai.openclaw.android.model.Message
 import ai.openclaw.android.util.CompressionPrompts
+import android.util.Log
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.min
 
 class SessionCompressor(
-    private val llmClient: LocalLLMClient,
+    private val llmClient: LocalLLMClient?,
     private val summaryDao: SummaryDao,
     private val isLlmReady: (() -> Boolean)? = null
 ) {
-    suspend fun compress(
+    companion object {
+        private const val TAG = "SessionCompressor"
+        private const val LLM_TIMEOUT_MS = 30_000L
+    }
+
+    /**
+     * 首次压缩（无旧摘要）
+     * 使用结构化 prompt，输出四类摘要格式
+     */
+    suspend fun compressFirstTime(
         session: SessionEntity,
         messages: List<MessageEntity>,
         preserveRecent: Int = 10
@@ -25,30 +35,24 @@ class SessionCompressor(
             return@runCatching null
         }
 
-        // 分离消息
+        // 分离要压缩的消息
         val toCompress = messages.dropLast(preserveRecent)
-
-        // 如果没有要压缩的消息，直接返回
         if (toCompress.isEmpty()) {
             return@runCatching null
         }
 
         // LLM 不可用，使用简单截断
-        val modelReady = isLlmReady?.invoke() ?: llmClient.isModelLoaded()
+        val modelReady = llmClient != null && (isLlmReady?.invoke() ?: llmClient.isModelLoaded())
         if (!modelReady) {
-            return@runCatching createSimpleSummary(session, messages, toCompress, preserveRecent)
+            return@runCatching createSimpleSummary(session, toCompress)
         }
 
-        // 调用 LLM 压缩（带超时）
-        val summary = withTimeoutOrNull(30_000) {
-            val response = llmClient.chat(
-                listOf(
-                    Message(role = "system", content = CompressionPrompts.SUMMARIZE_SYSTEM),
-                    Message(role = "user", content = CompressionPrompts.buildPrompt(toCompress))
-                )
-            ).getOrNull()
-            response?.content ?: createSimpleSummaryText(toCompress)
-        } ?: createSimpleSummaryText(toCompress)
+        // 调用 LLM 结构化压缩
+        val summary = compressWithLlm(
+            systemPrompt = CompressionPrompts.STRUCTURED_SUMMARIZE_SYSTEM,
+            userPrompt = CompressionPrompts.buildFirstCompressPrompt(toCompress),
+            fallbackText = { createSimpleSummaryText(toCompress) }
+        )
 
         SummaryEntity(
             sessionId = session.sessionId,
@@ -59,16 +63,108 @@ class SessionCompressor(
         )
     }
 
+    /**
+     * 增量压缩（合并旧摘要 + 新对话）
+     * 替代 HybridSessionManager.generateSummary() 的逻辑
+     */
+    suspend fun compressIncremental(
+        session: SessionEntity,
+        messages: List<MessageEntity>,
+        existingSummary: SummaryEntity,
+        preserveRecent: Int = 10
+    ): Result<SummaryEntity?> = runCatching {
+        // 分离要压缩的消息
+        val toCompress = if (messages.size > preserveRecent) {
+            messages.dropLast(preserveRecent)
+        } else {
+            return@runCatching null
+        }
+        if (toCompress.isEmpty()) {
+            return@runCatching null
+        }
+
+        // LLM 不可用，使用简单拼接
+        val modelReady = llmClient != null && (isLlmReady?.invoke() ?: llmClient.isModelLoaded())
+        if (!modelReady) {
+            val fallbackContent = "${existingSummary.content}\n[新增: ${createSimpleSummaryText(toCompress)}]"
+            return@runCatching SummaryEntity(
+                sessionId = session.sessionId,
+                content = fallbackContent,
+                messageRangeStart = toCompress.first().id,
+                messageRangeEnd = toCompress.last().id,
+                compressedAt = System.currentTimeMillis()
+            )
+        }
+
+        // 调用 LLM 增量合并
+        val summary = compressWithLlm(
+            systemPrompt = CompressionPrompts.INCREMENTAL_SUMMARIZE_SYSTEM,
+            userPrompt = CompressionPrompts.buildIncrementalPrompt(
+                previousSummary = existingSummary.content,
+                newMessages = toCompress
+            ),
+            fallbackText = { "${existingSummary.content}\n[新增: ${createSimpleSummaryText(toCompress)}]" }
+        )
+
+        SummaryEntity(
+            sessionId = session.sessionId,
+            content = summary,
+            messageRangeStart = toCompress.first().id,
+            messageRangeEnd = toCompress.last().id,
+            compressedAt = System.currentTimeMillis()
+        )
+    }
+
+    /**
+     * 兼容旧接口（向后兼容，委托给 compressFirstTime）
+     * @deprecated 使用 compressFirstTime 或 compressIncremental
+     */
+    @Deprecated("Use compressFirstTime or compressIncremental instead")
+    suspend fun compress(
+        session: SessionEntity,
+        messages: List<MessageEntity>,
+        preserveRecent: Int = 10
+    ): Result<SummaryEntity?> {
+        return compressFirstTime(session, messages, preserveRecent)
+    }
+
+    /**
+     * 通用 LLM 压缩方法（消除重复）
+     */
+    private suspend fun compressWithLlm(
+        systemPrompt: String,
+        userPrompt: String,
+        fallbackText: () -> String
+    ): String {
+        // Caller guarantees llmClient is non-null before calling this method
+        val client = llmClient!!
+        return withTimeoutOrNull(LLM_TIMEOUT_MS) {
+            val response = client.chat(
+                listOf(
+                    Message(role = "system", content = systemPrompt),
+                    Message(role = "user", content = userPrompt)
+                )
+            ).getOrNull()
+            val content = response?.content
+            if (content.isNullOrBlank()) {
+                Log.w(TAG, "LLM returned empty content, using fallback")
+                fallbackText()
+            } else {
+                content
+            }
+        } ?: run {
+            Log.w(TAG, "LLM compression timed out, using fallback")
+            fallbackText()
+        }
+    }
+
     private fun createSimpleSummary(
         session: SessionEntity,
-        allMessages: List<MessageEntity>,
-        toCompress: List<MessageEntity>,
-        preserveRecent: Int
+        toCompress: List<MessageEntity>
     ): SummaryEntity {
-        val summaryText = createSimpleSummaryText(toCompress)
         return SummaryEntity(
             sessionId = session.sessionId,
-            content = summaryText,
+            content = createSimpleSummaryText(toCompress),
             messageRangeStart = toCompress.first().id,
             messageRangeEnd = toCompress.last().id,
             compressedAt = System.currentTimeMillis()

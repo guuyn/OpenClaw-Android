@@ -12,11 +12,11 @@ import ai.openclaw.android.gateway.MessageGateway
 import ai.openclaw.android.gateway.MockGateway
 import ai.openclaw.android.gateway.MockScenario
 import ai.openclaw.android.gateway.RealGateway
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import ai.openclaw.android.agent.SessionEvent
 import ai.openclaw.android.data.local.AppDatabase
+import ai.openclaw.android.data.model.MessageEntity
+import ai.openclaw.android.data.model.MessageRole
+import ai.openclaw.android.data.model.SessionEntity
 import ai.openclaw.android.domain.AgentResponse
 import ai.openclaw.android.domain.AgentResponseParser
 import ai.openclaw.android.domain.Deliverable
@@ -30,6 +30,7 @@ import ai.openclaw.android.domain.memory.HybridSearchEngine
 import ai.openclaw.android.domain.memory.LlmMemoryExtractor
 import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.domain.session.HybridSessionManager
+import ai.openclaw.android.domain.session.SessionCompressor
 import ai.openclaw.android.domain.session.TokenCounter
 import ai.openclaw.android.ml.EmbeddingServiceFactory
 import ai.openclaw.android.model.AnthropicClient
@@ -40,9 +41,17 @@ import ai.openclaw.android.model.ModelProvider
 import ai.openclaw.android.model.OpenAIClient
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.skill.SkillManager
+import ai.openclaw.android.ui.ScriptUiManager
+import ai.openclaw.android.ui.ConfirmRequest
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 聊天 ViewModel
@@ -72,6 +81,31 @@ class ChatViewModel(
 
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
+
+    // ==================== Session 管理状态 ====================
+
+    private val _currentSessionId = MutableStateFlow<String?>(null)
+    val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
+
+    private val _allSessions = MutableStateFlow<List<SessionEntity>>(emptyList())
+    val allSessions: StateFlow<List<SessionEntity>> = _allSessions.asStateFlow()
+
+    // ==================== ScriptEngine UI ====================
+
+    /** ScriptEngine UI 管理器 */
+    private var scriptUiManager: ScriptUiManager? = null
+
+    /** 确认弹窗请求 — ChatScreen 监听此 StateFlow 显示 AlertDialog */
+    private val _confirmRequest = MutableStateFlow<ConfirmRequest?>(null)
+    val confirmRequest: StateFlow<ConfirmRequest?> = _confirmRequest.asStateFlow()
+
+    /** 确认弹窗结果通道 — ChatScreen 通过 submitConfirmResult() 发送 */
+    private val confirmResultChannel = Channel<Boolean?>(Channel.RENDEZVOUS)
+
+    /** 用户选择确认结果 */
+    fun submitConfirmResult(result: Boolean?) {
+        confirmResultChannel.trySend(result)
+    }
 
     // ==================== 响应路由状态 ====================
 
@@ -208,6 +242,12 @@ class ChatViewModel(
                 // 初始化记忆子系统
                 setupMemorySubsystem(embedding)
 
+                // 初始化 ScriptEngine UI Provider
+                initScriptUiProvider(context)
+
+                // 初始化 Session 列表收集
+                collectSessionList()
+
                 _isInitialized.value = true
                 Log.d(TAG, "初始化完成 (provider: $modelProvider), ${skillManager.getSkillCount()} skills")
             } catch (e: Exception) {
@@ -268,6 +308,32 @@ class ChatViewModel(
     }
 
     /**
+     * 初始化 ScriptUiProvider — 注入 ScriptSkill.setUiProvider()
+     */
+    private fun initScriptUiProvider(context: android.content.Context) {
+        scriptUiManager = ScriptUiManager(
+            context = context,
+            scope = viewModelScope,
+            onAddMessage = { chatMessage ->
+                withContext(Dispatchers.Main) {
+                    val current = _messages.value.toMutableList()
+                    current.add(chatMessage)
+                    _messages.value = current
+                }
+            },
+            confirmRequestFlow = _confirmRequest,
+            confirmResultChannel = confirmResultChannel,
+        )
+
+        // 注入到 ScriptSkill
+        val scriptSkill = skillManager.getLoadedSkills()["script"]
+            as? ai.openclaw.android.skill.builtin.ScriptSkill
+        scriptSkill?.setUiProvider(scriptUiManager)
+
+        Log.d(TAG, "ScriptUiProvider initialized")
+    }
+
+    /**
      * 设置记忆子系统：MemoryManager → HybridSessionManager → AgentSession
      */
     private suspend fun setupMemorySubsystem(embedding: EmbeddingService) {
@@ -283,11 +349,15 @@ class ChatViewModel(
             extractor = extractor
         )
 
+        val compressor = SessionCompressor(
+            llmClient = localLLMClient,
+            summaryDao = database.summaryDao()
+        )
         val sm = HybridSessionManager(
             sessionDao = database.sessionDao(),
             messageDao = database.messageDao(),
             summaryDao = database.summaryDao(),
-            llmClient = localLLMClient,
+            sessionCompressor = compressor,
             tokenCounter = TokenCounter(),
             memoryManager = mm
         )
@@ -527,6 +597,126 @@ class ChatViewModel(
     fun clearHistory() {
         agentSession?.clearHistory()
         _messages.value = emptyList()
+    }
+
+    // ==================== Session 管理方法 ====================
+
+    /** 收集 Session 列表 Flow */
+    private fun collectSessionList() {
+        viewModelScope.launch {
+            database.sessionDao().getAllSessions().collect { sessions ->
+                _allSessions.value = sessions
+                // 自动设置当前会话 ID（如果尚未设置）
+                if (_currentSessionId.value == null) {
+                    sessionManager?.getCurrentSessionId()?.let {
+                        _currentSessionId.value = it
+                    }
+                }
+            }
+        }
+    }
+
+    /** 创建新会话 */
+    fun createNewSession() {
+        viewModelScope.launch {
+            try {
+                sessionManager?.createNamedSession("")?.let { session ->
+                    _currentSessionId.value = session.sessionId
+                    clearHistory()
+                    Log.d(TAG, "Created new session: ${session.sessionId}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create new session", e)
+            }
+        }
+    }
+
+    /** 切换到指定会话 */
+    fun switchToSession(sessionId: String) {
+        viewModelScope.launch {
+            try {
+                // 1. 清空当前状态
+                clearHistory()
+
+                // 2. 切换底层会话
+                sessionManager?.switchToSession(sessionId)?.getOrNull()?.let { session ->
+                    _currentSessionId.value = session.sessionId
+
+                    // 3. 加载历史消息（最近 50 条）
+                    loadHistoryMessages(sessionId)
+
+                    Log.d(TAG, "Switched to session: ${session.name ?: "新对话"}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to switch session", e)
+            }
+        }
+    }
+
+    /** 从数据库加载历史消息到 UI */
+    private suspend fun loadHistoryMessages(sessionId: String) {
+        val entities = database.messageDao()
+            .getMessagesBySessionIdWithLimit(sessionId, limit = 50, offset = 0)
+
+        val chatMessages = entities.map { entity ->
+            ChatMessage(
+                id = entity.id.toString(),
+                role = entity.role.name.lowercase(),
+                content = entity.content,
+                timestamp = entity.timestamp
+            )
+        }
+
+        _messages.value = chatMessages
+        Log.d(TAG, "Loaded ${chatMessages.size} history messages for session $sessionId")
+    }
+
+    /** 重命名会话 */
+    fun renameSession(sessionId: String, newName: String) {
+        viewModelScope.launch {
+            try {
+                val session = database.sessionDao().getSessionById(sessionId)
+                if (session != null) {
+                    val updated = session.copy(name = newName)
+                    database.sessionDao().updateSession(updated)
+                    Log.d(TAG, "Renamed session $sessionId to '$newName'")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to rename session", e)
+            }
+        }
+    }
+
+    /** 删除会话 */
+    fun deleteSession(sessionId: String) {
+        viewModelScope.launch {
+            try {
+                database.sessionDao().deleteSessionById(sessionId)
+
+                // 如果删除的是当前会话，自动切换到第一个可用会话
+                if (_currentSessionId.value == sessionId) {
+                    val remaining = _allSessions.value.filter { it.sessionId != sessionId }
+                    if (remaining.isNotEmpty()) {
+                        switchToSession(remaining.first().sessionId)
+                    } else {
+                        // 没有剩余会话了，创建一个默认的
+                        createNewSession()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete session", e)
+            }
+        }
+    }
+
+    /** 获取会话的消息数 */
+    suspend fun getMessageCount(sessionId: String): Int {
+        return try {
+            database.messageDao().getMessageCountBySessionId(sessionId)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get message count for session $sessionId", e)
+            0
+        }
     }
 
     // ==================== 测试注入 ====================

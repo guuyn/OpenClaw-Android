@@ -13,6 +13,7 @@ import ai.openclaw.android.domain.memory.FallbackMemoryExtractor
 import ai.openclaw.android.domain.memory.LlmMemoryExtractor
 import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.domain.session.HybridSessionManager
+import ai.openclaw.android.domain.session.SessionCompressor
 import ai.openclaw.android.domain.session.TokenCounter
 import ai.openclaw.android.ml.TfLiteEmbeddingService
 import ai.openclaw.android.model.ImageContent
@@ -577,11 +578,15 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         )
         memoryManager = mm
 
+        val compressor = SessionCompressor(
+            llmClient = localLLMClient,
+            summaryDao = db.summaryDao()
+        )
         val sm = HybridSessionManager(
             sessionDao = db.sessionDao(),
             messageDao = db.messageDao(),
             summaryDao = db.summaryDao(),
-            llmClient = localLLMClient,
+            sessionCompressor = compressor,
             tokenCounter = TokenCounter(),
             memoryManager = mm
         )

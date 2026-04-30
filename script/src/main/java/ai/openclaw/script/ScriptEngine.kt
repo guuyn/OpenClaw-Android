@@ -45,7 +45,8 @@ class ScriptEngine(private val context: Context?) {
     suspend fun execute(
         script: String,
         bridges: List<CapabilityBridge>,
-        policy: SandboxPolicy
+        policy: SandboxPolicy,
+        variables: Map<String, Any> = emptyMap()
     ): ScriptResult {
         val startTime = System.currentTimeMillis()
 
@@ -67,9 +68,9 @@ class ScriptEngine(private val context: Context?) {
 
         return try {
             val result = if (useQuickJS) {
-                executeWithQuickJS(script, bridges, policy, startTime)
+                executeWithQuickJS(script, bridges, policy, startTime, variables)
             } else {
-                executeWithRhino(script, bridges, policy, startTime)
+                executeWithRhino(script, bridges, policy, startTime, variables)
             }
 
             // 更新统计
@@ -91,7 +92,7 @@ class ScriptEngine(private val context: Context?) {
             if (useQuickJS) {
                 try { Log.w(TAG, "QuickJS failed, falling back to Rhino: ${e.message}") } catch (_: Exception) {}
                 useQuickJS = false
-                executeWithRhino(script, bridges, policy, startTime)
+                executeWithRhino(script, bridges, policy, startTime, variables)
             } else {
                 ScriptResult.failure(e.message ?: "Unknown error", System.currentTimeMillis() - startTime)
             }
@@ -121,10 +122,18 @@ class ScriptEngine(private val context: Context?) {
         script: String,
         bridges: List<CapabilityBridge>,
         policy: SandboxPolicy,
-        startTime: Long
+        startTime: Long,
+        variables: Map<String, Any>
     ): ScriptResult {
         val result = withTimeoutOrNull(policy.timeoutMs) {
             QuickJs.create(Dispatchers.Default).use { quickJs ->
+                // 注入全局变量
+                for ((name, value) in variables) {
+                    val jsLiteral = toJsLiteral(name, value)
+                    try { quickJs.evaluate<Unit>(jsLiteral) }
+                    catch (e: Exception) { Log.w(TAG, "Failed to inject variable '$name': ${e.message}") }
+                }
+
                 // 注入 Bridge — 每个 bridge 注册为一个 JS 全局对象
                 for (bridge in bridges) {
                     quickJs.define(bridge.name) {
@@ -145,7 +154,8 @@ class ScriptEngine(private val context: Context?) {
         script: String,
         bridges: List<CapabilityBridge>,
         policy: SandboxPolicy,
-        startTime: Long
+        startTime: Long,
+        variables: Map<String, Any>
     ): ScriptResult {
         val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
         val future = executor.submit(java.util.concurrent.Callable<ScriptResult> {
@@ -154,6 +164,12 @@ class ScriptEngine(private val context: Context?) {
                 cx.optimizationLevel = -1
                 cx.languageVersion = org.mozilla.javascript.Context.VERSION_ES6
                 val scope = cx.initSafeStandardObjects()
+
+                // 注入全局变量
+                for ((name, value) in variables) {
+                    val jsLiteral = toJsLiteral(name, value)
+                    cx.evaluateString(scope, jsLiteral, "var-$name", 1, null)
+                }
 
                 // Remove dangerous globals
                 for (name in listOf("Packages", "java", "javax", "org", "com", "edu", "net")) {
@@ -222,6 +238,53 @@ class ScriptEngine(private val context: Context?) {
             is HttpBridge -> bridge.handle(method, argsJson)
             else -> bridge.handleMethod(method, argsJson)
         }
+    }
+
+    /**
+     * 将 Kotlin 值转为 JS 字面量赋值语句。
+     * 用于向 QuickJS 和 Rhino 注入全局变量。
+     */
+    private fun toJsLiteral(name: String, value: Any?): String {
+        val safeName = name.replace(Regex("[^a-zA-Z0-9_$]"), "_")
+        val jsValue = when (value) {
+            null -> "null"
+            is String -> {
+                val escaped = value
+                    .replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r")
+                    .replace("\t", "\\t")
+                "\"$escaped\""
+            }
+            is Boolean -> if (value) "true" else "false"
+            is Number -> value.toString()
+            is List<*> -> {
+                val items = value.joinToString(",") { item ->
+                    when (item) {
+                        is String -> "\"${item.replace("\"", "\\\"")}\""
+                        null -> "null"
+                        else -> item.toString()
+                    }
+                }
+                "[$items]"
+            }
+            is Map<*, *> -> {
+                val entries = @Suppress("UNCHECKED_CAST")
+                (value as Map<String, *>).map { (k, v) ->
+                    val kEsc = k?.toString()?.replace("\"", "\\\"") ?: ""
+                    val vStr = when (v) {
+                        is String -> "\"${v.replace("\"", "\\\"")}\""
+                        null -> "null"
+                        else -> v.toString()
+                    }
+                    "\"$kEsc\":$vStr"
+                }.joinToString(",")
+                "JSON.parse('{${entries}}')"
+            }
+            else -> "JSON.parse('${value.toString().replace("'", "\\'")}')"
+        }
+        return "var $safeName = $jsValue;"
     }
 
     fun destroy() {

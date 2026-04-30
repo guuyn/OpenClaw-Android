@@ -2,6 +2,8 @@ package ai.openclaw.android.agent
 
 import android.util.Log
 import ai.openclaw.android.LogManager
+import ai.openclaw.android.util.CrashRecord
+import com.tencent.bugly.crashreport.CrashReport
 import ai.openclaw.android.config.AgentConfig
 import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.domain.AgentResponse
@@ -567,6 +569,8 @@ Example:
         // Force final response if max rounds exceeded
         if (!state.isFinalAnswer) {
             Log.w(TAG, "[State] Max rounds exceeded, forcing final response")
+            // 【Bugly 埋点】
+            CrashRecord.logAgentSessionError("max_rounds_exceeded", state.dump(), null)
             val messages = buildMessagesInternal(state.history)
             val result = modelClient.chat(messages, null)
             val content = result.getOrDefault(ModelResponse()).content ?: "操作完成"
@@ -595,8 +599,16 @@ Example:
         val result = modelClient.chat(messages, activeTools)
 
         if (result.isFailure) {
-            val errorMsg = "抱歉，模型调用失败: ${result.exceptionOrNull()?.message}"
-            Log.e(TAG, "[State] ${state.dump()} → Model call failed")
+            val exception = result.exceptionOrNull()
+            val errorMsg = "抱歉，模型调用失败: ${exception?.message}"
+            Log.e(TAG, "[State] ${state.dump()} → Model call failed", exception)
+
+            // 【Bugly 埋点】记录非致命异常 + 上下文
+            CrashReport.postCatchedException(
+                exception ?: Exception("Model call failed with null exception")
+            )
+            CrashRecord.logAgentSessionError("model_call_failed", state.dump(), exception?.message)
+
             return errorMsg to state
         }
 
@@ -885,6 +897,8 @@ Example:
                         skillResult.output
                     } else {
                         Log.e(TAG, "Tool $toolName failed: ${skillResult.error}")
+                        // 【Bugly 埋点】
+                        CrashRecord.logAgentSessionError("tool_failed", "tool=$toolName", skillResult.error)
                         skillResult.error ?: "Skill error"
                     }
                 } else {
@@ -977,6 +991,8 @@ Example:
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse tool params: ${e.message}")
+            // 【Bugly 埋点】
+            CrashReport.postCatchedException(e)
             emptyMap()
         }
     }

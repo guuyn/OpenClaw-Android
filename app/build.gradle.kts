@@ -44,6 +44,21 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // ==================== Bugly Crash Reporting ====================
+        val buglyAppIdDebug: String? = localProperties.getProperty("BUGLY_APP_ID_DEBUG")
+        val buglyAppIdRelease: String? = localProperties.getProperty("BUGLY_APP_ID_RELEASE")
+
+        buildConfigField(
+            "String",
+            "BUGLY_APP_ID_DEBUG",
+            "\"${buglyAppIdDebug ?: "placeholder-debug"}\""
+        )
+        buildConfigField(
+            "String",
+            "BUGLY_APP_ID_RELEASE",
+            "\"${buglyAppIdRelease ?: "placeholder-release"}\""
+        )
     }
 
     signingConfigs {
@@ -112,6 +127,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     testOptions {
         unitTests {
@@ -195,6 +211,12 @@ dependencies {
 
     // Rhino JS Engine (prototype for QuickJS)
     implementation("org.mozilla:rhino:1.7.15")
+
+    // ==================== Bugly Crash Reporting ====================
+    // Bugly 主 SDK — Java/Kotlin Crash + ANR 检测
+    implementation("com.tencent.bugly:crashreport:4.1.9.3")
+    // Bugly NDK — Native Crash 采集
+    implementation("com.tencent.bugly:nativecrashreport:3.8.0")
 
     // A2UI Component Library
     implementation(project(":android_compose"))

@@ -31,6 +31,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +49,7 @@ import ai.openclaw.android.domain.Deliverable
 
 import ai.openclaw.android.domain.ResponseType
 import ai.openclaw.android.domain.RichContent
+import ai.openclaw.android.ui.components.SessionListDrawer
 import ai.openclaw.android.voice.VoiceInteractionManager
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.notification.SmartNotificationListener
@@ -134,6 +137,9 @@ class MainActivity : ComponentActivity() {
 
         // Initialize ViewModel
         chatViewModel = ViewModelProvider(this, ChatViewModelFactory(application))[ChatViewModel::class.java]
+
+        // Initialize ViewModel internals (model client, memory, session, etc.)
+        chatViewModel.initialize(this)
 
         // Register broadcast receiver for test injection (Activity level)
         val testReceiver = object : BroadcastReceiver() {
@@ -280,12 +286,21 @@ fun MainScreen(
 
     var selectedTab by remember { mutableStateOf(0) }
 
+    // === Session 管理状态 ===
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val sessions by chatViewModel.allSessions.collectAsStateWithLifecycle()
+    val currentSessionId by chatViewModel.currentSessionId.collectAsStateWithLifecycle()
+    val currentSessionName = remember(sessions, currentSessionId) {
+        sessions.find { it.sessionId == currentSessionId }?.name?.takeIf { it.isNotBlank() } ?: "新对话"
+    }
+
     // Chat state — consumed from ViewModel via StateFlow
     val messages by chatViewModel.messages.collectAsStateWithLifecycle()
     val isLoading by chatViewModel.isLoading.collectAsStateWithLifecycle()
     val lastDeliverable by chatViewModel.lastDeliverable.collectAsStateWithLifecycle()
     val lastRichContent by chatViewModel.lastRichContent.collectAsStateWithLifecycle()
     val isTestMode by chatViewModel.isTestMode.collectAsStateWithLifecycle()
+    val confirmRequest by chatViewModel.confirmRequest.collectAsStateWithLifecycle()
 
     // Configuration state
     var modelApiKey by remember { mutableStateOf("") }
@@ -434,7 +449,36 @@ fun MainScreen(
         chatViewModel.sendMessage(text, images)
     }
 
-    Scaffold(
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            SessionListDrawer(
+                sessions = sessions,
+                currentSessionId = currentSessionId,
+                onCreateSession = {
+                    scope.launch { chatViewModel.createNewSession() }
+                    scope.launch { drawerState.close() }
+                },
+                onSwitchSession = { sessionId ->
+                    scope.launch {
+                        chatViewModel.switchToSession(sessionId)
+                        drawerState.close()
+                    }
+                },
+                onRenameSession = { sessionId, newName ->
+                    scope.launch { chatViewModel.renameSession(sessionId, newName) }
+                },
+                onDeleteSession = { sessionId ->
+                    scope.launch { chatViewModel.deleteSession(sessionId) }
+                },
+                getMessageCount = { sessionId ->
+                    chatViewModel.getMessageCount(sessionId)
+                }
+            )
+        },
+        gesturesEnabled = true
+    ) {
+        Scaffold(
         topBar = {
             TopAppBar(
                 title = {
@@ -530,6 +574,27 @@ fun MainScreen(
                     scaffoldPadding = padding,
                     lastDeliverable = lastDeliverable,
                     lastRichContent = lastRichContent,
+                    onOpenDrawer = {
+                        scope.launch { drawerState.open() }
+                    },
+                    sessionName = currentSessionName,
+                    allSessions = sessions,
+                    currentSessionId = currentSessionId,
+                    onCreateSession = {
+                        scope.launch { chatViewModel.createNewSession() }
+                    },
+                    onSwitchSession = { sessionId ->
+                        scope.launch { chatViewModel.switchToSession(sessionId) }
+                    },
+                    onRenameSession = { sessionId, newName ->
+                        scope.launch { chatViewModel.renameSession(sessionId, newName) }
+                    },
+                    onDeleteSession = { sessionId ->
+                        scope.launch { chatViewModel.deleteSession(sessionId) }
+                    },
+                    getMessageCount = { sessionId ->
+                        chatViewModel.getMessageCount(sessionId)
+                    },
                     onSpeakText = { text ->
                         scope.launch { voiceManager.speak(text) }
                     },
@@ -556,6 +621,10 @@ fun MainScreen(
                         sendMessage(text, emptyList())
                         showVolumeConfirm = false
                         volumePendingText = ""
+                    },
+                    confirmRequest = confirmRequest,
+                    onConfirmResult = { result ->
+                        chatViewModel.submitConfirmResult(result)
                     },
                 )
             }
@@ -646,6 +715,7 @@ fun MainScreen(
                 modifier = Modifier.padding(padding)
             )
         }
+    }
     }
 }
 

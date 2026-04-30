@@ -1510,7 +1510,8 @@ class ComponentRegistry(private val renderer: A2UIRenderer) {
             is ChildList.ArrayChildList -> {
                 children.array.forEach { childId ->
                     renderer.getComponent(context.surfaceId, childId)?.let {
-                        Box {
+                        // ✅ 给 Row 子组件添加 weight，平均分配宽度
+                        Box(modifier = Modifier.weight(1f)) {
                             render(it, context.copy(renderDepth = context.renderDepth + 1))
                         }
                     }

@@ -34,7 +34,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // QuickJS 引擎（正式版）
+    // QuickJS 引擎（稳定版）
     implementation("io.github.dokar3:quickjs-kt-android:1.0.4")
     // Rhino 保留作为 fallback
     implementation("org.mozilla:rhino:1.7.15")

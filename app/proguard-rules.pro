@@ -64,3 +64,10 @@
 -keep class ai.openclaw.android.personalcenter.PersonalCenterViewModelFactory { *; }
 -keep class ai.openclaw.android.personalcenter.PersonalCenterViewModel { *; }
 -keep class ai.openclaw.android.personalcenter.** { *; }
+
+# ==================== Bugly ====================
+# Bugly SDK 混淆规则
+-dontwarn com.tencent.bugly.**
+-keep public class com.tencent.bugly.**{*;}
+# 保持 native 方法不被混淆（nativecrashreport 依赖）
+-keep class com.tencent.bugly.crashreport.protocols.** { *; }
