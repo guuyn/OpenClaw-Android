@@ -416,8 +416,28 @@ class LocalLLMClient(private val context: Context) : ModelClient {
         val filteredMessages = messages.filter { it.role != "system" }.dropLast(1)
 
         val isE2B = _modelFileName?.contains("E2B", ignoreCase = true) == true
-        val tokenBudget = if (isE2B) 7680 else 15872
-        val truncatedMessages = truncateMessages(filteredMessages, tokenBudget)
+        // E2B max input: 8192 tokens. Reserve space for system prompt + conversation.
+        // System prompt can be 4000+ tokens (BASE_SYSTEM_PROMPT is very long).
+        // Budget: system prompt + conversation must fit in 7500 (leaving 692 margin).
+        val systemPromptBudget = if (isE2B) 2000 else 8000
+        val conversationBudget = if (isE2B) 5500 else 14000
+
+        // Truncate system prompt for E2B if too long
+        val effectiveSystemInstruction = if (isE2B && systemInstruction != null) {
+            val sysTokens = estimateTokens(systemInstruction)
+            if (sysTokens > systemPromptBudget) {
+                // Keep first N chars that fit within budget
+                val maxChars = systemPromptBudget * 3 // rough estimate: ~3 chars per token for English
+                Log.w(TAG, "System prompt too long for E2B (${sysTokens} tokens), truncating to ${maxChars} chars")
+                systemInstruction.take(maxChars) + "\n\n[... truncated for context limit]"
+            } else {
+                systemInstruction
+            }
+        } else {
+            systemInstruction
+        }
+
+        val truncatedMessages = truncateMessages(filteredMessages, conversationBudget)
 
         val initialMessages = truncatedMessages.map { msg -> convertMessage(msg, truncatedMessages) }
 
@@ -428,7 +448,7 @@ class LocalLLMClient(private val context: Context) : ModelClient {
             seed = 0,
         )
 
-        val systemContents = systemInstruction?.let { Contents.of(it) }
+        val systemContents = effectiveSystemInstruction?.let { Contents.of(it) }
         val litertTools = convertTools(tools)
 
         return ConversationConfig(
@@ -772,13 +792,19 @@ class LocalLLMClient(private val context: Context) : ModelClient {
     private fun estimateTokens(text: String): Int {
         var tokens = 0
         var i = 0
-        while (i < text.length) {
+        val len = text.length
+        while (i < len) {
             val cp = text.codePointAt(i)
-            tokens++
-            if (cp > 0x2E80) tokens += 1
+            when {
+                cp < 0x80 -> tokens++          // ASCII
+                cp < 0x2E80 -> tokens += 2     // Latin extended, etc.
+                cp <= 0x9FFF || cp in 0x3000..0x9FFF -> tokens += 2 // CJK: ~1-2 chars per token
+                cp > 0xFFFF -> tokens += 2
+                else -> tokens += 1
+            }
             i += if (cp > 0xFFFF) 2 else 1
         }
-        return maxOf(1, tokens / 4)
+        return maxOf(1, tokens / 2)
     }
 
     private fun formatSize(bytes: Long): String {
