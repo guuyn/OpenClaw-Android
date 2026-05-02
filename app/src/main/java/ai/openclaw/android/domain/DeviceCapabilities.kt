@@ -63,10 +63,11 @@ data class DeviceCapabilities(
         appendLine("""{"type": "TEXT" | "VOICE" | "BOTH", "voice_text": "简短的语音播报内容（1-2句话，适合朗读）", "rich_content": {"type": "list" | "card" | "code" | null, "data": {...}}, "fallback_text": "纯文本版本的完整回复（必须包含所有信息）"}""")
         appendLine()
         appendLine("决策规则：")
-        appendLine("- 回答简短（<30字）、是对话式确认 → type: \"VOICE\"")
-        appendLine("- 返回列表、表格、代码、链接 → type: \"TEXT\"")
-        appendLine("- 有摘要又有详情 → type: \"BOTH\"")
-        appendLine("- voice_text 必须简短，适合语音播报")
+        appendLine("- 问候、确认、简短回答、情感回应 → type: \"VOICE\"（语音播报）")
+        appendLine("- 列表、表格、代码、链接等结构化信息 → type: \"TEXT\"")
+        appendLine("- 既有语音摘要又有详情 → type: \"BOTH\"")
+        appendLine("- voice_text 是这段回复的语音播报版本，要自然流畅，1-2句话")
+        appendLine("- 即使 type 是 TEXT 或 BOTH，也尽量提供 voice_text（用户可手动播放）")
         appendLine("- fallback_text 必须包含完整信息，是纯文本格式")
     }
 

@@ -15,6 +15,7 @@ object ImportanceCalculator {
         ItemSource.NOTIFICATION -> notificationBaseScore(item)
         ItemSource.CALENDAR -> calendarBaseScore(item)
         ItemSource.SMS -> smsBaseScore(item)
+        ItemSource.CALL_LOG -> callLogBaseScore(item)
     }
 
     private fun notificationBaseScore(item: CenterItem): Float {
@@ -44,6 +45,17 @@ object ImportanceCalculator {
             isUrgentKeyword(text) -> 0.90f
             isSmsImportantKeyword(text) -> 0.85f
             else -> 0.50f
+        }
+    }
+
+    private fun callLogBaseScore(item: CenterItem): Float {
+        val text = (item.title + " " + item.body).lowercase()
+        return when {
+            text.contains("未接") || text.contains("missed") -> 0.95f
+            text.contains("拒接") -> 0.80f
+            text.contains("来电") || text.contains("incoming") -> 0.75f
+            text.contains("去电") || text.contains("outgoing") -> 0.50f
+            else -> 0.40f
         }
     }
 

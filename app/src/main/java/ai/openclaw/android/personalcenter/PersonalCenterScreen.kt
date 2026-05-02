@@ -2,10 +2,10 @@
 
 package ai.openclaw.android.personalcenter
 
-import android.content.Intent
-import android.provider.Settings
 import android.app.PendingIntent
+import android.content.Intent
 import android.content.IntentSender
+import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -54,11 +54,13 @@ fun PersonalCenterScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val calPerm by viewModel.calendarPermissionGranted.collectAsState()
     val smsPerm by viewModel.smsPermissionGranted.collectAsState()
+    val callLogPerm by viewModel.callLogPermissionGranted.collectAsState()
 
     // 统计
     val notifCount = items.count { it.source == ItemSource.NOTIFICATION }
     val calCount = items.count { it.source == ItemSource.CALENDAR }
     val smsCount = items.count { it.source == ItemSource.SMS }
+    val callLogCount = items.count { it.source == ItemSource.CALL_LOG }
     val unreadCount = items.count { !it.isRead }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -74,8 +76,10 @@ fun PersonalCenterScreen(
             notifCount = notifCount,
             calCount = calCount,
             smsCount = smsCount,
+            callLogCount = callLogCount,
             calPermGranted = calPerm,
             smsPermGranted = smsPerm,
+            callLogPermGranted = callLogPerm,
             onGrantCalendarPerm = {
                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
                 context.startActivity(intent)
@@ -83,6 +87,9 @@ fun PersonalCenterScreen(
             onGrantSmsPerm = {
                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
                 context.startActivity(intent)
+            },
+            onGrantCallLogPerm = {
+                viewModel.checkAndRequestCallLogPermission()
             }
         )
 
@@ -94,8 +101,8 @@ fun PersonalCenterScreen(
         } else {
             CenterItemList(
                 items = items,
-                onMarkRead = { viewModel.markAsRead(it) },
-                onRemove = { viewModel.removeItem(it) },
+                onMarkRead = { itemId -> viewModel.markAsRead(itemId) },
+                onRemove = { itemId -> viewModel.removeItem(itemId) },
                 onOpen = { item ->
                     item.openIntent?.let {
                         try {
@@ -175,10 +182,13 @@ fun StatsCards(
     notifCount: Int,
     calCount: Int,
     smsCount: Int,
+    callLogCount: Int,
     calPermGranted: Boolean,
     smsPermGranted: Boolean,
+    callLogPermGranted: Boolean,
     onGrantCalendarPerm: () -> Unit,
-    onGrantSmsPerm: () -> Unit
+    onGrantSmsPerm: () -> Unit,
+    onGrantCallLogPerm: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -208,6 +218,14 @@ fun StatsCards(
             tint = if (smsPermGranted) Color(0xFF2196F3) else Color(0xFFFF9800),
             modifier = Modifier.weight(1f),
             onDenied = if (!smsPermGranted) onGrantSmsPerm else null
+        )
+        MiniStatCard(
+            icon = Icons.Default.Phone,
+            label = "通话",
+            count = callLogCount,
+            tint = if (callLogPermGranted) Color(0xFF9C27B0) else Color(0xFFFF9800),
+            modifier = Modifier.weight(1f),
+            onDenied = if (!callLogPermGranted) onGrantCallLogPerm else null
         )
     }
 }
@@ -322,6 +340,7 @@ fun CenterItemCard(
         ItemSource.NOTIFICATION -> "📱"
         ItemSource.CALENDAR -> "📅"
         ItemSource.SMS -> "💬"
+        ItemSource.CALL_LOG -> "📞"
     }
 
     AnimatedVisibility(
@@ -490,7 +509,7 @@ fun EmptyState() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "通知、日程和短信会出现在这里",
+                text = "通知、日程、短信和通话记录会出现在这里",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )

@@ -1,29 +1,37 @@
 package ai.openclaw.android.personalcenter
 
 import android.app.Application
+import android.Manifest
+import android.content.pm.PackageManager
 import android.util.Log
+import androidx.core.content.ContextCompat
 import ai.openclaw.android.GatewayContract
+import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.personalcenter.models.CenterItem
 import ai.openclaw.android.personalcenter.sources.CalendarSource
+import ai.openclaw.android.personalcenter.sources.CallLogSource
 import ai.openclaw.android.personalcenter.sources.NotificationSource
 import ai.openclaw.android.personalcenter.sources.SmsSource
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.*
 
 /**
  * 个人中心 ViewModel
  * 职责：
- *   1. 聚合三个数据源（通知、日历、短信）
+ *   1. 聚合四个数据源（通知、日历、短信、通话记录）
  *   2. 内容过滤（关键词 + LLM 语义）
  *   3. 跨源去重
  *   4. 按重要程度排序
  *   5. 定时兜底刷新
  */
 class PersonalCenterViewModel(
-    private val app: Application
+    private val app: Application,
+    private val permManager: PermissionManager? = null
 ) : androidx.lifecycle.ViewModel() {
 
     private val TAG = "PersonalCenterVM"
@@ -31,6 +39,7 @@ class PersonalCenterViewModel(
     private val notificationSource = NotificationSource(app)
     private val calendarSource = CalendarSource(app)
     private val smsSource = SmsSource(app)
+    private val callLogSource = CallLogSource(app)
 
     // 最终输出：过滤 + 去重 + 排序后的统一列表
     private val _items = MutableStateFlow<List<CenterItem>>(emptyList())
@@ -47,12 +56,43 @@ class PersonalCenterViewModel(
     private val _smsPermissionGranted = MutableStateFlow(true)
     val smsPermissionGranted: StateFlow<Boolean> = _smsPermissionGranted.asStateFlow()
 
+    private val _callLogPermissionGranted = MutableStateFlow(false)
+    val callLogPermissionGranted: StateFlow<Boolean> = _callLogPermissionGranted.asStateFlow()
+
     // 过滤统计（用于调试）— 使用 @Volatile 保证线程安全（Flow 在不同线程执行）
     @Volatile
     private var _filteredCount = 0
     val filteredCount: Int get() = _filteredCount
 
     private var refreshJob: Job? = null
+
+    // 通话记录权限请求通道 — 使用 Channel(1) 确保事件不丢失
+    // Channel 会缓冲 emit 的值直到被 consume，不受 collector 时机影响
+    private val _triggerCallLogPermissionRequest = Channel<Unit>(Channel.CONFLATED)
+    val triggerCallLogPermissionRequest: ReceiveChannel<Unit> = _triggerCallLogPermissionRequest
+
+    /**
+     * UI 层在权限对话框结果后调用此方法
+     */
+    fun onCallLogPermissionResult(granted: Boolean) {
+        _callLogPermissionGranted.value = granted
+        Log.d(TAG, "Call log permission result: $granted")
+    }
+
+    /**
+     * 检查通话记录权限，如果未授权则触发请求
+     */
+    fun checkAndRequestCallLogPermission() {
+        val granted = ContextCompat.checkSelfPermission(
+            app, Manifest.permission.READ_CALL_LOG
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            _callLogPermissionGranted.value = true
+            return
+        }
+        // 直接通过 Channel 触发 Activity 的权限请求
+        viewModelScope.launch { _triggerCallLogPermissionRequest.send(Unit) }
+    }
 
     /**
      * 注入 LLM 评估器（由 Activity 在 ViewModel 创建后调用）
@@ -68,6 +108,28 @@ class PersonalCenterViewModel(
     init {
         startMerging()
         startPeriodicRefresh()
+        // 启动时检查权限状态，不自动触发弹框（由 UI 层首次可见时触发）
+        checkCallLogPermissionStatus()
+    }
+
+    /**
+     * 仅检查权限状态，不主动弹框
+     */
+    private fun checkCallLogPermissionStatus() {
+        val granted = ContextCompat.checkSelfPermission(
+            app, Manifest.permission.READ_CALL_LOG
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            _callLogPermissionGranted.value = true
+        }
+    }
+
+    /**
+     * UI 层在首次可见时调用，触发权限请求
+     */
+    fun requestCallLogPermissionIfNeeded() {
+        if (_callLogPermissionGranted.value) return // 已授权则跳过
+        viewModelScope.launch { _triggerCallLogPermissionRequest.send(Unit) }
     }
 
     /**
@@ -152,11 +214,16 @@ $batchText
                         Log.w(TAG, "SMS flow error: ${e.message}")
                         _smsPermissionGranted.value = false
                         emit(emptyList())
+                    },
+                    callLogSource.observe().catch { e ->
+                        Log.w(TAG, "CallLog flow error: ${e.message}")
+                        _callLogPermissionGranted.value = false
+                        emit(emptyList())
                     }
-                ) { notifications, calendars, sms ->
-                    val all = notifications + calendars + sms
+                ) { notifications, calendars, sms, callLogs ->
+                    val all = notifications + calendars + sms + callLogs
                     val rawCount = all.size
-                    Log.d(TAG, "Raw items: $rawCount (notif=${notifications.size}, cal=${calendars.size}, sms=${sms.size})")
+                    Log.d(TAG, "Raw items: $rawCount (notif=${notifications.size}, cal=${calendars.size}, sms=${sms.size}, call=${callLogs.size})")
 
                     // Step 1: 关键词快速过滤
                     val afterContentFilter = all.filterNot { ContentFilter.isNoise(it) }
@@ -266,12 +333,13 @@ $batchText
  * Factory for creating PersonalCenterViewModel with Application context
  */
 class PersonalCenterViewModelFactory(
-    private val app: Application
+    private val app: Application,
+    private val permManager: PermissionManager? = null
 ) : androidx.lifecycle.ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(PersonalCenterViewModel::class.java)) {
-            return PersonalCenterViewModel(app) as T
+            return PersonalCenterViewModel(app, permManager) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

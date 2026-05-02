@@ -630,8 +630,26 @@ fun MainScreen(
             }
             1 -> {
                 val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<PersonalCenterViewModel>(
-                    factory = PersonalCenterViewModelFactory(context.applicationContext as android.app.Application)
+                    factory = PersonalCenterViewModelFactory(
+                        context.applicationContext as android.app.Application,
+                        permManager
+                    )
                 )
+                // 通话记录权限请求
+                val callLogPermissionLauncher = rememberLauncherForActivityResult(
+                    androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    viewModel.onCallLogPermissionResult(granted)
+                }
+                LaunchedEffect(Unit) {
+                    // 首次进入时立即请求权限
+                    viewModel.requestCallLogPermissionIfNeeded()
+                    // 持续监听后续的权限请求
+                    while (true) {
+                        viewModel.triggerCallLogPermissionRequest.receive()
+                        callLogPermissionLauncher.launch(android.Manifest.permission.READ_CALL_LOG)
+                    }
+                }
                 // 注入 LLM 评估能力（个人中心需要 GatewayContract 来调用 LLM 做语义过滤）
                 LaunchedEffect(Unit) {
                     viewModel.setGatewayContract(gatewayContractProvider())

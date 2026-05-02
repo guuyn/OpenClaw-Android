@@ -142,6 +142,13 @@ class PermissionManager(private val context: Context) {
                 isPermanentlyDenied = false
             ),
             PermissionGroupStatus(
+                skillId = "calllog",
+                displayName = "通话记录",
+                permissions = CALL_LOG_PERMISSIONS,
+                isGranted = hasPermissions(CALL_LOG_PERMISSIONS),
+                isPermanentlyDenied = false
+            ),
+            PermissionGroupStatus(
                 skillId = "storage",
                 displayName = "文件存储（本地模型）",
                 permissions = STORAGE_PERMISSIONS,
@@ -160,6 +167,7 @@ class PermissionManager(private val context: Context) {
         val CONTACT_PERMISSIONS = arrayOf(Manifest.permission.READ_CONTACTS)
         val SMS_PERMISSIONS = arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_SMS)
         val CALENDAR_PERMISSIONS = arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
+        val CALL_LOG_PERMISSIONS = arrayOf(Manifest.permission.READ_CALL_LOG)
         val STORAGE_PERMISSIONS = arrayOf(Manifest.permission.MANAGE_EXTERNAL_STORAGE)
 
         /** Map skillId to its permissions */
@@ -168,6 +176,7 @@ class PermissionManager(private val context: Context) {
             "contact" -> CONTACT_PERMISSIONS
             "sms" -> SMS_PERMISSIONS
             "calendar" -> CALENDAR_PERMISSIONS
+            "calllog" -> CALL_LOG_PERMISSIONS
             "storage" -> STORAGE_PERMISSIONS
             else -> null
         }
@@ -178,6 +187,7 @@ class PermissionManager(private val context: Context) {
             "contact" -> "通讯录"
             "sms" -> "短信"
             "calendar" -> "日程"
+            "calllog" -> "通话记录"
             "storage" -> "文件存储"
             "weather" -> "天气"
             "translate" -> "翻译"

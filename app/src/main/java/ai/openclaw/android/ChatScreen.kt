@@ -513,6 +513,7 @@ fun ChatScreen(
                         message = message,
                         dateFormat = dateFormat,
                         onCardAction = onCardAction,
+                        onSpeakText = { onSpeakText?.invoke(it) },
                         richContent = renderedRichContent[message.id]
                     )
                 }
@@ -1224,6 +1225,7 @@ fun MessageBubble(
     message: ChatMessage,
     dateFormat: SimpleDateFormat,
     onCardAction: (CardAction) -> Unit = {},
+    onSpeakText: ((String) -> Unit)? = null,
     richContent: RichContent? = null
 ) {
     val isUser = message.role == "user"
@@ -1252,6 +1254,10 @@ fun MessageBubble(
                     showMenu = false
                 }
                 if (!isUser) {
+                    BottomMenuOption(Icons.Default.VolumeUp, "语音播报") {
+                        onSpeakText?.invoke(message.content)
+                        showMenu = false
+                    }
                     BottomMenuOption(Icons.Default.Refresh, "重新生成") { showMenu = false }
                 }
                 BottomMenuOption(Icons.Default.Share, "分享") { showMenu = false }
@@ -1282,6 +1288,7 @@ fun MessageBubble(
                 dateFormat = dateFormat,
                 onCardAction = onCardAction,
                 onLongClick = { showMenu = true },
+                onSpeakText = { onSpeakText?.invoke(message.content) },
                 richContent = richContent
             )
         }
@@ -1384,6 +1391,7 @@ private fun AiMessageBubble(
     dateFormat: SimpleDateFormat,
     onCardAction: (CardAction) -> Unit,
     onLongClick: () -> Unit,
+    onSpeakText: (() -> Unit)? = null,
     richContent: RichContent? = null
 ) {
     Box(
@@ -1418,6 +1426,19 @@ private fun AiMessageBubble(
                     style = MonospaceAccent,
                     color = SciFiOutlineVariant
                 )
+                if (onSpeakText != null) {
+                    IconButton(
+                        onClick = onSpeakText,
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VolumeUp,
+                            contentDescription = "语音播报",
+                            tint = SciFiPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
             val segments = remember(message.content) { A2UICardParser.parse(message.content) }
             val a2uiRenderer = rememberA2UIRenderer()

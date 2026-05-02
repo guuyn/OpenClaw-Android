@@ -118,20 +118,23 @@ class VoiceInteractionManager(
             }
 
             // --- Initialize TTS ---
-            sherpaTts = SherpaTtsEngine(appContext)
-            val ttsReady = ttsModelPath?.let { sherpaTts?.initialize(it) } == true
-
-            if (ttsReady) {
-                ttsEngine = sherpaTts
-                Log.i(TAG, "Using SherpaTtsEngine for TTS")
-            } else {
-                androidTts = AndroidTTSEngine(appContext)
-                try {
-                    androidTts?.init()
-                    ttsEngine = androidTts
-                    Log.i(TAG, "Using AndroidTTSEngine for TTS (fallback)")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to initialize any TTS engine", e)
+            // Android TTS is the primary engine (no models needed, stable)
+            // Sherpa TTS is optional fallback (requires model files, can crash)
+            androidTts = AndroidTTSEngine(appContext)
+            try {
+                androidTts?.init()
+                ttsEngine = androidTts
+                Log.i(TAG, "Using AndroidTTSEngine for TTS (primary)")
+            } catch (e: Exception) {
+                Log.w(TAG, "Android TTS failed, trying Sherpa TTS", e)
+                // Try Sherpa as fallback
+                sherpaTts = SherpaTtsEngine(appContext)
+                val sherpaReady = ttsModelPath?.let { sherpaTts?.initialize(it) } == true
+                if (sherpaReady) {
+                    ttsEngine = sherpaTts
+                    Log.i(TAG, "Using SherpaTtsEngine for TTS (fallback)")
+                } else {
+                    Log.e(TAG, "Failed to initialize any TTS engine")
                 }
             }
 
@@ -201,7 +204,16 @@ class VoiceInteractionManager(
 
     // --- TextToSpeechEngine delegation ---
     override suspend fun speak(text: String) {
-        ttsEngine?.speak(text)
+        if (ttsEngine == null) {
+            Log.e(TAG, "TTS engine is null — cannot speak. Active: $activeTtsEngine")
+            return
+        }
+        try {
+            Log.i(TAG, "Speaking: ${text.take(30)}...")
+            ttsEngine?.speak(text)
+        } catch (e: Exception) {
+            Log.e(TAG, "TTS speak failed: ${e.message}", e)
+        }
     }
 
     override fun stop() {
