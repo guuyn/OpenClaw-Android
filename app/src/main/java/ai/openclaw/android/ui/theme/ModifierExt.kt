@@ -24,8 +24,8 @@ fun Modifier.sciFiGlow(
         shadow(
             elevation = radius,
             shape = shape,
-            ambientColor = color.copy(alpha = 0.5f),
-            spotColor = color.copy(alpha = 0.5f)
+            ambientColor = color.copy(alpha = 0.12f),
+            spotColor = color.copy(alpha = 0.12f)
         )
     } else {
         this
@@ -57,7 +57,7 @@ fun Modifier.neonBorder(
     )
     if (focused) {
         drawRoundRect(
-            color = color.copy(alpha = 0.15f),
+            color = color.copy(alpha = 0.10f),
             cornerRadius = CornerRadius(cornerRadius.toPx()),
             style = Stroke(width = (borderWidth * 3).toPx())
         )
@@ -66,7 +66,7 @@ fun Modifier.neonBorder(
 
 fun Modifier.gradientDivider(
     color: Color = SciFiPrimary,
-    alpha: Float = 0.3f,
+    alpha: Float = 0.12f,
     thickness: Dp = 1.dp
 ): Modifier = this.drawBehind {
     drawLine(

@@ -20,4 +20,10 @@ data class CenterItem(
     val openIntent: PendingIntent? = null,    // 点击跳转
     val dedupKey: String = "",                // 去重键
     val mergedCount: Int = 1,                 // 合并的关联条目数
+    val priorityLevel: PriorityLevel = PriorityLevel.UNKNOWN, // urgent / today / reference
+    val actionType: ActionType = ActionType.NONE,             // reply / act / info / none
+    val expiryTimestamp: Long = Long.MAX_VALUE,              // 过期时间戳，超时后退出优先区
 )
+
+enum class PriorityLevel { URGENT, TODAY, REFERENCE, UNKNOWN }
+enum class ActionType { REPLY, ACT, INFO, NONE }

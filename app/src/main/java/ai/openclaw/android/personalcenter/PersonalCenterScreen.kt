@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.openclaw.android.personalcenter.models.CenterItem
+import ai.openclaw.android.personalcenter.models.PriorityLevel
 import ai.openclaw.android.personalcenter.sources.ItemSource
 import ai.openclaw.android.ui.theme.SciFiPrimary
 import ai.openclaw.android.ui.theme.SciFiSurfaceVariant
@@ -69,9 +70,18 @@ fun PersonalCenterScreen(
     val callLogCount = items.count { it.source == ItemSource.CALL_LOG }
     val unreadCount = items.count { !it.isRead }
 
-    // 第二层：待办优先区数据
+    // 第二层：待办优先区数据（按 urgency 分组）
+    val now = System.currentTimeMillis()
     val priorityItems = remember(items) {
-        items.filter { it.importance >= 0.7f || !it.isRead }
+        items.filter { it.priorityLevel == PriorityLevel.URGENT || it.priorityLevel == PriorityLevel.TODAY }
+            .sortedByDescending { it.importance }
+    }
+    val urgentItems = remember(items, now) {
+        priorityItems.filter { it.priorityLevel == PriorityLevel.URGENT && it.expiryTimestamp > now }
+            .sortedByDescending { it.importance }
+    }
+    val todayItems = remember(items, now) {
+        priorityItems.filter { it.priorityLevel == PriorityLevel.TODAY && it.expiryTimestamp > now }
             .sortedByDescending { it.importance }
     }
 
@@ -125,7 +135,8 @@ fun PersonalCenterScreen(
             EmptyState()
         } else {
             CenterItemList(
-                priorityItems = priorityItems,
+                urgentItems = urgentItems,
+                todayItems = todayItems,
                 itemsBySource = itemsBySource,
                 expandedSections = expandedSections,
                 onMarkRead = { itemId -> viewModel.markAsRead(itemId) },
@@ -327,7 +338,8 @@ fun CompactStatItem(
  */
 @Composable
 fun CenterItemList(
-    priorityItems: List<CenterItem>,
+    urgentItems: List<CenterItem>,
+    todayItems: List<CenterItem>,
     itemsBySource: Map<ItemSource, List<CenterItem>>,
     expandedSections: Map<ItemSource, Boolean>,
     onMarkRead: (String) -> Unit,
@@ -343,12 +355,28 @@ fun CenterItemList(
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // ===== 第二层：待办优先区 =====
-        if (priorityItems.isNotEmpty()) {
+        // ===== 第二层：⚡ 即时行动 =====
+        if (urgentItems.isNotEmpty()) {
             item {
-                PriorityZoneHeader()
+                PriorityZoneSectionHeader(title = "⚡ 即时行动", color = Color(0xFFFF5252))
             }
-            items(priorityItems, key = { it.id }) { item ->
+            items(urgentItems, key = { it.id }) { item ->
+                PriorityItemCard(
+                    item = item,
+                    timeText = formatTimestamp(item.timestamp, timeFormat, dayFormat),
+                    onMarkRead = { onMarkRead(item.id) },
+                    onRemove = { onRemove(item.id) },
+                    onOpen = { onOpen(item) }
+                )
+            }
+        }
+
+        // ===== 第二层：📋 今日待办 =====
+        if (todayItems.isNotEmpty()) {
+            item {
+                PriorityZoneSectionHeader(title = "📋 今日待办", color = Color(0xFFFFB74D))
+            }
+            items(todayItems, key = { it.id }) { item ->
                 PriorityItemCard(
                     item = item,
                     timeText = formatTimestamp(item.timestamp, timeFormat, dayFormat),
@@ -419,6 +447,14 @@ private fun formatTimestamp(
 
 @Composable
 fun PriorityZoneHeader() {
+    PriorityZoneSectionHeader(title = "🔴 待办优先", color = Color(0xFFFF5252))
+}
+
+@Composable
+fun PriorityZoneSectionHeader(
+    title: String,
+    color: Color
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -426,15 +462,15 @@ fun PriorityZoneHeader() {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "🔴 待办优先",
+            text = title,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFFFF5252)
+            color = color
         )
         Spacer(modifier = Modifier.width(8.dp))
         Divider(
             modifier = Modifier.weight(1f).height(1.dp),
-            color = Color(0xFFFF5252).copy(alpha = 0.3f)
+            color = color.copy(alpha = 0.3f)
         )
     }
 }
@@ -502,11 +538,22 @@ fun PriorityItemCard(
                         )
                         if (item.mergedCount > 1) {
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "🔗${item.mergedCount}",
-                                fontSize = 10.sp,
-                                color = SciFiPrimary
-                            )
+                            Box(
+                                modifier = Modifier.size(18.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Surface(
+                                    modifier = Modifier.matchParentSize(),
+                                    shape = RoundedCornerShape(9.dp),
+                                    color = Color(0xFFFF5252).copy(alpha = 0.9f)
+                                ) {}
+                                Text(
+                                    text = "+${item.mergedCount - 1}",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -728,11 +775,22 @@ fun CenterItemCard(
                             )
                             if (item.mergedCount > 1) {
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "🔗${item.mergedCount}",
-                                    fontSize = 10.sp,
-                                    color = SciFiPrimary
-                                )
+                                Box(
+                                    modifier = Modifier.size(18.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Surface(
+                                        modifier = Modifier.matchParentSize(),
+                                        shape = RoundedCornerShape(9.dp),
+                                        color = Color(0xFFFF5252).copy(alpha = 0.9f)
+                                    ) {}
+                                    Text(
+                                        text = "+${item.mergedCount - 1}",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
                             }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {

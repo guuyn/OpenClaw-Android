@@ -102,6 +102,7 @@ class PersonalCenterViewModel(
             SmartFilter.llmEvaluator = SmartFilter.LlmEvaluator { items ->
                 evaluateWithLLM(items, contract)
             }
+            PriorityClassifier.llmClassifier = PriorityClassifier.createLlmEvaluator(contract)
         }
     }
 
@@ -243,7 +244,7 @@ $batchText
                     }
                     Log.d(TAG, "After SmartFilter: ${afterSmartFilter.size}")
 
-                    // Step 3: 去重
+                    // Step 3: 去重（精确 dedupKey 匹配）
                     val deduped = try {
                         DeduplicationEngine.deduplicate(afterSmartFilter)
                     } catch (e: Exception) {
@@ -252,12 +253,41 @@ $batchText
                     }
                     Log.d(TAG, "After dedup: ${deduped.size}")
 
-                    // Step 4: 最低阈值过滤
-                    val finalItems = deduped.filter {
-                        // 紧急内容即使分值低也保留
-                        if (it.importance >= 0.7f) true
-                        // importance < 0.1 的直接过滤
-                        else it.importance >= 0.1f
+                    // Step 3.5: 语义级合并（同一日历事件的多条提醒合并）
+                    val semanticallyMerged = try {
+                        DeduplicationEngine.semanticMerge(deduped)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Semantic merge error: ${e.message}")
+                        deduped
+                    }
+                    Log.d(TAG, "After semantic merge: ${semanticallyMerged.size}")
+
+                    // Step 4: LLM 优先级分类
+                    val afterPriorityClassify = try {
+                        withTimeout(20_000L) {
+                            PriorityClassifier.classifyBatch(semanticallyMerged)
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        Log.w(TAG, "PriorityClassifier timeout, using rule-based fallback")
+                        PriorityClassifier.classifyBatch(semanticallyMerged)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "PriorityClassifier error: ${e.message}")
+                        semanticallyMerged
+                    }
+                    Log.d(TAG, "After priority classify: ${afterPriorityClassify.size}")
+
+                    // Step 5: 最低阈值过滤
+                    val finalItems = afterPriorityClassify.filter {
+                        // urgent / today 级别即使分值低也保留
+                        if (it.priorityLevel == ai.openclaw.android.personalcenter.models.PriorityLevel.URGENT ||
+                            it.priorityLevel == ai.openclaw.android.personalcenter.models.PriorityLevel.TODAY) true
+                        // reference 级别且 importance < 0.15 的过滤掉
+                        if (it.priorityLevel == ai.openclaw.android.personalcenter.models.PriorityLevel.REFERENCE) {
+                            it.importance >= 0.15f
+                        } else {
+                            // 未知级别保持原逻辑
+                            it.importance >= 0.1f
+                        }
                     }
                     Log.d(TAG, "Final items: ${finalItems.size}")
 

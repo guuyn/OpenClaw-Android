@@ -38,9 +38,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// ==================== 卡片容器（科幻风格） ====================
+// ==================== 卡片容器（模块化风格） ====================
 
-private val CardShape = RoundedCornerShape(16.dp)
+private val CardShape = RoundedCornerShape(20.dp)
 
 @Composable
 private fun CardContainer(
@@ -49,20 +49,12 @@ private fun CardContainer(
 ) {
     Card(
         shape = CardShape,
-        colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant.copy(alpha = 0.7f)),
+        colors = CardDefaults.cardColors(containerColor = Color(0x08FFFFFF)),
         modifier = modifier
             .fillMaxWidth()
-            .drawBehind {
-                drawLine(
-                    color = SciFiPrimary,
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width, 0f),
-                    strokeWidth = 2.dp.toPx()
-                )
-            }
             .border(
                 width = 1.dp,
-                color = SciFiOutline,
+                color = Color(0x0FFFFFFF),
                 shape = CardShape
             )
     ) {

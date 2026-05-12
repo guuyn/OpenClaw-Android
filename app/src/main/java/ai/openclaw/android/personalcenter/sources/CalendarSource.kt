@@ -50,10 +50,16 @@ class CalendarSource(private val context: Context) {
                     val titleIndex = cursor.getColumnIndex(CalendarContract.Events.TITLE)
                     val startIndex = cursor.getColumnIndex(CalendarContract.Events.DTSTART)
                     val endIndex = cursor.getColumnIndex(CalendarContract.Events.DTEND)
+                    val descIndex = cursor.getColumnIndex(CalendarContract.Events.DESCRIPTION)
+
+                    // 源层去重：同一 eventId 只生成一条记录，防止 ContentObserver 快速连发导致重复
+                    val seenIds = mutableSetOf<Long>()
 
                     while (cursor.moveToNext()) {
                         try {
                             val id = cursor.getLong(idIndex)
+                            if (id in seenIds) continue
+                            seenIds.add(id)
                             val title = cursor.getString(titleIndex) ?: "无标题"
                             val dtStart = cursor.getLong(startIndex)
                             val dtEnd = cursor.getLong(endIndex)
@@ -82,8 +88,9 @@ class CalendarSource(private val context: Context) {
                                 importance = 0f,
                                 title = title,
                                 body = if (dtEnd > 0) {
-                                    val duration = (dtEnd - dtStart) / 60_000
-                                    "⏱ ${duration}分钟"
+                                    val description = cursor.getString(descIndex)
+                                    val duration = if (dtEnd > 0 && dtEnd > dtStart) (dtEnd - dtStart) / 60_000 else 0L
+                                    "⏱ ${duration}分钟" + if (!description.isNullOrBlank()) "\n📝 $description" else ""
                                 } else {
                                     "日程提醒"
                                 },

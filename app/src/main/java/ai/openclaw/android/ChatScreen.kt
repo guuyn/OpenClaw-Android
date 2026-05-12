@@ -89,6 +89,7 @@ import ai.openclaw.android.ui.theme.SciFiOutlineVariant
 import ai.openclaw.android.ui.theme.SciFiGlow
 import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -500,8 +501,11 @@ fun ChatScreen(
             items(messages, key = { it.id }) { message ->
                 AnimatedVisibility(
                     visible = true,
-                    enter = fadeIn(animationSpec = tween(300)) +
-                            slideInVertically(animationSpec = tween(300)) { it / 2 },
+                    enter = fadeIn(animationSpec = tween(320)) +
+                            slideInVertically(
+                                initialOffsetY = { it / 4 },
+                                animationSpec = tween(320, easing = FastOutSlowInEasing)
+                            ),
                     modifier = Modifier.animateContentSize(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -606,140 +610,155 @@ fun ChatScreen(
 
                 var isInputFocused by remember { mutableStateOf(false) }
 
-                Row(
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0x0AFFFFFF),
+                    border = BorderStroke(1.dp, Color(0x14FFFFFF))
                 ) {
-                    // 图片附件按钮
-                    Box {
-                        IconButton(
-                            onClick = { showImageOptions = true },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.AddPhotoAlternate,
-                                contentDescription = "添加图片",
-                                tint = if (selectedImages.isNotEmpty()) SciFiPrimary
-                                    else SciFiOnSurfaceVariant,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showImageOptions,
-                            onDismissRequest = { showImageOptions = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("从相册选择") },
-                                leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, null, modifier = Modifier.size(20.dp)) },
-                                onClick = {
-                                    showImageOptions = false
-                                    imagePickerLauncher.launch("image/*")
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("拍照") },
-                                leadingIcon = { Icon(Icons.Filled.PhotoCamera, null, modifier = Modifier.size(20.dp)) },
-                                onClick = {
-                                    showImageOptions = false
-                                    cameraLauncher.launch(null)
-                                }
-                            )
-                        }
-                    }
-
-                    Box(
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 36.dp, max = 120.dp)
+                            .heightIn(min = 56.dp)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                             .neonBorder(
                                 focused = isInputFocused,
-                                cornerRadius = 24.dp
+                                cornerRadius = 23.dp
                             )
                             .background(
-                                SciFiSurfaceVariant.copy(alpha = 0.6f),
-                                RoundedCornerShape(24.dp)
+                                Color.Transparent,
+                                RoundedCornerShape(23.dp)
                             )
                             .focusRequester(focusRequester)
                             .onFocusChanged { isInputFocused = it.isFocused }
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        contentAlignment = Alignment.CenterStart
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (inputText.isEmpty()) {
-                            Text(
-                                text = "输入消息...",
-                                color = SciFiOnSurfaceVariant.copy(alpha = 0.6f)
+                        // 图片附件按钮
+                        Box {
+                            IconButton(
+                                onClick = { showImageOptions = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AddPhotoAlternate,
+                                    contentDescription = "添加图片",
+                                    tint = if (selectedImages.isNotEmpty()) SciFiPrimary
+                                        else SciFiOnSurfaceVariant,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showImageOptions,
+                                onDismissRequest = { showImageOptions = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("从相册选择") },
+                                    leadingIcon = { Icon(Icons.Filled.AddPhotoAlternate, null, modifier = Modifier.size(20.dp)) },
+                                    onClick = {
+                                        showImageOptions = false
+                                        imagePickerLauncher.launch("image/*")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("拍照") },
+                                    leadingIcon = { Icon(Icons.Filled.PhotoCamera, null, modifier = Modifier.size(20.dp)) },
+                                    onClick = {
+                                        showImageOptions = false
+                                        cameraLauncher.launch(null)
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 36.dp, max = 120.dp)
+                        ) {
+                            if (inputText.isEmpty()) {
+                                Text(
+                                    text = "输入消息...",
+                                    color = SciFiOnSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                            BasicTextField(
+                                value = inputText,
+                                onValueChange = { inputText = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("message_input")
+                                    .focusable()
+                                    .semantics(mergeDescendants = true) {
+                                        this.contentDescription = "message_input"
+                                        this.isEditable = true
+                                        this.editableText = androidx.compose.ui.text.buildAnnotatedString {
+                                            append(inputText.takeIf { it.isNotEmpty() } ?: "输入消息...")
+                                        }
+                                    },
+                                textStyle = LocalTextStyle.current.copy(
+                                    color = SciFiOnSurfaceVariant
+                                ),
+                                maxLines = 4
                             )
                         }
-                        BasicTextField(
-                            value = inputText,
-                            onValueChange = { inputText = it },
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        val sendEnabled = (inputText.isNotBlank() || selectedImages.isNotEmpty()) && !isLoading
+                        val sendButtonAlpha by animateFloatAsState(
+                            targetValue = if (sendEnabled) 1f else 0.3f,
+                            animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                            label = "sendButtonAlpha"
+                        )
+                        val sendButtonScale by animateFloatAsState(
+                            targetValue = if (sendEnabled) sendScale else 0.85f,
+                            animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                            label = "sendButtonScale"
+                        )
+                        IconButton(
+                            onClick = {
+                                if (sendEnabled) {
+                                    val images = selectedImages.mapNotNull { uri ->
+                                        ImageUtils.uriToBase64(context, uri)
+                                    }.let { ImageUtils.validateImages(it) }
+                                    sendMessage(inputText, images)
+                                    inputText = ""
+                                    selectedImages = emptyList()
+                                }
+                            },
+                            enabled = sendEnabled,
+                            interactionSource = sendInteraction,
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("message_input")
-                                .focusable()
-                                .semantics(mergeDescendants = true) {
-                                    this.contentDescription = "message_input"
-                                    this.isEditable = true
-                                    this.editableText = androidx.compose.ui.text.buildAnnotatedString {
-                                        append(inputText.takeIf { it.isNotEmpty() } ?: "输入消息...")
-                                    }
-                                },
-                            textStyle = LocalTextStyle.current.copy(
-                                color = SciFiOnSurfaceVariant
-                            ),
-                            maxLines = 4
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    val sendEnabled = (inputText.isNotBlank() || selectedImages.isNotEmpty()) && !isLoading
-                    IconButton(
-                        onClick = {
-                            if (sendEnabled) {
-                                val images = selectedImages.mapNotNull { uri ->
-                                    ImageUtils.uriToBase64(context, uri)
-                                }.let { ImageUtils.validateImages(it) }
-                                sendMessage(inputText, images)
-                                inputText = ""
-                                selectedImages = emptyList()
-                            }
-                        },
-                        enabled = sendEnabled,
-                        interactionSource = sendInteraction,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .testTag("send_button")
-                            .semantics { contentDescription = "send_button" }
-                            .then(
-                                if (sendEnabled) Modifier.sciFiGlow(radius = 4.dp)
-                                else Modifier
+                                .size(36.dp)
+                                .alpha(sendButtonAlpha)
+                                .scale(sendButtonScale)
+                                .testTag("send_button")
+                                .semantics { contentDescription = "send_button" }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "发送",
+                                tint = if (sendEnabled) SciFiPrimary
+                                else SciFiOnSurfaceVariant.copy(alpha = 0.38f)
                             )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "发送",
-                            modifier = Modifier.scale(sendScale),
-                            tint = if (sendEnabled) SciFiPrimary
-                            else SciFiOnSurfaceVariant.copy(alpha = 0.38f)
-                        )
-                    }
+                        }
 
-                    IconButton(
-                        onClick = {},
-                        interactionSource = micInteractionSource,
-                        modifier = Modifier
-                            .size(56.dp)
-                            .padding(end = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "长按说话",
-                            modifier = Modifier.size(32.dp),
-                            tint = if (isRecording) SciFiPrimary else SciFiOnSurfaceVariant
-                        )
+                        IconButton(
+                            onClick = {},
+                            interactionSource = micInteractionSource,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "长按说话",
+                                modifier = Modifier.size(20.dp),
+                                tint = if (isRecording) SciFiPrimary else SciFiOnSurfaceVariant
+                            )
+                        }
                     }
                 }
 
@@ -1403,28 +1422,31 @@ private fun AiMessageBubble(
                 onClick = { },
                 onLongClick = onLongClick
             )
-            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 16.dp))
-            .background(SciFiAiBubbleBg)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0x08FFFFFF))
             .drawBehind {
-                // 青色左边框
+                // 左侧渐变状态线
                 drawLine(
-                    color = SciFiAiBubbleBorder,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(SciFiPrimary, SciFiSecondary)
+                    ),
                     start = Offset(0f, 8.dp.toPx()),
                     end = Offset(0f, size.height - 8.dp.toPx()),
                     strokeWidth = 2.dp.toPx()
                 )
             }
-            .padding(start = 14.dp, top = 12.dp, end = 12.dp, bottom = 12.dp)
+            .padding(start = 14.dp, top = 14.dp, end = 14.dp, bottom = 14.dp)
     ) {
         Column {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 4.dp)
+                modifier = Modifier.padding(bottom = 6.dp)
             ) {
                 Text(
                     text = "🤖 OpenClaw",
                     style = MonospaceAccent,
-                    color = SciFiOutlineVariant
+                    color = SciFiOutlineVariant.copy(alpha = 0.6f),
+                    fontSize = 11.sp
                 )
                 if (onSpeakText != null) {
                     IconButton(
