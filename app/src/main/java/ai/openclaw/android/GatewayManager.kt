@@ -57,7 +57,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -367,6 +369,51 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
 
     override fun getDeviceCapabilities(): DeviceCapabilities? {
         return deviceCapabilities
+    }
+
+    // ========== Session management implementations ==========
+
+    override fun getSessionListFlow(): StateFlow<List<ai.openclaw.android.data.model.SessionEntity>> {
+        val sm = sessionManager
+        return sm?.getSessionFlow()
+            ?.stateIn(serviceScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
+            ?: MutableStateFlow(emptyList())
+    }
+
+    override suspend fun createNewSession(name: String): ai.openclaw.android.data.model.SessionEntity? {
+        return sessionManager?.createNamedSession(name)
+    }
+
+    override suspend fun switchToSession(sessionId: String): Result<ai.openclaw.android.data.model.SessionEntity> {
+        return sessionManager?.switchToSession(sessionId)
+            ?: Result.failure(Exception("SessionManager not available"))
+    }
+
+    override suspend fun renameSession(sessionId: String, newName: String): Boolean {
+        val sm = sessionManager ?: return false
+        val sessionDao = sm.getSessionDao()
+        val session = sessionDao.getSessionById(sessionId) ?: return false
+        sessionDao.updateSession(session.copy(name = newName))
+        return true
+    }
+
+    override suspend fun deleteSession(sessionId: String) {
+        sessionManager?.getSessionDao()?.deleteSessionById(sessionId)
+    }
+
+    override fun getCurrentSessionId(): String? {
+        return sessionManager?.getCurrentSessionId()
+    }
+
+    override suspend fun loadSessionMessages(sessionId: String, limit: Int): List<ai.openclaw.android.data.model.MessageEntity> {
+        return sessionManager?.getMessageDao()
+            ?.getMessagesBySessionIdWithLimit(sessionId, limit = limit, offset = 0)
+            ?: emptyList()
+    }
+
+    override suspend fun getMessageCount(sessionId: String): Int {
+        return sessionManager?.getMessageDao()
+            ?.getMessageCountBySessionId(sessionId) ?: 0
     }
 
     // ========== Lifecycle ==========

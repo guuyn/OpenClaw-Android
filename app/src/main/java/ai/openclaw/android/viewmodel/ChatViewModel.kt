@@ -485,14 +485,11 @@ class ChatViewModel(
     private fun collectSessionList() {
         viewModelScope.launch {
             val gateway = gatewayContractProvider?.invoke()
-            val sessionManager = gateway?.getSessionManager()
-            if (sessionManager != null) {
-                sessionManager.getSessionFlow().collect { sessions ->
-                    _allSessions.value = sessions
-                    if (_currentSessionId.value == null) {
-                        sessionManager.getCurrentSessionId()?.let {
-                            _currentSessionId.value = it
-                        }
+            gateway?.getSessionListFlow()?.collect { sessions ->
+                _allSessions.value = sessions
+                if (_currentSessionId.value == null) {
+                    gateway.getCurrentSessionId()?.let {
+                        _currentSessionId.value = it
                     }
                 }
             }
@@ -504,8 +501,7 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 val gateway = gatewayContractProvider?.invoke()
-                val sessionManager = gateway?.getSessionManager()
-                sessionManager?.createNamedSession("")?.let { session ->
+                gateway?.createNewSession()?.let { session ->
                     _currentSessionId.value = session.sessionId
                     clearHistory()
                     Log.d(TAG, "Created new session: ${session.sessionId}")
@@ -523,8 +519,7 @@ class ChatViewModel(
                 clearHistory()
 
                 val gateway = gatewayContractProvider?.invoke()
-                val sessionManager = gateway?.getSessionManager()
-                sessionManager?.switchToSession(sessionId)?.getOrNull()?.let { session ->
+                gateway?.switchToSession(sessionId)?.getOrNull()?.let { session ->
                     _currentSessionId.value = session.sessionId
                     loadHistoryMessages(sessionId)
                     Log.d(TAG, "Switched to session: ${session.name ?: "新对话"}")
@@ -538,14 +533,10 @@ class ChatViewModel(
     /** 从 GatewayContract 加载历史消息到 UI */
     private suspend fun loadHistoryMessages(sessionId: String) {
         val gateway = gatewayContractProvider?.invoke()
-        val sessionManager = gateway?.getSessionManager()
-        val messageDao = sessionManager?.getMessageDao()
-        if (messageDao == null) {
-            Log.w(TAG, "loadHistoryMessages: messageDao not available")
+        val entities = gateway?.loadSessionMessages(sessionId, limit = 50) ?: run {
+            Log.w(TAG, "loadHistoryMessages: gateway not available")
             return
         }
-        val entities = messageDao
-            .getMessagesBySessionIdWithLimit(sessionId, limit = 50, offset = 0)
 
         val chatMessages = entities.map { entity ->
             ChatMessage(
@@ -565,12 +556,8 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 val gateway = gatewayContractProvider?.invoke()
-                val sessionManager = gateway?.getSessionManager()
-                val sessionDao = sessionManager?.getSessionDao()
-                val session = sessionDao?.getSessionById(sessionId)
-                if (session != null) {
-                    val updated = session.copy(name = newName)
-                    sessionDao?.updateSession(updated)
+                val success = gateway?.renameSession(sessionId, newName) ?: false
+                if (success) {
                     Log.d(TAG, "Renamed session $sessionId to '$newName'")
                 }
             } catch (e: Exception) {
@@ -584,9 +571,7 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 val gateway = gatewayContractProvider?.invoke()
-                val sessionManager = gateway?.getSessionManager()
-                val sessionDao = sessionManager?.getSessionDao()
-                sessionDao?.deleteSessionById(sessionId)
+                gateway?.deleteSession(sessionId)
 
                 // 如果删除的是当前会话，自动切换到第一个可用会话
                 if (_currentSessionId.value == sessionId) {
@@ -607,9 +592,7 @@ class ChatViewModel(
     suspend fun getMessageCount(sessionId: String): Int {
         return try {
             val gateway = gatewayContractProvider?.invoke()
-            val sessionManager = gateway?.getSessionManager()
-            val messageDao = sessionManager?.getMessageDao()
-            messageDao?.getMessageCountBySessionId(sessionId) ?: 0
+            gateway?.getMessageCount(sessionId) ?: 0
         } catch (e: Exception) {
             Log.w(TAG, "Failed to get message count for session $sessionId", e)
             0

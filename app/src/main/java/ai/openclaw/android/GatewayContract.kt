@@ -4,6 +4,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import ai.openclaw.android.agent.AgentSession
 import ai.openclaw.android.agent.SessionEvent
+import ai.openclaw.android.data.model.MessageEntity
+import ai.openclaw.android.data.model.SessionEntity
 import ai.openclaw.android.domain.DeviceCapabilities
 import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.domain.session.HybridSessionManager
@@ -58,6 +60,32 @@ interface GatewayContract {
 
     /** 获取设备能力信息 */
     fun getDeviceCapabilities(): DeviceCapabilities?
+
+    // ========== Session management methods ==========
+
+    /** 获取所有会话列表的 StateFlow */
+    fun getSessionListFlow(): StateFlow<List<SessionEntity>>
+
+    /** 创建新会话，返回会话实体 */
+    suspend fun createNewSession(name: String = ""): SessionEntity?
+
+    /** 切换到指定会话 */
+    suspend fun switchToSession(sessionId: String): Result<SessionEntity>
+
+    /** 重命名会话 */
+    suspend fun renameSession(sessionId: String, newName: String): Boolean
+
+    /** 删除会话 */
+    suspend fun deleteSession(sessionId: String)
+
+    /** 获取当前会话 ID */
+    fun getCurrentSessionId(): String?
+
+    /** 获取指定会话的历史消息 */
+    suspend fun loadSessionMessages(sessionId: String, limit: Int = 50): List<MessageEntity>
+
+    /** 获取会话的消息数 */
+    suspend fun getMessageCount(sessionId: String): Int
 }
 
 data class ModelConfig(
