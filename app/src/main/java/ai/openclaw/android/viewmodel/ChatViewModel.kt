@@ -13,21 +13,15 @@ import ai.openclaw.android.gateway.MockGateway
 import ai.openclaw.android.gateway.MockScenario
 import ai.openclaw.android.gateway.RealGateway
 import ai.openclaw.android.agent.SessionEvent
-import ai.openclaw.android.data.local.AppDatabase
-import ai.openclaw.android.data.model.MessageEntity
-import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.data.model.SessionEntity
 import ai.openclaw.android.domain.AgentResponse
 import ai.openclaw.android.domain.AgentResponseParser
 import ai.openclaw.android.domain.Deliverable
 import ai.openclaw.android.domain.DeviceCapabilities
 import ai.openclaw.android.domain.ResponseRouter
-import ai.openclaw.android.domain.ResponseType
 import ai.openclaw.android.domain.RichContent
 import ai.openclaw.android.model.ImageContent
 import ai.openclaw.android.model.ModelProvider
-import ai.openclaw.android.skill.SkillManager
-import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.ui.ScriptUiManager
 import ai.openclaw.android.ui.ConfirmRequest
 import androidx.lifecycle.ViewModel
@@ -46,11 +40,7 @@ import kotlinx.coroutines.withContext
  * 管理聊天消息列表、消息发送与流式响应
  * 模型创建、Session 生命周期、Memory 管理等由 GatewayManager 通过 GatewayContract 提供
  */
-class ChatViewModel(
-    private val skillManager: SkillManager,
-    private val permManager: PermissionManager,
-    private val database: AppDatabase
-) : ViewModel() {
+class ChatViewModel : ViewModel() {
 
     companion object {
         private const val TAG = "ChatViewModel"

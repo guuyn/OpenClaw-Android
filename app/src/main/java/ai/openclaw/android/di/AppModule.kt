@@ -59,12 +59,9 @@ val appModule = module {
     single { ColdStartManager(androidContext()) }
 
     // ViewModel：聊天
+    // GatewayContract is injected via updateGatewayContract() after service binding
     viewModel {
-        ChatViewModel(
-            skillManager = get(),
-            permManager = get(),
-            database = get()
-        )
+        ChatViewModel()
     }
 
     // ViewModel：设置
