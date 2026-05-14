@@ -7,7 +7,7 @@ import ai.openclaw.android.ConfigManager
 import ai.openclaw.android.GatewayContract
 import ai.openclaw.android.LogManager
 import ai.openclaw.android.MockDataProvider
-import ai.openclaw.android.agent.AgentSession
+import ai.openclaw.android.ModelConfig
 import ai.openclaw.android.gateway.MessageGateway
 import ai.openclaw.android.gateway.MockGateway
 import ai.openclaw.android.gateway.MockScenario
@@ -24,23 +24,10 @@ import ai.openclaw.android.domain.DeviceCapabilities
 import ai.openclaw.android.domain.ResponseRouter
 import ai.openclaw.android.domain.ResponseType
 import ai.openclaw.android.domain.RichContent
-import ai.openclaw.android.domain.memory.EmbeddingService
-import ai.openclaw.android.domain.memory.FallbackMemoryExtractor
-import ai.openclaw.android.domain.memory.HybridSearchEngine
-import ai.openclaw.android.domain.memory.LlmMemoryExtractor
-import ai.openclaw.android.domain.memory.MemoryManager
-import ai.openclaw.android.domain.session.HybridSessionManager
-import ai.openclaw.android.domain.session.SessionCompressor
-import ai.openclaw.android.domain.session.TokenCounter
-import ai.openclaw.android.ml.EmbeddingServiceFactory
-import ai.openclaw.android.model.AnthropicClient
 import ai.openclaw.android.model.ImageContent
-import ai.openclaw.android.model.LocalLLMClient
-import ai.openclaw.android.model.ModelClient
 import ai.openclaw.android.model.ModelProvider
-import ai.openclaw.android.model.OpenAIClient
-import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.skill.SkillManager
+import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.ui.ScriptUiManager
 import ai.openclaw.android.ui.ConfirmRequest
 import androidx.lifecycle.ViewModel
@@ -56,15 +43,13 @@ import kotlinx.coroutines.withContext
 /**
  * 聊天 ViewModel
  *
- * 管理聊天消息列表、AgentSession 生命周期、消息发送与流式响应
- * 统一通过 GatewayContract（优先）或 AgentSession（回退）发送消息
+ * 管理聊天消息列表、消息发送与流式响应
+ * 模型创建、Session 生命周期、Memory 管理等由 GatewayManager 通过 GatewayContract 提供
  */
 class ChatViewModel(
     private val skillManager: SkillManager,
     private val permManager: PermissionManager,
-    private val database: AppDatabase,
-    private val embeddingService: EmbeddingService,
-    private val hybridSearchEngine: HybridSearchEngine
+    private val database: AppDatabase
 ) : ViewModel() {
 
     companion object {
@@ -82,7 +67,7 @@ class ChatViewModel(
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
-    // ==================== Session 管理状态 ====================
+    // ==================== Sessions 管理状态 ====================
 
     private val _currentSessionId = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String?> = _currentSessionId.asStateFlow()
@@ -137,12 +122,11 @@ class ChatViewModel(
 
     // ==================== 内部依赖 ====================
 
+    /** GatewayContract 提供者，由 MainActivity 设置 */
+    private var gatewayContractProvider: (() -> GatewayContract?)? = null
+
     /** 消息网关（可切换 RealGateway / MockGateway） */
     private var messageGateway: MessageGateway? = null
-    private var agentSession: AgentSession? = null
-    private var modelClient: ModelClient? = null
-    private var localLLMClient: LocalLLMClient? = null
-    private var sessionManager: HybridSessionManager? = null
     private var responseRouter: ResponseRouter? = null
     private val agentResponseParser = AgentResponseParser()
 
@@ -160,6 +144,14 @@ class ChatViewModel(
             messageGateway = null
             Log.d(TAG, "GatewayContract cleared")
         }
+    }
+
+    /**
+     * 设置 GatewayContract 提供者回调，供内部 Session/Memory 访问使用。
+     * 由 MainActivity 在创建 ViewModel 后立即调用。
+     */
+    fun setGatewayContractProvider(provider: (() -> GatewayContract?)?) {
+        gatewayContractProvider = provider
     }
 
     /**
@@ -186,8 +178,8 @@ class ChatViewModel(
             messageGateway = mg
             Log.d(TAG, "Switched to MockGateway (scenario=$scenario)")
         } else {
-            // 恢复 RealGateway
-            val contract = contractProvider?.invoke()
+            // 恢复 RealGateway — 优先使用传入的 contractProvider，其次使用内部保存的 gatewayContractProvider
+            val contract = contractProvider?.invoke() ?: gatewayContractProvider?.invoke()
             if (contract != null) {
                 messageGateway = RealGateway { contract }
                 Log.d(TAG, "Switched to RealGateway")
@@ -204,9 +196,8 @@ class ChatViewModel(
     // ==================== 初始化 ====================
 
     /**
-     * 初始化 AgentSession 和内存子系统
-     *
-     * 在首次组合时调用，加载配置、创建模型客户端、设置记忆系统
+     * 初始化 ViewModel — 仅初始化 UI 相关组件。
+     * 模型创建、Session 管理、Memory 初始化等由 GatewayManager 负责。
      */
     fun initialize(context: Context) {
         if (_isInitialized.value) return
@@ -214,97 +205,27 @@ class ChatViewModel(
             try {
                 ConfigManager.init(context)
 
-                if (!ConfigManager.hasModelCredentials()) {
-                    ConfigManager.setModelApiKey("YOUR_API_KEY_HERE")
-                    ConfigManager.setModelName("qwen3.5-plus")
-                    Log.d(TAG, "Default API key set for debugging")
-                }
-
-                val modelProvider = try {
-                    ConfigManager.getModelProvider()
-                } catch (_: Exception) {
-                    "OPENAI"
-                }
-
-                // 初始化模型客户端
-                createModelClient(context, modelProvider)
-
-                // 初始化 AgentSession
-                agentSession = AgentSession(modelClient!!, skillManager, permManager)
-                agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
-
-                // 初始化设备能力检测与响应路由
-                initResponseRouting(context)
-
-                // 初始化 Embedding 服务
-                val embedding = EmbeddingServiceFactory.create(context)
-
-                // 初始化记忆子系统
-                setupMemorySubsystem(embedding)
-
                 // 初始化 ScriptEngine UI Provider
                 initScriptUiProvider(context)
+
+                // 初始化设备能力检测与响应路由 — 通过 GatewayContract
+                val gateway = gatewayContractProvider?.invoke()
+                val capabilities = gateway?.getDeviceCapabilities()
+                    ?: DeviceCapabilities.fromContext(context)
+                responseRouter = ResponseRouter(capabilities)
+
+                // 注入 ScriptUiProvider 到 GatewayManager
+                gateway?.setScriptUiProvider(scriptUiManager)
 
                 // 初始化 Session 列表收集
                 collectSessionList()
 
                 _isInitialized.value = true
-                Log.d(TAG, "初始化完成 (provider: $modelProvider), ${skillManager.getSkillCount()} skills")
+                Log.d(TAG, "初始化完成")
             } catch (e: Exception) {
                 Log.e(TAG, "初始化失败", e)
-                LogManager.shared.log("ERROR", "Chat", "初始化失败: ${e.message}")
             }
         }
-    }
-
-    /**
-     * 根据配置创建模型客户端
-     */
-    private suspend fun createModelClient(context: Context, modelProvider: String) {
-        val provider = try {
-            ModelProvider.valueOf(modelProvider)
-        } catch (_: Exception) {
-            ModelProvider.OPENAI
-        }
-
-        if (provider == ModelProvider.LOCAL) {
-            val client = LocalLLMClient(context)
-            localLLMClient = client
-            val loaded = client.initialize()
-            if (!loaded) {
-                Log.e(TAG, "本地模型加载失败，回退到云端")
-                localLLMClient = null
-                val cloudClient = createCloudClient(ModelProvider.OPENAI)
-                modelClient = cloudClient
-            } else {
-                modelClient = client
-            }
-        } else {
-            modelClient = createCloudClient(provider)
-        }
-    }
-
-    private fun createCloudClient(provider: ModelProvider): ModelClient {
-        val baseUrl = ConfigManager.getEffectiveBaseUrl()
-        val apiKey = ConfigManager.getModelApiKey()
-        val model = ConfigManager.getModelName()
-
-        val client: ModelClient = when (provider) {
-            ModelProvider.ANTHROPIC -> AnthropicClient()
-            else -> OpenAIClient()
-        }
-        client.configure(provider, apiKey, model, baseUrl)
-        return client
-    }
-
-    /**
-     * 初始化响应路由：检测设备能力并配置到 AgentSession
-     */
-    private fun initResponseRouting(context: Context) {
-        val capabilities = DeviceCapabilities.fromContext(context)
-        responseRouter = ResponseRouter(capabilities)
-        agentSession?.setDeviceCapabilities(capabilities)
-        Log.d(TAG, "Response routing initialized: profile=${capabilities.profile}")
     }
 
     /**
@@ -325,49 +246,7 @@ class ChatViewModel(
             confirmResultChannel = confirmResultChannel,
         )
 
-        // 注入到 ScriptSkill
-        val scriptSkill = skillManager.getLoadedSkills()["script"]
-            as? ai.openclaw.android.skill.builtin.ScriptSkill
-        scriptSkill?.setUiProvider(scriptUiManager)
-
         Log.d(TAG, "ScriptUiProvider initialized")
-    }
-
-    /**
-     * 设置记忆子系统：MemoryManager → HybridSessionManager → AgentSession
-     */
-    private suspend fun setupMemorySubsystem(embedding: EmbeddingService) {
-        val extractor = if (localLLMClient?.isModelLoaded() == true)
-            LlmMemoryExtractor(localLLMClient!!)
-        else
-            FallbackMemoryExtractor()
-
-        val mm = MemoryManager(
-            memoryDao = database.memoryDao(),
-            vectorDao = database.memoryVectorDao(),
-            embeddingService = embedding,
-            extractor = extractor
-        )
-
-        val compressor = SessionCompressor(
-            llmClient = localLLMClient,
-            summaryDao = database.summaryDao()
-        )
-        val sm = HybridSessionManager(
-            sessionDao = database.sessionDao(),
-            messageDao = database.messageDao(),
-            summaryDao = database.summaryDao(),
-            sessionCompressor = compressor,
-            tokenCounter = TokenCounter(),
-            memoryManager = mm
-        )
-        sessionManager = sm
-        sm.initialize()
-
-        agentSession?.setSessionManager(sm)
-        agentSession?.setMemoryContextProvider {
-            sm.getMemoryContext()
-        }
     }
 
     // ==================== 消息发送 ====================
@@ -393,16 +272,8 @@ class ChatViewModel(
                     return@launch
                 }
 
-                // Fallback to AgentSession (no gateway available)
-                val session = agentSession
-                if (session == null) {
-                    val msgs = _messages.value.toMutableList()
-                    msgs.add(ChatMessage(role = "assistant", content = "服务未就绪，请稍候或检查设置"))
-                    _messages.value = msgs
-                    _isLoading.value = false
-                    return@launch
-                }
-                sendMessageViaSession(session, text)
+                // Fallback to AgentSession via GatewayContract
+                sendMessageViaSession(text)
             } catch (e: Exception) {
                 Log.e(TAG, "Chat error: ${e.message}", e)
                 val updated = _messages.value.toMutableList()
@@ -430,8 +301,18 @@ class ChatViewModel(
         }
     }
 
-    /** 通过 AgentSession 发送消息 */
-    private suspend fun sendMessageViaSession(session: AgentSession, text: String) {
+    /** 通过 GatewayContract 获取 AgentSession 发送消息 */
+    private suspend fun sendMessageViaSession(text: String) {
+        val gateway = gatewayContractProvider?.invoke()
+        val session = gateway?.getAgentSession()
+        if (session == null) {
+            val msgs = _messages.value.toMutableList()
+            msgs.add(ChatMessage(role = "assistant", content = "服务未就绪，请稍候或检查设置"))
+            _messages.value = msgs
+            _isLoading.value = false
+            return
+        }
+
         val responseId = java.util.UUID.randomUUID().toString()
         val msgs = _messages.value.toMutableList()
         msgs.add(ChatMessage(id = responseId, role = "assistant", content = ""))
@@ -512,7 +393,8 @@ class ChatViewModel(
      * 处理语音输入，返回需要朗读的文本
      */
     suspend fun handleVoiceInput(text: String): String {
-        val session = agentSession
+        val gateway = gatewayContractProvider?.invoke()
+        val session = gateway?.getAgentSession()
         if (session == null) return "请先在设置中配置 API Key"
 
         // 添加用户消息
@@ -559,67 +441,70 @@ class ChatViewModel(
     // ==================== 配置更新 ====================
 
     /**
-     * 更新模型配置并重新初始化 AgentSession
+     * 更新模型配置 — 委托给 GatewayContract.reconfigureModel()
      */
-    fun updateConfig(context: Context, provider: String, apiKey: String, modelName: String, baseUrl: String = "") {
+    fun updateConfig(provider: String, apiKey: String, modelName: String, baseUrl: String = "") {
         viewModelScope.launch {
             try {
-                ConfigManager.setModelApiKey(apiKey)
-                ConfigManager.setModelName(modelName)
-                ConfigManager.setModelProvider(provider)
-                ConfigManager.setModelBaseUrl(baseUrl)
+                val gateway = gatewayContractProvider?.invoke()
+                if (gateway == null) {
+                    Log.e(TAG, "updateConfig: GatewayContract not available")
+                    return@launch
+                }
 
-                // 释放旧的本地模型资源
-                localLLMClient?.release()
-                localLLMClient = null
-
-                // 重新创建模型客户端
-                createModelClient(context, provider)
-
-                // 重新创建 AgentSession
-                agentSession = AgentSession(modelClient!!, skillManager, permManager)
-                agentSession?.setToolsWithSkills(emptyList()) { "Accessibility not available" }
-
-                // 重新连接记忆子系统
-                setupMemorySubsystem(embeddingService)
-
-                LogManager.shared.log("INFO", "ChatViewModel", "配置已更新 (provider: $provider)")
+                val config = ModelConfig(
+                    provider = ModelProvider.valueOf(provider),
+                    apiKey = apiKey,
+                    modelName = modelName,
+                    baseUrl = baseUrl
+                )
+                val success = gateway.reconfigureModel(config)
+                if (success) {
+                    LogManager.shared.log("INFO", "ChatViewModel", "配置已更新 (provider: $provider)")
+                } else {
+                    Log.e(TAG, "updateConfig: reconfigureModel failed")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "配置更新失败", e)
-                LogManager.shared.log("ERROR", "ChatViewModel", "配置更新失败: ${e.message}")
             }
         }
     }
 
     /**
-     * 清空聊天历史
+     * 清空聊天历史 — 委托给 GatewayContract
      */
     fun clearHistory() {
-        agentSession?.clearHistory()
+        val gateway = gatewayContractProvider?.invoke()
+        gateway?.clearHistory()
         _messages.value = emptyList()
     }
 
     // ==================== Session 管理方法 ====================
 
-    /** 收集 Session 列表 Flow */
+    /** 收集 Session 列表 Flow — 通过 GatewayContract */
     private fun collectSessionList() {
         viewModelScope.launch {
-            database.sessionDao().getAllSessions().collect { sessions ->
-                _allSessions.value = sessions
-                // 自动设置当前会话 ID（如果尚未设置）
-                if (_currentSessionId.value == null) {
-                    sessionManager?.getCurrentSessionId()?.let {
-                        _currentSessionId.value = it
+            val gateway = gatewayContractProvider?.invoke()
+            val sessionManager = gateway?.getSessionManager()
+            if (sessionManager != null) {
+                sessionManager.getSessionFlow().collect { sessions ->
+                    _allSessions.value = sessions
+                    if (_currentSessionId.value == null) {
+                        sessionManager.getCurrentSessionId()?.let {
+                            _currentSessionId.value = it
+                        }
                     }
                 }
             }
         }
     }
 
-    /** 创建新会话 */
+    /** 创建新会话 — 通过 GatewayContract */
     fun createNewSession() {
         viewModelScope.launch {
             try {
+                val gateway = gatewayContractProvider?.invoke()
+                val sessionManager = gateway?.getSessionManager()
                 sessionManager?.createNamedSession("")?.let { session ->
                     _currentSessionId.value = session.sessionId
                     clearHistory()
@@ -631,20 +516,17 @@ class ChatViewModel(
         }
     }
 
-    /** 切换到指定会话 */
+    /** 切换到指定会话 — 通过 GatewayContract */
     fun switchToSession(sessionId: String) {
         viewModelScope.launch {
             try {
-                // 1. 清空当前状态
                 clearHistory()
 
-                // 2. 切换底层会话
+                val gateway = gatewayContractProvider?.invoke()
+                val sessionManager = gateway?.getSessionManager()
                 sessionManager?.switchToSession(sessionId)?.getOrNull()?.let { session ->
                     _currentSessionId.value = session.sessionId
-
-                    // 3. 加载历史消息（最近 50 条）
                     loadHistoryMessages(sessionId)
-
                     Log.d(TAG, "Switched to session: ${session.name ?: "新对话"}")
                 }
             } catch (e: Exception) {
@@ -653,9 +535,16 @@ class ChatViewModel(
         }
     }
 
-    /** 从数据库加载历史消息到 UI */
+    /** 从 GatewayContract 加载历史消息到 UI */
     private suspend fun loadHistoryMessages(sessionId: String) {
-        val entities = database.messageDao()
+        val gateway = gatewayContractProvider?.invoke()
+        val sessionManager = gateway?.getSessionManager()
+        val messageDao = sessionManager?.getMessageDao()
+        if (messageDao == null) {
+            Log.w(TAG, "loadHistoryMessages: messageDao not available")
+            return
+        }
+        val entities = messageDao
             .getMessagesBySessionIdWithLimit(sessionId, limit = 50, offset = 0)
 
         val chatMessages = entities.map { entity ->
@@ -671,14 +560,17 @@ class ChatViewModel(
         Log.d(TAG, "Loaded ${chatMessages.size} history messages for session $sessionId")
     }
 
-    /** 重命名会话 */
+    /** 重命名会话 — 通过 GatewayContract */
     fun renameSession(sessionId: String, newName: String) {
         viewModelScope.launch {
             try {
-                val session = database.sessionDao().getSessionById(sessionId)
+                val gateway = gatewayContractProvider?.invoke()
+                val sessionManager = gateway?.getSessionManager()
+                val sessionDao = sessionManager?.getSessionDao()
+                val session = sessionDao?.getSessionById(sessionId)
                 if (session != null) {
                     val updated = session.copy(name = newName)
-                    database.sessionDao().updateSession(updated)
+                    sessionDao?.updateSession(updated)
                     Log.d(TAG, "Renamed session $sessionId to '$newName'")
                 }
             } catch (e: Exception) {
@@ -687,11 +579,14 @@ class ChatViewModel(
         }
     }
 
-    /** 删除会话 */
+    /** 删除会话 — 通过 GatewayContract */
     fun deleteSession(sessionId: String) {
         viewModelScope.launch {
             try {
-                database.sessionDao().deleteSessionById(sessionId)
+                val gateway = gatewayContractProvider?.invoke()
+                val sessionManager = gateway?.getSessionManager()
+                val sessionDao = sessionManager?.getSessionDao()
+                sessionDao?.deleteSessionById(sessionId)
 
                 // 如果删除的是当前会话，自动切换到第一个可用会话
                 if (_currentSessionId.value == sessionId) {
@@ -699,7 +594,6 @@ class ChatViewModel(
                     if (remaining.isNotEmpty()) {
                         switchToSession(remaining.first().sessionId)
                     } else {
-                        // 没有剩余会话了，创建一个默认的
                         createNewSession()
                     }
                 }
@@ -709,10 +603,13 @@ class ChatViewModel(
         }
     }
 
-    /** 获取会话的消息数 */
+    /** 获取会话的消息数 — 通过 GatewayContract */
     suspend fun getMessageCount(sessionId: String): Int {
         return try {
-            database.messageDao().getMessageCountBySessionId(sessionId)
+            val gateway = gatewayContractProvider?.invoke()
+            val sessionManager = gateway?.getSessionManager()
+            val messageDao = sessionManager?.getMessageDao()
+            messageDao?.getMessageCountBySessionId(sessionId) ?: 0
         } catch (e: Exception) {
             Log.w(TAG, "Failed to get message count for session $sessionId", e)
             0
@@ -755,6 +652,6 @@ class ChatViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        localLLMClient?.release()
+        // Lifecycle management of model/memory components is handled by GatewayManager
     }
 }

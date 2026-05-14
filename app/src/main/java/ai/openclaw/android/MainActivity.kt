@@ -138,6 +138,9 @@ class MainActivity : ComponentActivity() {
         // Initialize ViewModel
         chatViewModel = ViewModelProvider(this, ChatViewModelFactory(application))[ChatViewModel::class.java]
 
+        // Inject GatewayContract provider so ViewModel can access sessions/memory via GatewayManager
+        chatViewModel.setGatewayContractProvider { gatewayContract }
+
         // Initialize ViewModel internals (model client, memory, session, etc.)
         chatViewModel.initialize(this)
 

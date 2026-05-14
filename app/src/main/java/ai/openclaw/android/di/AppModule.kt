@@ -63,9 +63,7 @@ val appModule = module {
         ChatViewModel(
             skillManager = get(),
             permManager = get(),
-            database = get(),
-            embeddingService = get(),
-            hybridSearchEngine = get()
+            database = get()
         )
     }
 

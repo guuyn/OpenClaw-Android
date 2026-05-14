@@ -463,4 +463,15 @@ class HybridSessionManager(
         extractionJob?.cancel()
         currentSession = null
     }
+
+    // ==================== DAO accessors for GatewayContract integration ====================
+
+    /** 获取 SessionDao，供外部进行 Session CRUD 操作 */
+    fun getSessionDao(): SessionDao = sessionDao
+
+    /** 获取 MessageDao，供外部加载历史消息 */
+    fun getMessageDao(): MessageDao = messageDao
+
+    /** 获取 Session 列表 Flow */
+    fun getSessionFlow() = sessionDao.getAllSessions()
 }

@@ -98,6 +98,9 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
     private var memoryManager: MemoryManager? = null
     private var sessionManager: HybridSessionManager? = null
 
+    // Device capabilities (cached)
+    private var deviceCapabilities: DeviceCapabilities? = null
+
     // State
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override fun getConnectionState(): StateFlow<ConnectionState> = _connectionState
@@ -363,7 +366,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
     }
 
     override fun getDeviceCapabilities(): DeviceCapabilities? {
-        return DeviceCapabilities.fromContext(service)
+        return deviceCapabilities
     }
 
     // ========== Lifecycle ==========
@@ -436,6 +439,10 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
 
     private suspend fun initializeComponents() {
         Log.d(TAG, "Initializing components...")
+
+        // Initialize device capabilities (cached)
+        deviceCapabilities = DeviceCapabilities.fromContext(service)
+        Log.d(TAG, "Device capabilities: profile=${deviceCapabilities?.profile}")
 
         // Initialize ModelClient based on provider
         val providerName = ConfigManager.getModelProvider()
