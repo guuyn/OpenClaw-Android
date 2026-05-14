@@ -41,6 +41,7 @@ import ai.openclaw.android.feishu.FeishuClient
 import ai.openclaw.android.feishu.OkHttpFeishuClient
 import ai.openclaw.android.feishu.FeishuEvent
 import ai.openclaw.android.permission.PermissionManager
+import ai.openclaw.android.domain.DeviceCapabilities
 import ai.openclaw.android.domain.agent.AgentConfigManager
 import ai.openclaw.android.domain.agent.AgentRouter
 import ai.openclaw.android.domain.agent.AgentSessionManager
@@ -320,6 +321,49 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             Log.e(TAG, "Failed to init screen capture: ${e.message}")
             return false
         }
+    }
+
+    // ========== Extended methods for ChatViewModel integration ==========
+
+    override fun getSessionManager(): HybridSessionManager? = sessionManager
+
+    override fun getMemoryManager(): MemoryManager? = memoryManager
+
+    override fun getAgentSession(): AgentSession? = agentSession
+
+    override fun getAgents(): List<AgentInfo> {
+        val configManager = agentConfigManager ?: return emptyList()
+        val defaultAgent = try {
+            configManager.getDefaultAgent()
+        } catch (e: IllegalStateException) {
+            null
+        }
+        return configManager.getAllAgents().map { agent ->
+            AgentInfo(
+                id = agent.id,
+                name = agent.name,
+                isDefault = defaultAgent?.id == agent.id
+            )
+        }
+    }
+
+    override fun clearHistory() {
+        agentSession?.clearHistory()
+    }
+
+    override fun setScriptUiProvider(provider: Any?) {
+        val scriptSkill = skillManager?.getLoadedSkills()?.get("script")
+            as? ai.openclaw.android.skill.builtin.ScriptSkill
+        if (provider != null && provider !is ai.openclaw.script.bridge.UiProvider) {
+            Log.w(TAG, "setScriptUiProvider: expected UiProvider but got ${provider::class.java.simpleName}")
+            return
+        }
+        scriptSkill?.setUiProvider(provider)
+        Log.d(TAG, "ScriptSkill UI provider set: ${provider != null}")
+    }
+
+    override fun getDeviceCapabilities(): DeviceCapabilities? {
+        return DeviceCapabilities.fromContext(service)
     }
 
     // ========== Lifecycle ==========
