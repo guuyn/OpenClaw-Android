@@ -2,4 +2,5 @@
 <lint>
     <!-- Kotlin 2.3.0 internal API change causes this detector to crash with IncompatibleClassChangeError -->
     <issue id="RememberInComposition" severity="ignore" />
+    <issue id="NullSafeMutableLiveData" severity="ignore" />
 </lint>

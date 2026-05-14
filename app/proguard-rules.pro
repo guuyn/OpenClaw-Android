@@ -65,6 +65,10 @@
 -keep class ai.openclaw.android.personalcenter.PersonalCenterViewModel { *; }
 -keep class ai.openclaw.android.personalcenter.** { *; }
 
+# Rhino JS Engine — java.beans not available on Android
+-dontwarn java.beans.**
+-dontwarn org.mozilla.javascript.JavaToJSONConverters
+
 # ==================== Bugly ====================
 # Bugly SDK 混淆规则
 -dontwarn com.tencent.bugly.**

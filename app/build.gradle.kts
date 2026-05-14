@@ -66,7 +66,7 @@ android {
             if (releaseStoreFile != null && releaseStorePassword != null &&
                 releaseKeyAlias != null && releaseKeyPassword != null
             ) {
-                storeFile = file("../$releaseStoreFile")
+                storeFile = if (releaseStoreFile.startsWith("/")) file(releaseStoreFile) else file("../$releaseStoreFile")
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
