@@ -47,7 +47,6 @@ import ai.openclaw.android.model.ModelProvider
 import ai.openclaw.android.agent.SessionEvent
 import ai.openclaw.android.domain.Deliverable
 
-import ai.openclaw.android.domain.ResponseType
 import ai.openclaw.android.domain.RichContent
 import ai.openclaw.android.ui.components.SessionListDrawer
 import ai.openclaw.android.voice.VoiceInteractionManager
