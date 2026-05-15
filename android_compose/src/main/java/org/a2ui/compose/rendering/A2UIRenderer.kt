@@ -72,6 +72,9 @@ class A2UIRenderer(
     private val surfaceStates = mutableStateMapOf<String, A2UIRendererState>()
     private val missingComponentWarnings = linkedSetOf<String>()
 
+    // Parent-child resolvers for topological ordering of component registration
+    private val surfaceResolvers = mutableMapOf<String, ParentChildResolver>()
+
 
     private val _actionHandler = MutableStateFlow<ActionHandler?>(null)
     val actionHandler: StateFlow<ActionHandler?>
@@ -237,28 +240,65 @@ class A2UIRenderer(
 
     private fun handleUpdateComponents(updateComponents: UpdateComponents) {
         val surfaceId = updateComponents.surfaceId
-        val components = updateComponents.components
+        val incomingComponents = updateComponents.components
         val componentMap = surfaceComponents[surfaceId] ?: run {
             logger.log(A2UILogLevel.WARN, "Surface not found: $surfaceId")
             return
         }
 
         val currentCount = componentMap.size
-        if (currentCount + components.size > MAX_COMPONENTS_PER_SURFACE) {
+        if (currentCount + incomingComponents.size > MAX_COMPONENTS_PER_SURFACE) {
             logger.log(A2UILogLevel.WARN, "Component limit exceeded for surface: $surfaceId")
             throw IllegalStateException("Maximum component count ($MAX_COMPONENTS_PER_SURFACE) exceeded")
         }
 
-        components.forEach { component ->
-            // ✅ 校验 component.id 格式
+        // Validate component IDs
+        val validComponents = incomingComponents.filter { component ->
             if (!A2UIProtocol.isValidId(component.id)) {
                 logger.log(A2UILogLevel.WARN, "Invalid component id format: ${component.id}, skipping")
-                return@forEach
+                false
+            } else true
+        }
+        if (validComponents.isEmpty()) return
+
+        // ── Topological registration path via ParentChildResolver ──
+        val resolver = surfaceResolvers.getOrPut(surfaceId) { ParentChildResolver() }
+        validComponents.forEach { resolver.put(it) }
+
+        if (resolver.isTreeComplete) {
+            // All references resolved → register in topological order (parents before children)
+            val ordered = resolver.sortedComponents
+            logger.log(A2UILogLevel.DEBUG, "Tree complete (${ordered.size} components), registering in topological order for surface: $surfaceId")
+            ordered.forEach { component ->
+                componentMap[component.id] = component
             }
-            componentMap[component.id] = component
+            // Clear resolver for next batch — future components will create a fresh graph
+            surfaceResolvers.remove(surfaceId)
+        } else {
+            // Tree not yet complete — some child components reference parents not yet received.
+            // Register only components whose dependencies are already satisfied, defer the rest.
+            val missing = resolver.findMissingReferences()
+            val missingIds = missing.mapTo(mutableSetOf()) { it.childId }
+            val deferredIds = missingIds.intersect(resolver.componentIds)
+            val readyIds = resolver.componentIds - deferredIds
+
+            if (readyIds.isNotEmpty()) {
+                // Register ready components first
+                readyIds.forEach { id ->
+                    resolver[id]?.let { componentMap[it.id] = it }
+                }
+                logger.log(A2UILogLevel.DEBUG, "Partial tree: registered ${readyIds.size} ready, ${deferredIds.size} deferred on surface: $surfaceId")
+            } else {
+                // Fallback: if nothing is "ready" (e.g. root is missing), register all directly
+                // to maintain backward compatibility
+                logger.log(A2UILogLevel.DEBUG, "Cannot resolve tree for surface: $surfaceId, falling back to direct registration")
+                validComponents.forEach { component ->
+                    componentMap[component.id] = component
+                }
+            }
         }
 
-        logger.log(A2UILogLevel.DEBUG, "Updated ${components.size} components in surface: $surfaceId")
+        logger.log(A2UILogLevel.DEBUG, "Updated ${validComponents.size} components in surface: $surfaceId")
     }
 
     private fun handleUpdateDataModel(updateDataModel: UpdateDataModel) {
@@ -278,6 +318,7 @@ class A2UIRenderer(
         surfaceComponents.remove(surfaceId)
         surfaceStates.remove(surfaceId)
         surfaceChanges.remove(surfaceId)
+        surfaceResolvers.remove(surfaceId)
         missingComponentWarnings.removeAll { it.startsWith("$surfaceId|") }
     }
 
@@ -571,6 +612,7 @@ class A2UIRenderer(
         surfaceComponents.clear()
         surfaceStates.clear()
         surfaceChanges.clear()
+        surfaceResolvers.clear()
         missingComponentWarnings.clear()
         dataModelProcessor.clear()
     }
