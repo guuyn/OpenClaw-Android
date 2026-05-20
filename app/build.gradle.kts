@@ -221,6 +221,9 @@ dependencies {
     // A2UI Component Library
     implementation(project(":android_compose"))
 
+    // Plugin SDK (Core interfaces for Host and Plugins)
+    implementation(project(":plugin-sdk"))
+
     // YAML parsing for agent configuration
     implementation("org.yaml:snakeyaml:2.2")
 

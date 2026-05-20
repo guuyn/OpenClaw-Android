@@ -26,3 +26,4 @@ rootProject.name = "OpenClaw"
 include(":app")
 include(":android_compose")
 include(":script")
+include(":plugin-sdk")
