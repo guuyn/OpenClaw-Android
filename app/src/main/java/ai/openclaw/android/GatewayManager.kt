@@ -93,6 +93,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
     // Trigger subsystem
     private var triggerEventBus: EventBus? = null
     private var cronScheduler: CronScheduler? = null
+    private var scriptOrchestrator: ai.openclaw.script.ScriptOrchestrator? = null
 
     // Memory subsystem (moved from Activity)
     private var database: AppDatabase? = null
@@ -213,7 +214,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
                 context = service,
                 dynamicSkillDao = db.dynamicSkillDao(),
                 skillManager = sm,
-                orchestrator = ai.openclaw.script.ScriptOrchestrator(service),
+                orchestrator = scriptOrchestrator!!,
                 preferenceManager = ai.openclaw.android.skill.UserPreferenceManager(service),
                 onUserConfirmation = { _, _ ->
                     ApprovalDecision.ALWAYS_APPROVE
@@ -542,12 +543,15 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         // Initialize database first (needed by DynamicSkillManager)
         database = AppDatabase.getInstance(service)
 
+        // Initialize ScriptOrchestrator (shared across subsystems)
+        scriptOrchestrator = ai.openclaw.script.ScriptOrchestrator(service)
+
         // Initialize DynamicSkillManager and register generate_skill tool
         dynamicSkillManager = DynamicSkillManager(
             context = service,
             dynamicSkillDao = database!!.dynamicSkillDao(),
             skillManager = skillManager!!,
-            orchestrator = ai.openclaw.script.ScriptOrchestrator(service),
+            orchestrator = scriptOrchestrator!!,
             preferenceManager = ai.openclaw.android.skill.UserPreferenceManager(service),
             onUserConfirmation = { _, _ ->
                 // TODO: 实际项目中需要弹出确认对话框
@@ -627,7 +631,8 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         val actionExecutor = ActionExecutor(
             context = service,
             skillManager = skillManager!!,
-            agentSessionFactory = { agentSession }
+            agentSessionFactory = { agentSession },
+            scriptOrchestrator = scriptOrchestrator
         )
 
         EventBus.initialize(

@@ -34,6 +34,16 @@ class SmartNotificationListener : NotificationListenerService() {
         // 监听器是否已连接（getActiveNotifications() 只在连接后有效）
         @Volatile private var isConnected = false
         
+        /**
+         * 获取服务实例（供 ActionExecutor 等外部调用系统 API）
+         * 返回 null 表示服务未运行或尚未连接
+         */
+        fun getInstanceForReply(): SmartNotificationListener? {
+            val svc = instance ?: return null
+            if (!isConnected) return null
+            return svc
+        }
+
         // 获取待处理通知数量
         fun getPendingCount(): Int = _notifications.value.count { !it.isRead }
         
