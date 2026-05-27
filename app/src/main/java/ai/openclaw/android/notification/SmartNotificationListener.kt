@@ -1,11 +1,17 @@
 package ai.openclaw.android.notification
 
 import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import ai.openclaw.android.MainActivity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +26,9 @@ class SmartNotificationListener : NotificationListenerService() {
     
     companion object {
         private const val TAG = "SmartNotification"
+
+        /** 紧急通知 Channel ID */
+        const val URGENT_CHANNEL_ID = "trigger_urgent"
         
         // 通知状态流（供 UI 订阅）
         private val _notifications = MutableStateFlow<List<SmartNotification>>(emptyList())
@@ -368,9 +377,9 @@ class SmartNotificationListener : NotificationListenerService() {
     private fun handleClassifiedNotification(notification: SmartNotification) {
         when (notification.category) {
             NotificationCategory.URGENT -> {
-                // 紧急通知：立即提醒
-                // TODO: 发送本地通知或更新状态栏
+                // 紧急通知：立即发送系统通知提醒
                 Log.d(TAG, "URGENT notification: ${notification.title}")
+                sendUrgentNotification(notification)
             }
             NotificationCategory.IMPORTANT -> {
                 // 重要通知：5分钟汇总提醒
@@ -384,6 +393,57 @@ class SmartNotificationListener : NotificationListenerService() {
                 // 已过滤
             }
             NotificationCategory.PENDING -> {}
+        }
+    }
+
+    /**
+     * 发送紧急本地系统通知
+     */
+    private fun sendUrgentNotification(notification: SmartNotification) {
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // 确保通知 Channel 存在
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    URGENT_CHANNEL_ID,
+                    "Trigger 紧急通知",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Trigger 系统产生的紧急通知提醒"
+                    enableVibration(true)
+                    enableLights(true)
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            // 点击通知打开 App
+            val intent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                notification.id.hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notificationId = notification.id.hashCode().takeIf { it != 0 } ?: (System.currentTimeMillis() % 1000000).toInt()
+
+            val systemNotification = NotificationCompat.Builder(this, URGENT_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle(notification.title.take(100))
+                .setContentText(notification.text.take(200))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(notification.text))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            notificationManager.notify(notificationId, systemNotification)
+            Log.i(TAG, "Urgent system notification sent: ${notification.title}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send urgent notification: ${e.message}", e)
         }
     }
     

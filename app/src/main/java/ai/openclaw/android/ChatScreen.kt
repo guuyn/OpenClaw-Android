@@ -1477,7 +1477,7 @@ private fun AiMessageBubble(
                         // Use A2UICardRouter directly for legacy card format
                         A2UICardRouter(
                             card = segment.card,
-                            onActionClick = { action -> /* TODO: handle action */ },
+                            onActionClick = onCardAction,
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
                     }
