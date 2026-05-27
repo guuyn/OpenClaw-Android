@@ -1,6 +1,7 @@
 # OpenClaw-Android 项目评估与路线图
 
-> 评估日期：2026-05-16
+> 评估日期：2026-05-26（更新）
+> 原始评估：2026-05-16
 > 项目：OpenClaw-Android (https://github.com/guuyn/OpenClaw-Android.git)
 
 ---
@@ -15,7 +16,7 @@
 | 单元测试 | **30 个** |
 | 仪器测试 | **10 个** |
 | 总测试数 | **40 个** |
-| 最近提交 | 2026-05-15 |
+| 最近提交 | 2026-05-27 (Phase 1 ScreenSkill + DeviceSkill) |
 
 ### 1.2 包结构与职责
 
@@ -85,15 +86,16 @@ ai.openclaw.android/
 | 崩溃上报 | Bugly |
 | CI | Android Testing (Unit + Instrumented) |
 
-### 1.4 最近 5 个提交
+### 1.4 最近 7 个提交
 
 | 提交 | 内容 |
 |------|------|
+| _(Phase 1 进行中)_ | ScreenSkill + DeviceSkill 实现完成，待 commit |
+| cfeedad | Trigger: NotificationReply + RemoteInput + CustomScript (未推送) |
 | c7a7d5d | ParentChildResolver 拓扑排序集成 (2026-05-15) |
 | 8b621b2 | 移除未使用的 ResponseType import |
 | a49583e | ChatViewModel 简化为零参数构造函数 |
 | bad121f | 会话管理迁移到 GatewayContract |
-| bf3f562 | 模型/会话生命周期从 ChatViewModel 迁移到 GatewayManager |
 
 ---
 
@@ -110,19 +112,20 @@ ai.openclaw.android/
 
 ### 2.2 弱项/风险点 ⚠️
 
-1. **TODO/FIXME 积压**（8 个未解决）：
-   - `ActionExecutor.kt`：自动回复、脚本执行、JSON 解析 3 处未实现
+1. **TODO/FIXME 积压**（7 个，已大幅减少）：
+   - ~~`ActionExecutor.kt`~~ → ✅ **已完成**（2026-05-17 cfeedad）
    - `SmartNotificationListener.kt`：通知发送未实现
-   - `LocalLLMClient.kt`：图像输入支持待完善
+   - `LocalLLMClient.kt`：图像输入 API 待更新（SDK 限制）
    - `ModelDownloadManager.kt`：SHA256 校验缺失
    - `ChatScreen.kt`：action 点击处理未实现
    - `GatewayManager.kt`：确认对话框未实现
+   - `ComponentRegistry.kt`：AI 组件注册未实现
 
-2. **skill/ 与 skills/ 双目录**：命名混乱，职责不清晰
+2. ~~**skill/ 与 skills/ 双目录**~~ → 待确认是否已清理
 
 3. **feishu/ 模块耦合**：飞书集成直接嵌入主应用，可能影响可扩展性
 
-4. **AccessibilityService 模块**：自动化控制是重头功能但目前状态不明
+4. **AccessibilityService 模块**：已实现 12 个工具（click/input_text/screenshot/read_screen 等），但截图可靠性差（无 fallback）→ ✅ **2026-05-27 已通过 ScreenSkill 补强三级 fallback**
 
 5. **Release 构建**：versionCode = 1，versionName = "1.0"，尚未发版
 
@@ -162,7 +165,7 @@ ai.openclaw.android/
 
 | 模块 | 说明 |
 |------|------|
-| **Trigger 触发器系统** | 完整调度器、调度规则、执行流程无测试 |
+| ~~**Trigger 触发器系统**~~ | ✅ 核心已实现（cfeedad），缺单元测试 |
 | **PersonalCenter 个人中心** | LLM 优先级分类、去重引擎无测试 |
 | **AccessibilityService** | 自动化控制无测试 |
 | **Feishu 客户端** | 仅有 mock 测试 |
@@ -175,21 +178,16 @@ ai.openclaw.android/
 
 ## 4. 下一步方向
 
-### 方向一：完成 Trigger 触发器系统 🔥 **最高优先级**
+### 方向一：完成 Trigger 触发器系统 ✅ **已基本完成**
 
-**目标**：让 OpenClaw 能根据通知、时间、位置等条件**自动触发**技能执行，这是"主动式 AI 助手"的核心差异点。
+**状态**：核心功能已实现（2026-05-17 cfeedad）
+- ✅ ActionExecutor 4 种动作全部实现（SkillCall / AgentQuery / NotificationReply / CustomScript）
+- ✅ EventBus + CronScheduler + ActionExecutor 完整链路
+- ⚠️ 剩余 TODO：SmartNotificationListener 通知发送、A2UI action 点击处理
+- ❌ 缺单元测试
 
-**需要完成**：
-- ActionExecutor 的 3 个 TODO 实现（自动回复、脚本执行、JSON 解析）
-- SmartNotificationListener 通知发送实现
-- 触发器规则引擎完善
-- 触发器 UI 配置界面
-
-**为什么重要**：这是 OpenClaw 区别于普通聊天 App 的关键特性 —— 不只是被动问答，而是**主动感知和执行**。
-
-**工作量**：L (预计 2-3 周)
-**依赖**：现有 Trigger DAO + 模型已完成，ScriptEngine 可用
-**优先级**：🔥🔥🔥🔥🔥
+**工作量**：剩余 M 级（预计 3-5 天）
+**优先级**：🔥🔥（补完测试 + 通知发送）
 
 ---
 
@@ -268,15 +266,44 @@ ai.openclaw.android/
 
 ---
 
+### 方向六：Node 端基础能力完善 ⭐ **新增 (2026-05-27)**
+
+**来源**：Hub 头脑风暴结论（glm5 建议 "先修路再造车"）
+**目标**：将 OpenClaw-Android 从"聊天助手"升级为完整的 OpenClaw Node 节点
+
+**已完成**：
+- ✅ **Phase 1 (2026-05-27)**：ScreenSkill + DeviceSkill
+  - ScreenSkill：截图三级 fallback (MediaProjection → PixelCopy → ViewTree) + 坐标点击 + 增强读屏 + 滚动查找（4 个 tool）
+  - DeviceSkill：设备信息 + 状态 + 健康评分 + 运行应用（4 个 tool）
+  - 8 个新工具已集成到 SkillManager，编译通过
+
+**待完成**：
+- **Phase 2**：CameraSkill（拍照/录像/相册）+ FileXferSkill（文件收发/下载）
+- **Phase 3**：ShellSkill（受限 shell 命令执行）+ NotifySkill（通知列表/操作）
+
+**设计文档**：`docs/NODE-CAPABILITIES-DESIGN.md`
+**为什么重要**：这是 Node 协议标准能力，决定 Android 能否作为完整的 OpenClaw 节点参与多实例协作。
+
+**工作量**：
+- Phase 1: ✅ 完成
+- Phase 2: M (预计 1 周)
+- Phase 3: M (预计 1 周)
+
+**优先级**：🔥🔥🔥🔥🔥（最高优先级，与 Trigger 系统并行推进）
+
+---
+
 ## 5. 执行建议
 
-**建议顺序**：
+**建议顺序**（2026-05-27 更新）：
 
-1. **第 1 周**：CI/CD 搭建 (方向四) — 快速见效，为后续开发提供保障
-2. **第 2-3 周**：Trigger 触发器 (方向一) — 核心差异化功能
-3. **第 4 周**：端侧模型优化 (方向二) — 隐私 + 离线能力
-4. **第 5-7 周**：技能生态 (方向三) — 可扩展性
-5. **第 8-12 周**：Accessibility 自动化 (方向五) — 长期愿景
+1. ~~**CI/CD 搭建**~~ → ✅ **已完成**（`.github/workflows/android.yml`：test + debug + release）
+2. ~~**Trigger 触发器核心**~~ → ✅ **基本完成**（剩余补测试 + 通知发送）
+3. ~~**Node Phase 1**~~ → ✅ **已完成**（ScreenSkill + DeviceSkill，2026-05-27）
+4. **当前**：Phase 1 真机验证 → 通过后 → Phase 2 (Camera + FileXfer)
+5. **第 2-3 周**：端侧模型优化 (方向二) — SHA256 校验 + 多模态 API 跟进
+6. **第 3-4 周**：技能生态 (方向三) — skill/skills 目录统一 + 技能商店 UI
+7. **长期**：Accessibility 自动化 (方向五) — 4-6 周
 
 ---
 

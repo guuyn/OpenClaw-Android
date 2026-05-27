@@ -54,6 +54,12 @@ class MyAccessibilityService : AccessibilityService() {
     // MediaProjection for screenshots
     private var mediaProjection: MediaProjection? = null
     private var imageReader: ImageReader? = null
+
+    /** MediaProjection instance (for ScreenSkill) */
+    fun getMediaProjection(): MediaProjection? = mediaProjection
+
+    /** ImageReader instance (for ScreenSkill) */
+    fun getImageReader(): ImageReader? = imageReader
     
     override fun onServiceConnected() {
         super.onServiceConnected()

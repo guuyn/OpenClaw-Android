@@ -185,19 +185,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             Log.d(TAG, "SkillManager not initialized, initializing now")
             accessibilityBridge = AccessibilityBridge()
             skillManager = SkillManager(service).apply {
-                registerSkill(ai.openclaw.android.skill.builtin.WeatherSkill())
-                registerSkill(ai.openclaw.android.skill.builtin.MultiSearchSkill())
-                registerSkill(ai.openclaw.android.skill.builtin.TranslateSkill())
-                registerSkill(ai.openclaw.android.skill.builtin.ReminderSkill(service))
-                registerSkill(ai.openclaw.android.skill.builtin.CalendarSkill(service))
-                registerSkill(ai.openclaw.android.skill.builtin.LocationSkill(service))
-                registerSkill(ai.openclaw.android.skill.builtin.ContactSkill(service))
-                registerSkill(ai.openclaw.android.skill.builtin.SMSSkill(service))
-                registerSkill(ai.openclaw.android.skill.builtin.AppLauncherSkill())
-                registerSkill(ai.openclaw.android.skill.builtin.SettingsSkill())
-                registerSkill(ai.openclaw.android.skill.builtin.FileSkill(service))
-                registerSkill(ai.openclaw.android.skill.builtin.ScriptSkill())
-                registerSkill(NotificationSkill(service))
+                loadBuiltinSkills(service)
             }
         }
 
@@ -523,15 +511,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
 
         // Initialize SkillManager and register skills
         skillManager = SkillManager(service).apply {
-            registerSkill(WeatherSkill())
-            registerSkill(MultiSearchSkill())
-            registerSkill(TranslateSkill())
-            registerSkill(ReminderSkill(service))
-            registerSkill(CalendarSkill(service))
-            registerSkill(LocationSkill(service))
-            registerSkill(ContactSkill(service))
-            registerSkill(SMSSkill(service))
-            registerSkill(NotificationSkill(service))
+            loadBuiltinSkills(service)
         }
 
         // Wire LocalLLMClient tool executor to skill system

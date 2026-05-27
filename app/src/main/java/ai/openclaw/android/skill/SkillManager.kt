@@ -27,7 +27,18 @@ class SkillManager(private val context: Context) {
         registerSkill(SettingsSkill())
         registerSkill(FileSkill(context))
         registerSkill(ScriptSkill())
-        registerSkill(NotificationSkill(context))
+
+        // Node 能力 Skills (Phase 1)
+        registerSkill(ScreenSkill(context))
+        registerSkill(DeviceSkill(context))
+
+        // Node 能力 Skills (Phase 2)
+        registerSkill(CameraSkill(context))
+        registerSkill(FileXferSkill(context))
+
+        // Node 能力 Skills (Phase 3)
+        registerSkill(ShellSkill(context))
+        registerSkill(NotifySkill(context))
 
         Log.i(TAG, "SkillManager initialized with ${loadedSkills.size} skills")
     }
@@ -132,6 +143,10 @@ class SkillManager(private val context: Context) {
             "sms" -> arrayOf(
                 android.Manifest.permission.SEND_SMS,
                 android.Manifest.permission.READ_SMS
+            )
+            "camera" -> arrayOf(
+                android.Manifest.permission.CAMERA,
+                android.Manifest.permission.RECORD_AUDIO
             )
             else -> null
         }
