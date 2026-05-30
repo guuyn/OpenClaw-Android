@@ -122,12 +122,14 @@ jobs:
       env:
         RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
         RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        VERSION_NAME: ${{ github.ref_name }}
       run: |
         cat > local.properties << EOF
         RELEASE_STORE_FILE=openclaw-release.keystore
         RELEASE_STORE_PASSWORD=$RELEASE_STORE_PASSWORD
         RELEASE_KEY_ALIAS=openclaw
         RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD
+        VERSION_NAME=$VERSION_NAME
         sdk.dir=$ANDROID_HOME
         EOF
     

@@ -31,8 +31,14 @@ android {
         applicationId = "ai.openclaw.android"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // versionCode: 基于 git commit 数，自动递增
+        // CI 环境：使用 git rev-list；本地环境：fallback 到 189（当前 commit 数）
+        versionCode = (providers.exec {
+            commandLine("git", "rev-list", "--count", "HEAD")
+            isIgnoreExitValue = true
+        }.standardOutput.asText.orNull?.trim()?.toIntOrNull() ?: 189)
+        // versionName: 语义化版本，CI 可通过环境变量覆盖
+        versionName = providers.environmentVariable("VERSION_NAME").getOrElse("1.0.0")
         ndkVersion = "27.0.12077973"
         
         // 只保留 ARM 架构，移除 x86/x86_64（仅模拟器需要）
