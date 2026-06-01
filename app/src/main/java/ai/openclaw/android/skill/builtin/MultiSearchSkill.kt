@@ -2,14 +2,8 @@ package ai.openclaw.android.skill.builtin
 
 import ai.openclaw.android.skill.*
 import ai.openclaw.script.ScriptOrchestrator
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 
 class MultiSearchSkill : Skill {
     override val id = "search"
@@ -25,6 +19,9 @@ class MultiSearchSkill : Skill {
 ## 用法
 - 用户要求搜索信息时，调用 search 工具
 - 返回搜索结果摘要与卡片展示
+
+## A2UI 卡片输出格式（参考）
+[A2UI]{"type":"search_result","data":{"title":"搜索结果","query":"搜索词","items":[{"title":"标题","url":"链接","snippet":"摘要","source":"来源"}],"total":5},"actions":[{"label":"🔗 在浏览器中打开","action":"open_search","style":"Secondary"}]}[/A2UI]
 """
 
     private var orchestrator: ScriptOrchestrator? = null
@@ -72,13 +69,9 @@ class MultiSearchSkill : Skill {
                     return SkillResult(true, "关于 \"$query\" 未找到相关结果")
                 }
 
-                // 构建纯文本摘要（供 LLM 理解）
-                val textSummary = buildTextSummary(query, resultsArray)
-
-                // 构建 A2UI 卡片（供 UI 渲染）
-                val a2ui = buildA2UICard(query, resultsArray)
-
-                return SkillResult(true, "$textSummary\n\n$a2ui")
+                // 构建 v2 A2UI 卡片
+                val cardJson = buildSearchResultCardV2(query, resultsArray)
+                return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             } catch (e: Exception) {
                 return SkillResult(false, "", "搜索错误: ${e.message}")
             }
@@ -99,19 +92,45 @@ class MultiSearchSkill : Skill {
             return sb.toString()
         }
 
-        private fun buildA2UICard(query: String, results: List<JsonElement>): String {
-            val dataMap = mutableMapOf<String, JsonPrimitive>(
-                "query" to JsonPrimitive(query)
-            )
-            results.forEachIndexed { i, elem ->
+        @OptIn(ExperimentalSerializationApi::class)
+        private fun buildSearchResultCardV2(query: String, results: List<JsonElement>): String {
+            val items = results.take(5).map { elem ->
                 val obj = elem.jsonObject
-                val index = i + 1
-                dataMap["result$index"] = JsonPrimitive(obj["title"]?.jsonPrimitive?.content ?: "")
-                dataMap["snippet$index"] = JsonPrimitive(obj["snippet"]?.jsonPrimitive?.content ?: "")
-                dataMap["url$index"] = JsonPrimitive(obj["url"]?.jsonPrimitive?.content ?: "")
+                JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive(obj["title"]?.jsonPrimitive?.content ?: ""),
+                        "url" to JsonPrimitive(obj["url"]?.jsonPrimitive?.content ?: ""),
+                        "snippet" to JsonPrimitive(obj["snippet"]?.jsonPrimitive?.content ?: ""),
+                        "source" to JsonPrimitive(obj["source"]?.jsonPrimitive?.content ?: obj["engine"]?.jsonPrimitive?.content ?: "")
+                    )
+                )
             }
-            val data = JsonObject(dataMap)
-            return "[A2UI]\n{\"type\":\"search\",\"data\":$data}\n[/A2UI]"
+
+            val card = JsonObject(
+                mapOf(
+                    "type" to JsonPrimitive("search_result"),
+                    "data" to JsonObject(
+                        mapOf(
+                            "title" to JsonPrimitive("搜索结果"),
+                            "query" to JsonPrimitive(query),
+                            "items" to JsonArray(items),
+                            "total" to JsonPrimitive(results.size)
+                        )
+                    ),
+                    "actions" to JsonArray(
+                        listOf(
+                            JsonObject(
+                                mapOf(
+                                    "label" to JsonPrimitive("🔗 在浏览器中打开"),
+                                    "action" to JsonPrimitive("open_search"),
+                                    "style" to JsonPrimitive("Secondary")
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+            return Json.encodeToString(JsonObject.serializer(), card)
         }
     }
 

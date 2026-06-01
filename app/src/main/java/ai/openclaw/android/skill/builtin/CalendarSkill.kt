@@ -7,6 +7,8 @@ import android.content.Context
 import android.database.Cursor
 import android.net.Uri
 import android.provider.CalendarContract
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -14,7 +16,7 @@ class CalendarSkill(private val context: Context) : Skill {
     override val id = "calendar"
     override val name = "日程"
     override val description = "管理日历事件和日程"
-    override val version = "1.0.0"
+    override val version = "2.0.0"
     
     override val instructions = """
 # Calendar Skill
@@ -24,6 +26,9 @@ class CalendarSkill(private val context: Context) : Skill {
 ## 用法
 - list_events: 列出日程（默认今天到7天后）
 - add_event: 添加日程事件
+
+## A2UI 卡片输出格式（参考）
+[A2UI]{"type":"calendar","data":{"title":"日程","date":"日期","items":[{"title":"事件","time":"时间","location":"地点","color":"#4A90D9"}]},"actions":[{"label":"📅 添加到日历","action":"add_calendar","style":"Secondary"}]}[/A2UI]
 """
     
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
@@ -44,12 +49,27 @@ class CalendarSkill(private val context: Context) : Skill {
                 return try {
                     val events = queryEvents(days)
                     if (events.isEmpty()) {
-                        SkillResult(true, "未来 $days 天内没有日程")
+                        val cardJson = buildCalendarCardV2(
+                            title = "日程",
+                            date = "未来 $days 天",
+                            items = emptyList()
+                        )
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     } else {
-                        val list = events.joinToString("\n") { e ->
-                            "- ${e.title} (${displayFormat.format(Date(e.startTime))})"
+                        val items = events.map { e ->
+                            CalendarCardItem(
+                                title = e.title,
+                                time = displayFormat.format(Date(e.startTime)),
+                                location = "",
+                                color = "#4A90D9"
+                            )
                         }
-                        SkillResult(true, "未来 $days 天日程:\n$list")
+                        val cardJson = buildCalendarCardV2(
+                            title = "日程",
+                            date = "未来 $days 天",
+                            items = items
+                        )
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
                 } catch (e: SecurityException) {
                     SkillResult(false, "", "需要日历权限")
@@ -131,7 +151,24 @@ class CalendarSkill(private val context: Context) : Skill {
                     
                     val eventId = insertEvent(title, startTime, endTime, description)
                     
-                    SkillResult(true, "事件已添加: '$title' ($startTimeStr - $endTimeStr)")
+                    if (eventId > 0) {
+                        val items = listOf(
+                            CalendarCardItem(
+                                title = title,
+                                time = "$startTimeStr - $endTimeStr",
+                                location = description,
+                                color = "#4CAF50"
+                            )
+                        )
+                        val cardJson = buildCalendarCardV2(
+                            title = "已添加日程",
+                            date = startDateStr(startTimeStr),
+                            items = items
+                        )
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
+                    } else {
+                        SkillResult(false, "", "添加事件失败")
+                    }
                 } catch (e: SecurityException) {
                     SkillResult(false, "", "需要日历权限")
                 } catch (e: Exception) {
@@ -176,7 +213,65 @@ class CalendarSkill(private val context: Context) : Skill {
         val startTime: Long,
         val endTime: Long
     )
+
+    data class CalendarCardItem(
+        val title: String,
+        val time: String,
+        val location: String,
+        val color: String
+    )
     
     override fun initialize(context: SkillContext) {}
     override fun cleanup() {}
+
+    // ==================== v2 A2UI Card JSON 构建 ====================
+
+    @OptIn(ExperimentalSerializationApi::class)
+    internal fun buildCalendarCardV2(
+        title: String,
+        date: String,
+        items: List<CalendarCardItem>
+    ): String {
+        val itemsJson = items.map { item ->
+            JsonObject(
+                mapOf(
+                    "title" to JsonPrimitive(item.title),
+                    "time" to JsonPrimitive(item.time),
+                    "location" to JsonPrimitive(item.location),
+                    "color" to JsonPrimitive(item.color)
+                )
+            )
+        }
+
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("calendar"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive(title),
+                        "date" to JsonPrimitive(date),
+                        "items" to JsonArray(itemsJson)
+                    )
+                ),
+                "actions" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("📅 添加到日历"),
+                                "action" to JsonPrimitive("add_calendar"),
+                                "style" to JsonPrimitive("Secondary")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    private fun startDateStr(startTimeStr: String): String {
+        // Extract date part from "yyyy-MM-dd HH:mm"
+        val parts = startTimeStr.split(" ")
+        return if (parts.isNotEmpty()) parts[0] else startTimeStr
+    }
 }

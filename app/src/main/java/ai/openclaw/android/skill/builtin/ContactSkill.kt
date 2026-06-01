@@ -9,12 +9,14 @@ import android.provider.ContactsContract
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 
 class ContactSkill(private val context: Context) : Skill {
     override val id = "contact"
     override val name = "通讯录"
     override val description = "查询联系人信息和拨打电话"
-    override val version = "1.0.0"
+    override val version = "2.0.0"
     
     override val instructions = """
 # Contact Skill
@@ -25,7 +27,18 @@ class ContactSkill(private val context: Context) : Skill {
 - search_contacts: 按姓名或号码搜索联系人
 - get_contact: 获取联系人详情
 - call_contact: 拨打电话
+
+## A2UI 卡片输出格式（参考）
+[A2UI]{"type":"contact","data":{"name":"姓名","phone":"电话","email":"邮箱","address":"地址"},"actions":[{"label":"📞 拨打电话","action":"call_contact","style":"Primary"}]}[/A2UI]
 """
+
+    data class ContactInfo(
+        val id: Long,
+        val name: String,
+        val phone: String
+    )
+
+    data class ContactDetail(val email: String?, val address: String?)
     
     override val tools: List<SkillTool> = listOf(
         // search_contacts tool
@@ -47,15 +60,22 @@ class ContactSkill(private val context: Context) : Skill {
                 return try {
                     val contacts = searchContacts(query)
                     if (contacts.isEmpty()) {
-                        SkillResult(true, "未找到匹配的联系人: $query")
+                        return SkillResult(true, "未找到匹配的联系人: $query")
                     } else {
-                        val list = contacts.take(10).joinToString("\n") { c ->
-                            "- ${c.name}: ${c.phone}"
-                        }
-                        SkillResult(true, "找到 ${contacts.size} 个联系人:\n$list")
+                        // 返回第一个联系人的 ContactCard
+                        val first = contacts.first()
+                        val detailed = getContactDetail(first.id)
+                        
+                        val cardJson = buildContactCardV2(
+                            name = first.name,
+                            phone = first.phone,
+                            email = detailed?.email,
+                            address = detailed?.address
+                        )
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
                 } catch (e: Exception) {
-                    SkillResult(false, "", "搜索失败: ${e.message}")
+                    return SkillResult(false, "", "搜索失败: ${e.message}")
                 }
             }
             
@@ -94,6 +114,43 @@ class ContactSkill(private val context: Context) : Skill {
                 
                 return contacts
             }
+
+            private fun getContactDetail(contactId: Long): ContactDetail? {
+                val resolver = context.contentResolver
+                val uri = ContactsContract.Data.CONTENT_URI
+                val projection = arrayOf(
+                    ContactsContract.Data.MIMETYPE,
+                    ContactsContract.CommonDataKinds.Email.DATA,
+                    ContactsContract.CommonDataKinds.StructuredPostal.DATA
+                )
+                val selection = "${ContactsContract.Data.CONTACT_ID} = ?"
+                val selectionArgs = arrayOf(contactId.toString())
+
+                var email: String? = null
+                var address: String? = null
+
+                resolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                    val mimeTypeIndex = cursor.getColumnIndex(ContactsContract.Data.MIMETYPE)
+                    val dataIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.DATA)
+
+                    while (cursor.moveToNext()) {
+                        val mimeType = cursor.getString(mimeTypeIndex)
+                        val data = cursor.getString(dataIndex)
+                        if (data.isNullOrBlank()) continue
+
+                        when (mimeType) {
+                            ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE -> {
+                                if (email == null) email = data
+                            }
+                            ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_ITEM_TYPE -> {
+                                if (address == null) address = data
+                            }
+                        }
+                    }
+                }
+
+                return if (email != null || address != null) ContactDetail(email, address) else null
+            }
         },
         
         // get_contact tool
@@ -115,7 +172,14 @@ class ContactSkill(private val context: Context) : Skill {
                 return try {
                     val contact = getContactByName(name)
                     if (contact != null) {
-                        SkillResult(true, "联系人: ${contact.name}\n电话: ${contact.phone}")
+                        val detail = getContactDetail(contact.id)
+                        val cardJson = buildContactCardV2(
+                            name = contact.name,
+                            phone = contact.phone,
+                            email = detail?.email,
+                            address = detail?.address
+                        )
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     } else {
                         SkillResult(false, "", "未找到联系人: $name")
                     }
@@ -151,6 +215,43 @@ class ContactSkill(private val context: Context) : Skill {
                         )
                     } else null
                 }
+            }
+
+            private fun getContactDetail(contactId: Long): ContactDetail? {
+                val resolver = context.contentResolver
+                val uri = ContactsContract.Data.CONTENT_URI
+                val projection = arrayOf(
+                    ContactsContract.Data.MIMETYPE,
+                    ContactsContract.CommonDataKinds.Email.DATA,
+                    ContactsContract.CommonDataKinds.StructuredPostal.DATA
+                )
+                val selection = "${ContactsContract.Data.CONTACT_ID} = ?"
+                val selectionArgs = arrayOf(contactId.toString())
+
+                var email: String? = null
+                var address: String? = null
+
+                resolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                    val mimeTypeIndex = cursor.getColumnIndex(ContactsContract.Data.MIMETYPE)
+                    val dataIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.DATA)
+
+                    while (cursor.moveToNext()) {
+                        val mimeType = cursor.getString(mimeTypeIndex)
+                        val data = cursor.getString(dataIndex)
+                        if (data.isNullOrBlank()) continue
+
+                        when (mimeType) {
+                            ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE -> {
+                                if (email == null) email = data
+                            }
+                            ContactsContract.CommonDataKinds.StructuredPostal.CONTENT_ITEM_TYPE -> {
+                                if (address == null) address = data
+                            }
+                        }
+                    }
+                }
+
+                return if (email != null || address != null) ContactDetail(email, address) else null
             }
         },
         
@@ -228,16 +329,58 @@ class ContactSkill(private val context: Context) : Skill {
         }
     )
     
-    data class ContactInfo(
-        val id: Long,
-        val name: String,
-        val phone: String
-    )
-    
     private fun hasContactsPermission(): Boolean {
         return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
     }
     
     override fun initialize(context: SkillContext) {}
     override fun cleanup() {}
+
+    // ==================== v2 A2UI Card JSON 构建 ====================
+
+    @OptIn(ExperimentalSerializationApi::class)
+    internal fun buildContactCardV2(
+        name: String,
+        phone: String?,
+        email: String? = null,
+        address: String? = null
+    ): String {
+        val dataMap = mutableMapOf<String, JsonElement>(
+            "name" to JsonPrimitive(name)
+        )
+        if (phone != null) dataMap["phone"] = JsonPrimitive(phone)
+        if (email != null) dataMap["email"] = JsonPrimitive(email)
+        if (address != null) dataMap["address"] = JsonPrimitive(address)
+
+        val actionsList = mutableListOf<JsonObject>()
+        if (phone != null) {
+            actionsList.add(
+                JsonObject(
+                    mapOf(
+                        "label" to JsonPrimitive("📞 拨打电话"),
+                        "action" to JsonPrimitive("call_contact"),
+                        "style" to JsonPrimitive("Primary")
+                    )
+                )
+            )
+        }
+        actionsList.add(
+            JsonObject(
+                mapOf(
+                    "label" to JsonPrimitive("📋 复制号码"),
+                    "action" to JsonPrimitive("copy_contact"),
+                    "style" to JsonPrimitive("Secondary")
+                )
+            )
+        )
+
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("contact"),
+                "data" to JsonObject(dataMap),
+                "actions" to JsonArray(actionsList)
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
 }
