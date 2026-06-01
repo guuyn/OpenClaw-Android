@@ -23,6 +23,8 @@ import ai.openclaw.android.model.ModelProvider
 import ai.openclaw.android.model.OpenAIClient
 import ai.openclaw.android.model.AnthropicClient
 import ai.openclaw.android.skill.SkillManager
+import ai.openclaw.android.plugin.PluginManager
+import ai.openclaw.android.plugin.PluginManagerExt
 import ai.openclaw.android.skill.builtin.WeatherSkill
 import ai.openclaw.android.skill.builtin.MultiSearchSkill
 import ai.openclaw.android.skill.builtin.TranslateSkill
@@ -81,6 +83,8 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
     private var agentRegistry: AgentRegistry? = null
     private var accessibilityBridge: AccessibilityBridge? = null
     private var skillManager: SkillManager? = null
+    private var pluginManager: PluginManager? = null
+    private var pluginManagerExt: PluginManagerExt? = null
     private var feishuClient: FeishuClient? = null
     private var dynamicSkillManager: DynamicSkillManager? = null
 
@@ -186,6 +190,11 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
             accessibilityBridge = AccessibilityBridge()
             skillManager = SkillManager(service).apply {
                 loadBuiltinSkills(service)
+            }
+            // Also init PluginManager
+            pluginManager = PluginManager(service)
+            pluginManagerExt = PluginManagerExt(service, pluginManager!!).also { ext ->
+                ext.refreshPlugins()
             }
         }
 
@@ -360,6 +369,14 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         return deviceCapabilities
     }
 
+    // ========== Plugin management ==========
+
+    /** 获取插件管理器扩展（供外部访问） */
+    fun getPluginManagerExt(): PluginManagerExt? = pluginManagerExt
+
+    /** 获取插件管理器（供外部访问） */
+    fun getPluginManager(): PluginManager? = pluginManager
+
     // ========== Session management implementations ==========
 
     override fun getSessionListFlow(): StateFlow<List<ai.openclaw.android.data.model.SessionEntity>> {
@@ -443,6 +460,17 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         }
         skillManager = null
 
+        // Cleanup plugin manager (release engines, unregister)
+        pluginManagerExt?.listPlugins()?.forEach { plugin ->
+            try {
+                pluginManager?.unregisterPlugin(plugin.id)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to unregister plugin on stop: ${plugin.id}", e)
+            }
+        }
+        pluginManagerExt = null
+        pluginManager = null
+
         agentSession = null
         agentRegistry = null
         accessibilityBridge = null
@@ -512,6 +540,14 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         // Initialize SkillManager and register skills
         skillManager = SkillManager(service).apply {
             loadBuiltinSkills(service)
+        }
+
+        // Initialize PluginManager and auto-load installed plugins
+        pluginManager = PluginManager(service)
+        pluginManagerExt = PluginManagerExt(service, pluginManager!!).also { ext ->
+            // 扫描并自动注册已安装的插件
+            ext.refreshPlugins()
+            Log.i(TAG, "PluginManager initialized: ${ext.listPlugins().size} plugin(s) loaded")
         }
 
         // Wire LocalLLMClient tool executor to skill system
