@@ -20,11 +20,13 @@ import ai.openclaw.android.trigger.models.TriggerRule
 import ai.openclaw.android.trigger.models.TriggerLog
 import ai.openclaw.android.trigger.dao.TriggerRuleDao
 import ai.openclaw.android.trigger.dao.TriggerLogDao
+import ai.openclaw.android.trigger.v2.models.TriggerEventEntity
+import ai.openclaw.android.trigger.v2.dao.TriggerEventDao
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
-    entities = [SessionEntity::class, MessageEntity::class, SummaryEntity::class, MemoryEntity::class, MemoryVectorEntity::class, DynamicSkillEntity::class, TriggerRule::class, TriggerLog::class],
-    version = 6,
+    entities = [SessionEntity::class, MessageEntity::class, SummaryEntity::class, MemoryEntity::class, MemoryVectorEntity::class, DynamicSkillEntity::class, TriggerRule::class, TriggerLog::class, TriggerEventEntity::class],
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -38,6 +40,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun dynamicSkillDao(): DynamicSkillDao
     abstract fun triggerRuleDao(): TriggerRuleDao
     abstract fun triggerLogDao(): TriggerLogDao
+    abstract fun triggerEventDao(): TriggerEventDao
 
     companion object {
         const val DATABASE_NAME = "openclaw_database"
@@ -129,6 +132,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Create trigger_events_v2 table for AI-driven trigger decision logging
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS trigger_events_v2 (" +
+                    "id TEXT PRIMARY KEY NOT NULL, " +
+                    "triggerId TEXT NOT NULL, " +
+                    "timestamp INTEGER NOT NULL DEFAULT 0, " +
+                    "context TEXT NOT NULL DEFAULT '{}', " +
+                    "decision TEXT NOT NULL DEFAULT 'unknown', " +
+                    "userFeedback TEXT NOT NULL DEFAULT 'none', " +
+                    "success INTEGER NOT NULL DEFAULT 1, " +
+                    "result TEXT, " +
+                    "error TEXT" +
+                    ")"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_trigger_events_v2_triggerId ON trigger_events_v2(triggerId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_trigger_events_v2_timestamp ON trigger_events_v2(timestamp)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_trigger_events_v2_decision ON trigger_events_v2(decision)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_trigger_events_v2_userFeedback ON trigger_events_v2(userFeedback)")
+            }
+        }
+
         private fun buildDatabase(context: Context): AppDatabase {
             val keyManager = SecurityKeyManager(context)
             val passphrase = keyManager.getOrCreateDatabaseKey()
@@ -140,7 +166,7 @@ abstract class AppDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .fallbackToDestructiveMigration()
                 .addCallback(object : RoomDatabase.Callback() {
