@@ -2,47 +2,65 @@ package ai.openclaw.android.skill.builtin
 
 import ai.openclaw.android.skill.*
 import android.app.ActivityManager
+import android.app.KeyguardManager
 import android.app.usage.StorageStatsManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.media.AudioManager
 import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.StatFs
 import android.os.SystemClock
 import android.util.Log
 import java.io.File
 
 /**
- * DeviceSkill — 设备基本信息、运行状态、健康检查、运行应用列表。
+ * DeviceSkill — 设备基本信息、运行状态、健康检查、运行应用列表，以及设备控制（手电筒/音量/剪贴板/亮屏）。
  *
- * 全部使用 Android SDK 内置 API，无需额外权限（除已声明的 ACCESS_NETWORK_STATE）。
+ * 全部使用 Android SDK 内置 API，无需额外权限（除已声明的 CAMERA、ACCESS_NETWORK_STATE）。
  */
 class DeviceSkill(
     private val context: Context
 ) : Skill {
     override val id = "device"
-    override val name = "设备信息"
-    override val description = "获取设备基本信息、运行状态、健康评分和运行中的应用"
-    override val version = "1.0.0"
+    override val name = "设备信息与控制"
+    override val description = "获取设备基本信息、运行状态、健康评分和运行中的应用，以及设备控制（手电筒/音量/剪贴板/亮屏）"
+    override val version = "1.1.0"
 
     override val instructions = """
 # Device Skill
 
-设备信息查询、运行状态监控、健康检查和运行应用列表。
+设备信息查询、运行状态监控、健康检查、运行应用列表和设备控制。
 
 ## 可用工具
 - `info` — 设备基本信息（型号、厂商、Android 版本、屏幕分辨率等）
-- `status` — 设备运行状态（电池、存储、内存、网络、运行时间）
+- `status` — 设备当前运行状态（电池、存储、内存、网络、运行时间）
 - `health` — 设备健康检查 + 综合评分
 - `running_apps` — 当前运行的应用列表
+- `flashlight` — 控制手电筒（闪光灯）开关
+- `volume` — 获取/设置音量、静音/取消静音
+- `clipboard` — 读取/写入/清空剪贴板
+- `wake_screen` — 唤醒屏幕并保持常亮
 """.trimIndent()
+
+    // WakeLock 用于 device_wake_screen
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override val tools: List<SkillTool> = listOf(
         InfoTool(),
         StatusTool(),
         HealthTool(),
-        RunningAppsTool()
+        RunningAppsTool(),
+        FlashlightTool(),
+        VolumeTool(),
+        ClipboardTool(),
+        WakeScreenTool()
     )
 
     // ==================== device_info ====================
@@ -378,6 +396,255 @@ class DeviceSkill(
         }
     }
 
+    // ==================== device_flashlight ====================
+
+    private inner class FlashlightTool : SkillTool {
+        override val name = "flashlight"
+        override val description = "控制设备手电筒（闪光灯）开关。开启或关闭手机闪光灯。"
+        override val parameters = mapOf(
+            "on" to SkillParam(
+                type = "boolean",
+                description = "true 开启闪光灯，false 关闭闪光灯",
+                required = true
+            )
+        )
+
+        override suspend fun execute(params: Map<String, Any>): SkillResult {
+            return try {
+                val turnOn = params["on"] as? Boolean
+                    ?: return SkillResult(false, "", "参数错误: on 必须为布尔值")
+
+                val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+                    ?: return SkillResult(false, "", "无法获取 CameraManager")
+
+                val cameraId = getBackCameraId(cameraManager)
+                    ?: return SkillResult(false, "设备不支持闪光灯。没有后置摄像头可用。")
+
+                if (turnOn) {
+                    cameraManager.setTorchMode(cameraId, true)
+                    Log.i("DeviceSkill", "Flashlight turned ON")
+                } else {
+                    cameraManager.setTorchMode(cameraId, false)
+                    Log.i("DeviceSkill", "Flashlight turned OFF")
+                }
+
+                val statusText = if (turnOn) "已开启" else "已关闭"
+
+                SkillResult(true, "手电筒$statusText")
+            } catch (e: SecurityException) {
+                SkillResult(false, "", "权限不足: 需要 CAMERA 权限才能控制闪光灯 (${e.message})")
+            } catch (e: Exception) {
+                SkillResult(false, "", "控制闪光灯失败: ${e.message}")
+            }
+        }
+    }
+
+    // ==================== device_volume ====================
+
+    private inner class VolumeTool : SkillTool {
+        override val name = "volume"
+        override val description = "控制设备音量。支持获取当前音量、设置音量级别、静音和取消静音。"
+        override val parameters = mapOf(
+            "action" to SkillParam(
+                type = "string",
+                description = "操作类型: \"get\" 获取当前音量, \"set\" 设置音量, \"mute\" 静音, \"unmute\" 取消静音",
+                required = true
+            ),
+            "level" to SkillParam(
+                type = "number",
+                description = "音量级别 (0-15)，仅在 action=\"set\" 时有效",
+                required = false
+            )
+        )
+
+        override suspend fun execute(params: Map<String, Any>): SkillResult {
+            return try {
+                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    ?: return SkillResult(false, "", "无法获取 AudioManager")
+
+                val action = (params["action"] as? String)?.lowercase()
+                    ?: return SkillResult(false, "", "参数错误: action 不能为空")
+
+                val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+
+                when (action) {
+                    "get" -> {
+                        val isMuted = audioManager.ringerMode == AudioManager.RINGER_MODE_SILENT ||
+                                currentVolume == 0
+                        val resultText = buildString {
+                            append("音量信息:\n")
+                            append("---\n")
+                            append("当前音量: $currentVolume / $maxVolume\n")
+                            append("静音状态: ${if (isMuted) "是" else "否"}\n")
+                            append("铃声模式: ${getRingerModeLabel(audioManager.ringerMode)}\n")
+                        }
+                        SkillResult(true, resultText)
+                    }
+
+                    "set" -> {
+                        val level = (params["level"] as? Number)?.toInt()
+                            ?: return SkillResult(false, "", "参数错误: action=set 时需要 level 参数")
+
+                        val clampedLevel = level.coerceIn(0, maxVolume)
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, clampedLevel, 0)
+                        Log.i("DeviceSkill", "Volume set to $clampedLevel (max: $maxVolume)")
+
+                        SkillResult(true, "音量已设置为 $clampedLevel / $maxVolume")
+                    }
+
+                    "mute" -> {
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+                        Log.i("DeviceSkill", "Device muted")
+
+                        SkillResult(true, "已静音（音量设为 0）")
+                    }
+
+                    "unmute" -> {
+                        // Restore to a reasonable default if currently muted
+                        val restoreLevel = if (currentVolume == 0) {
+                            (maxVolume * 0.4).toInt().coerceAtLeast(1)
+                        } else {
+                            currentVolume
+                        }
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, restoreLevel, 0)
+                        // Also restore ringer mode if silent
+                        if (audioManager.ringerMode == AudioManager.RINGER_MODE_SILENT) {
+                            audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
+                        }
+                        Log.i("DeviceSkill", "Device unmuted, volume: $restoreLevel")
+
+                        SkillResult(true, "已取消静音，音量: $restoreLevel / $maxVolume")
+                    }
+
+                    else -> {
+                        SkillResult(false, "", "未知操作: $action。支持的操作: get, set, mute, unmute")
+                    }
+                }
+            } catch (e: SecurityException) {
+                SkillResult(false, "", "权限不足: 控制音量需要相应权限 (${e.message})")
+            } catch (e: Exception) {
+                SkillResult(false, "", "控制音量失败: ${e.message}")
+            }
+        }
+    }
+
+    // ==================== device_clipboard ====================
+
+    private inner class ClipboardTool : SkillTool {
+        override val name = "clipboard"
+        override val description = "读取、写入或清空设备剪贴板。"
+        override val parameters = mapOf(
+            "action" to SkillParam(
+                type = "string",
+                description = "操作类型: \"get\" 读取剪贴板内容, \"set\" 写入剪贴板, \"clear\" 清空剪贴板",
+                required = true
+            ),
+            "text" to SkillParam(
+                type = "string",
+                description = "要写入剪贴板的文本，仅在 action=\"set\" 时需要",
+                required = false
+            )
+        )
+
+        override suspend fun execute(params: Map<String, Any>): SkillResult {
+            return try {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    ?: return SkillResult(false, "", "无法获取 ClipboardManager")
+
+                val action = (params["action"] as? String)?.lowercase()
+                    ?: return SkillResult(false, "", "参数错误: action 不能为空")
+
+                when (action) {
+                    "get" -> {
+                        if (!clipboard.hasPrimaryClip()) {
+                            return SkillResult(true, "剪贴板为空")
+                        }
+                        val clip = clipboard.primaryClip
+                        if (clip == null || clip.itemCount == 0) {
+                            return SkillResult(true, "剪贴板为空")
+                        }
+                        val text = clip.getItemAt(0).coerceToText(context).toString()
+                        if (text.isBlank()) {
+                            return SkillResult(true, "剪贴板内容为空")
+                        }
+                        Log.i("DeviceSkill", "Clipboard read, length: ${text.length}")
+                        SkillResult(true, "剪贴板内容:\n$text")
+                    }
+
+                    "set" -> {
+                        val text = params["text"] as? String
+                            ?: return SkillResult(false, "", "参数错误: action=set 时需要 text 参数")
+                        if (text.isEmpty()) {
+                            return SkillResult(false, "", "参数错误: text 不能为空字符串")
+                        }
+
+                        val clipData = ClipData.newPlainText("OpenClaw Clipboard", text)
+                        clipboard.setPrimaryClip(clipData)
+                        Log.i("DeviceSkill", "Clipboard set, length: ${text.length}")
+                        SkillResult(true, "已写入剪贴板（${text.length} 字符）")
+                    }
+
+                    "clear" -> {
+                        val clipData = ClipData.newPlainText("", "")
+                        clipboard.setPrimaryClip(clipData)
+                        Log.i("DeviceSkill", "Clipboard cleared")
+                        SkillResult(true, "剪贴板已清空")
+                    }
+
+                    else -> {
+                        SkillResult(false, "", "未知操作: $action。支持的操作: get, set, clear")
+                    }
+                }
+            } catch (e: SecurityException) {
+                SkillResult(false, "", "权限不足: 访问剪贴板需要权限 (${e.message})")
+            } catch (e: Exception) {
+                SkillResult(false, "", "操作剪贴板失败: ${e.message}")
+            }
+        }
+    }
+
+    // ==================== device_wake_screen ====================
+
+    private inner class WakeScreenTool : SkillTool {
+        override val name = "wake_screen"
+        override val description = "唤醒屏幕并保持常亮（防止息屏）。适用于需要屏幕常亮的场景。调用后屏幕将保持开启，直到被系统自动管理或应用退出。"
+        override val parameters = emptyMap<String, SkillParam>()
+
+        override suspend fun execute(params: Map<String, Any>): SkillResult {
+            return try {
+                val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    ?: return SkillResult(false, "", "无法获取 PowerManager")
+
+                // Release existing wake lock first
+                wakeLock?.takeIf { it.isHeld }?.release()
+
+                // Create and acquire a new wake lock
+                wakeLock = powerManager.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    "OpenClaw::DeviceSkillWakeScreen"
+                ).apply {
+                    // 5 minute timeout to avoid permanent wake lock
+                    acquire(5 * 60 * 1000L)
+                }
+
+                // Also try to dismiss keyguard
+                val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+                if (keyguardManager != null) {
+                    val keyguardLock = keyguardManager.newKeyguardLock("OpenClaw::DeviceSkillKeyguard")
+                    keyguardLock.disableKeyguard()
+                }
+
+                Log.i("DeviceSkill", "Screen woken and kept awake (5min timeout)")
+                SkillResult(true, "屏幕已唤醒并保持常亮（5分钟内不会息屏）")
+            } catch (e: SecurityException) {
+                SkillResult(false, "", "权限不足: 唤醒屏幕需要 WAKE_LOCK 权限 (${e.message})")
+            } catch (e: Exception) {
+                SkillResult(false, "", "唤醒屏幕失败: ${e.message}")
+            }
+        }
+    }
+
     // ==================== Data helpers ====================
 
     data class BatteryInfo(
@@ -549,11 +816,49 @@ class DeviceSkill(
         else "${minutes}分钟"
     }
 
+    // ==================== Flashlight helper ====================
+
+    /**
+     * Find the back-facing camera ID that has a flash.
+     * Returns null if no suitable camera is found.
+     */
+    private fun getBackCameraId(cameraManager: CameraManager): String? {
+        return try {
+            for (cameraId in cameraManager.cameraIdList) {
+                val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+                val facing = characteristics.get(CameraCharacteristics.LENS_FACING)
+                val hasFlash = characteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+
+                if (facing == CameraCharacteristics.LENS_FACING_BACK && hasFlash) {
+                    return cameraId
+                }
+            }
+            null
+        } catch (e: Exception) {
+            Log.w("DeviceSkill", "Failed to enumerate cameras: ${e.message}")
+            null
+        }
+    }
+
+    // ==================== Volume helper ====================
+
+    private fun getRingerModeLabel(mode: Int): String = when (mode) {
+        AudioManager.RINGER_MODE_SILENT -> "静音"
+        AudioManager.RINGER_MODE_VIBRATE -> "振动"
+        AudioManager.RINGER_MODE_NORMAL -> "正常"
+        else -> "未知($mode)"
+    }
+
     // ==================== Skill lifecycle ====================
 
     override fun initialize(context: SkillContext) {
         Log.i("DeviceSkill", "Initialized")
     }
 
-    override fun cleanup() {}
+    override fun cleanup() {
+        try {
+            wakeLock?.takeIf { it.isHeld }?.release()
+            wakeLock = null
+        } catch (_: Exception) {}
+    }
 }
