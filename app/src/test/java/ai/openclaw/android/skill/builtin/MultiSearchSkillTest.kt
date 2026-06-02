@@ -79,8 +79,9 @@ class MultiSearchSkillTest {
         assertTrue(result.output.contains("Kotlin"))
         assertTrue(result.output.contains("A modern language"))
         assertTrue(result.output.contains("[A2UI]"))
-        assertTrue(result.output.contains("\"type\":\"search\""))
-        assertTrue(result.output.contains("\"result1\""))
+        // v2 A2UI card uses structured format with items array
+        assertTrue(result.output.contains("\"type\":\"search_result\""))
+        assertTrue(result.output.contains("\"items\""))
     }
 
     @Test
@@ -187,7 +188,7 @@ class MultiSearchSkillTest {
     }
 
     @Test
-    fun `search A2UI card uses flat key format`() = runTest {
+    fun `search A2UI card uses structured v2 format`() = runTest {
         coEvery {
             mockOrchestrator.execute(any(), listOf("http"), any())
         } returns ScriptResult.success(
@@ -200,11 +201,14 @@ class MultiSearchSkillTest {
         val result = searchTool.execute(mapOf("query" to "test"))
 
         assertTrue(result.success)
-        // 验证 A2UI 使用 flat-key 格式，匹配现有 SearchCard renderer
-        val a2uiSection = result.output.substringAfter("[A2UI]\n").substringBefore("\n[/A2UI]")
-        assertTrue(a2uiSection.contains("\"result1\""))
-        assertTrue(a2uiSection.contains("\"snippet1\""))
-        assertTrue(a2uiSection.contains("\"url1\""))
-        assertTrue(a2uiSection.contains("\"query\""))
+        // 验证 A2UI 使用 v2 结构化格式 (search_result with items array)
+        val a2uiSection = result.output.substringAfter("[A2UI]").substringBefore("[/A2UI]")
+        assertTrue(a2uiSection.contains("\"type\":\"search_result\""))
+        assertTrue(a2uiSection.contains("\"items\""))
+        assertTrue(a2uiSection.contains("\"title\":\"T1\""))
+        assertTrue(a2uiSection.contains("\"snippet\":\"S1\""))
+        assertTrue(a2uiSection.contains("\"url\":\"https://a.com\""))
+        assertTrue(a2uiSection.contains("\"query\":\"test\""))
+        assertTrue(a2uiSection.contains("\"total\":1"))
     }
 }
