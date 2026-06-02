@@ -527,6 +527,12 @@ fun MainScreen(
                     icon = { Icon(Icons.Default.Settings, "设置") },
                     label = { Text("设置") }
                 )
+                NavigationBarItem(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
+                    icon = { Icon(Icons.Default.Extension, "插件") },
+                    label = { Text("插件") }
+                )
             }
         }
     ) { padding ->
@@ -734,6 +740,31 @@ fun MainScreen(
                 settingsPermRefreshKey = settingsPermRefreshKey,
                 modifier = Modifier.padding(padding)
             )
+            3 -> {
+                val pluginManagerExt = gatewayContractProvider()?.let { contract ->
+                    (contract as? ai.openclaw.android.GatewayManager)?.getPluginManagerExt()
+                }
+                if (pluginManagerExt != null) {
+                    ai.openclaw.android.plugin.PluginScreen(
+                        pluginManagerExt = pluginManagerExt,
+                        onBack = { selectedTab = 0 },
+                        modifier = Modifier.padding(padding)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "插件系统未初始化\n请确保 Gateway 服务已启动",
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
         }
     }
     }
