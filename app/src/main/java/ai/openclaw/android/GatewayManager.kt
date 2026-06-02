@@ -57,12 +57,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 
 /**
  * GatewayManager - Manages all Gateway components
@@ -111,6 +116,27 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
     // State
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override fun getConnectionState(): StateFlow<ConnectionState> = _connectionState
+
+    // Dynamic skill user confirmation
+    data class SkillConfirmationRequest(
+        val toolId: String,
+        val description: String,
+        val requestId: String = java.util.UUID.randomUUID().toString()
+    )
+    private val _confirmationRequests = MutableSharedFlow<SkillConfirmationRequest>(extraBufferCapacity = 1)
+    val confirmationRequests = _confirmationRequests
+    private val confirmationMutex = Mutex()
+    private val pendingConfirmations = mutableMapOf<String, kotlinx.coroutines.CompletableDeferred<ApprovalDecision?>>()
+
+    /**
+     * UI 层调用此方法响应用户确认
+     */
+    suspend fun respondToConfirmation(requestId: String, decision: ApprovalDecision?) {
+        confirmationMutex.withLock {
+            pendingConfirmations[requestId]?.complete(decision)
+            pendingConfirmations.remove(requestId)
+        }
+    }
 
     sealed class ConnectionState {
         object Disconnected : ConnectionState()
@@ -207,16 +233,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
                 Log.e(TAG, "Cannot create DynamicSkillManager: skillManager is null")
                 return false
             }
-            dynamicSkillManager = DynamicSkillManager(
-                context = service,
-                dynamicSkillDao = db.dynamicSkillDao(),
-                skillManager = sm,
-                orchestrator = scriptOrchestrator!!,
-                preferenceManager = ai.openclaw.android.skill.UserPreferenceManager(service),
-                onUserConfirmation = { _, _ ->
-                    ApprovalDecision.ALWAYS_APPROVE
-                }
-            )
+            dynamicSkillManager = createDynamicSkillManager(db.dynamicSkillDao(), sm)
             dynamicSkillManager?.loadAllSaved()
             dynamicSkillManager?.setToolsChangedListener {
                 agentSession?.refreshTools()
@@ -562,19 +579,8 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         // Initialize ScriptOrchestrator (shared across subsystems)
         scriptOrchestrator = ai.openclaw.script.ScriptOrchestrator(service)
 
-        // Initialize DynamicSkillManager and register generate_skill tool
-        dynamicSkillManager = DynamicSkillManager(
-            context = service,
-            dynamicSkillDao = database!!.dynamicSkillDao(),
-            skillManager = skillManager!!,
-            orchestrator = scriptOrchestrator!!,
-            preferenceManager = ai.openclaw.android.skill.UserPreferenceManager(service),
-            onUserConfirmation = { _, _ ->
-                // TODO: 实际项目中需要弹出确认对话框
-                // 目前默认 ALWAYS_APPROVE（开发阶段）
-                ApprovalDecision.ALWAYS_APPROVE
-            }
-        )
+        // Initialize DynamicSkillManager with real user confirmation flow
+        dynamicSkillManager = createDynamicSkillManager(database!!.dynamicSkillDao(), skillManager!!)
         dynamicSkillManager!!.loadAllSaved()
 
         // 定时清理（在服务启动时执行一次）
@@ -758,6 +764,49 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         }
         client.configure(provider, apiKey, model, baseUrl)
         return client
+    }
+
+    /**
+     * Create DynamicSkillManager with real user confirmation flow
+     */
+    private fun createDynamicSkillManager(
+        dao: ai.openclaw.android.data.local.DynamicSkillDao,
+        sm: ai.openclaw.android.skill.SkillManager
+    ): DynamicSkillManager {
+        val onConfirmation: suspend (String, String) -> ApprovalDecision? = { toolId, description ->
+            val requestId = java.util.UUID.randomUUID().toString()
+            val deferred = kotlinx.coroutines.CompletableDeferred<ApprovalDecision?>()
+            confirmationMutex.withLock {
+                pendingConfirmations[requestId] = deferred
+            }
+            serviceScope.launch {
+                try {
+                    _confirmationRequests.emit(
+                        SkillConfirmationRequest(toolId = toolId, description = description, requestId = requestId)
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to emit confirmation: ${e.message}")
+                    confirmationMutex.withLock {
+                        pendingConfirmations[requestId]?.complete(ApprovalDecision.ALWAYS_APPROVE)
+                        pendingConfirmations.remove(requestId)
+                    }
+                }
+            }
+            try {
+                withTimeout(30_000L) { deferred.await() }
+            } catch (e: TimeoutCancellationException) {
+                Log.w(TAG, "Confirmation timed out for $toolId, auto-approving")
+                ApprovalDecision.ALWAYS_APPROVE
+            }
+        }
+        return DynamicSkillManager(
+            context = service,
+            dynamicSkillDao = dao,
+            skillManager = sm,
+            orchestrator = scriptOrchestrator!!,
+            preferenceManager = ai.openclaw.android.skill.UserPreferenceManager(service),
+            onUserConfirmation = onConfirmation
+        )
     }
 
     /**
