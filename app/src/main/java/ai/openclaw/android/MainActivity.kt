@@ -58,6 +58,9 @@ import ai.openclaw.android.personalcenter.PersonalCenterViewModel
 import ai.openclaw.android.personalcenter.PersonalCenterViewModelFactory
 import ai.openclaw.android.viewmodel.ChatViewModel
 import ai.openclaw.android.viewmodel.ChatViewModelFactory
+import ai.openclaw.android.ui.trigger.TriggerScreen
+import ai.openclaw.android.viewmodel.TriggerViewModel
+import ai.openclaw.android.trigger.EventBus
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CoroutineScope
@@ -764,6 +767,59 @@ fun MainScreen(
                         )
                     }
                 }
+            }
+            4 -> {
+                val gatewayManager = gatewayContractProvider() as? ai.openclaw.android.GatewayManager
+                val db = gatewayManager?.let {
+                    try {
+                        ai.openclaw.android.data.local.AppDatabase.getInstance(context)
+                    } catch (_: Exception) { null }
+                }
+                if (db != null) {
+                    val triggerViewModel = androidx.lifecycle.viewmodel.compose.viewModel<ai.openclaw.android.viewmodel.TriggerViewModel>(
+                        factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                            @Suppress("UNCHECKED_CAST")
+                            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                                return ai.openclaw.android.viewmodel.TriggerViewModel(
+                                    database = db,
+                                    agentSessionFactory = { gatewayManager?.getAgentSession() },
+                                    cronScheduler = gatewayManager?.let { gm ->
+                                        gm::class.java.getDeclaredMethod("getCronScheduler").invoke(gm) as? ai.openclaw.android.trigger.scheduler.CronScheduler
+                                    } ?: ai.openclaw.android.trigger.scheduler.CronScheduler(
+                                        context = context,
+                                        eventBus = EventBus.instance!!
+                                    )
+                                ) as T
+                            }
+                        }
+                    )
+                    TriggerScreen(
+                        viewModel = triggerViewModel,
+                        onNavigateBack = { selectedTab = 0 },
+                        modifier = Modifier.padding(padding)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Trigger 系统未初始化\n请确保 Gateway 服务已启动",
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+            4 -> {
+                val triggerViewModel = androidx.lifecycle.viewmodel.compose.viewModel<TriggerViewModel>()
+                TriggerScreen(
+                    viewModel = triggerViewModel,
+                    onNavigateBack = { selectedTab = 0 },
+                    modifier = Modifier.padding(padding)
+                )
             }
         }
     }
