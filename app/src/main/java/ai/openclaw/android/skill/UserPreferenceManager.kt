@@ -74,8 +74,7 @@ class UserPreferenceManager(private val dataDir: File) {
                 emptyMap()
             }
         } catch (e: Exception) {
-            println("[$LOG_TAG] Failed to load preferences: ${e.message}")
-            e.printStackTrace()
+            android.util.Log.e(LOG_TAG, "Failed to load preferences: ${e.message}", e)
             emptyMap()
         }
     }
@@ -86,9 +85,7 @@ class UserPreferenceManager(private val dataDir: File) {
             val content = json.encodeToString(preferences.values.toList())
             prefsFile.writeText(content)
         } catch (e: Exception) {
-            // In JVM unit tests, android.util.Log may not be available
-            println("[$LOG_TAG] Failed to save preferences: ${e.message}")
-            e.printStackTrace()
+            android.util.Log.e(LOG_TAG, "Failed to save preferences: ${e.message}", e)
         }
     }
 
