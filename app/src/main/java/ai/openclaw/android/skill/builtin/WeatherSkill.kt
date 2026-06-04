@@ -92,18 +92,36 @@ class WeatherSkill : Skill {
             if (location == null || location.isBlank()) {
                 return SkillResult(false, "", "缺少 location 参数")
             }
-            
+
+            // 先检查缓存
+            val prefetchService = ai.openclaw.android.prefetch.PrefetchService.instance
+            if (prefetchService != null) {
+                val cachedData = prefetchService.getCachedWeather(location)
+                if (cachedData != null) {
+                    android.util.Log.d("WeatherSkill", "Cache hit for location: $location")
+                    return SkillResult(true, "[A2UI]$cachedData[/A2UI]")
+                }
+                android.util.Log.d("WeatherSkill", "Cache miss for location: $location")
+            }
+
             val client = httpClient ?: return SkillResult(false, "", "HTTP client not initialized")
-            
+
             // 先尝试 wttr.in
             val wttrResult = tryWttrIn(client, location)
             if (wttrResult.success) {
+                // 写入缓存
+                prefetchService?.cacheWeather(location, wttrResult.output, "wttr.in")
                 return wttrResult
             }
-            
+
             // wttr.in 失败，回退到 Open-Meteo
             android.util.Log.d("WeatherSkill", "wttr.in failed, falling back to Open-Meteo")
-            return tryOpenMeteo(client, location)
+            val meteoResult = tryOpenMeteo(client, location)
+            if (meteoResult.success) {
+                // 写入缓存
+                prefetchService?.cacheWeather(location, meteoResult.output, "open-meteo")
+            }
+            return meteoResult
         }
         
         /**

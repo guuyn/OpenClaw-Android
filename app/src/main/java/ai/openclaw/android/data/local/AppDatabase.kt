@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import ai.openclaw.android.data.model.CachedDataEntity
 import ai.openclaw.android.data.model.DynamicSkillEntity
 import ai.openclaw.android.data.model.MessageEntity
 import ai.openclaw.android.data.model.MemoryEntity
@@ -22,11 +23,12 @@ import ai.openclaw.android.trigger.dao.TriggerRuleDao
 import ai.openclaw.android.trigger.dao.TriggerLogDao
 import ai.openclaw.android.trigger.v2.models.TriggerEventEntity
 import ai.openclaw.android.trigger.v2.dao.TriggerEventDao
+import ai.openclaw.android.data.dao.CachedDataDao
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
-    entities = [SessionEntity::class, MessageEntity::class, SummaryEntity::class, MemoryEntity::class, MemoryVectorEntity::class, DynamicSkillEntity::class, TriggerRule::class, TriggerLog::class, TriggerEventEntity::class],
-    version = 7,
+    entities = [SessionEntity::class, MessageEntity::class, SummaryEntity::class, MemoryEntity::class, MemoryVectorEntity::class, DynamicSkillEntity::class, TriggerRule::class, TriggerLog::class, TriggerEventEntity::class, CachedDataEntity::class],
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -41,6 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun triggerRuleDao(): TriggerRuleDao
     abstract fun triggerLogDao(): TriggerLogDao
     abstract fun triggerEventDao(): TriggerEventDao
+    abstract fun cachedDataDao(): CachedDataDao
 
     companion object {
         const val DATABASE_NAME = "openclaw_database"
@@ -155,6 +158,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS cached_data (" +
+                            "id TEXT PRIMARY KEY NOT NULL, " +
+                            "type TEXT NOT NULL, " +
+                            "query_key TEXT NOT NULL, " +
+                            "data_json TEXT NOT NULL, " +
+                            "fetched_at INTEGER NOT NULL DEFAULT 0, " +
+                            "expires_at INTEGER NOT NULL DEFAULT 0, " +
+                            "source TEXT NOT NULL DEFAULT '', " +
+                            "hit_count INTEGER NOT NULL DEFAULT 0" +
+                            ")"
+                )
+            }
+        }
+
         private fun buildDatabase(context: Context): AppDatabase {
             val keyManager = SecurityKeyManager(context)
             val passphrase = keyManager.getOrCreateDatabaseKey()
@@ -166,7 +186,7 @@ abstract class AppDatabase : RoomDatabase() {
                 DATABASE_NAME
             )
                 .openHelperFactory(factory)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .fallbackToDestructiveMigration()
                 .addCallback(object : RoomDatabase.Callback() {
