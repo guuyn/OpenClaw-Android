@@ -10,6 +10,8 @@ import kotlinx.coroutines.delay
 import androidx.core.app.NotificationCompat
 import ai.openclaw.android.notification.SmartNotification
 import ai.openclaw.android.notification.SmartNotificationListener
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 
 class NotificationSkill(private val context: Context) : Skill {
 
@@ -87,19 +89,8 @@ class NotificationSkill(private val context: Context) : Skill {
                 filtered.filter { it.packageName.contains(pkgName, ignoreCase = true) }
             } ?: filtered
 
-            val result = finalNotifications.take(limit).map { n ->
-                mapOf(
-                    "id" to n.id,
-                    "package" to n.packageName,
-                    "title" to n.title,
-                    "text" to n.text,
-                    "timestamp" to n.timestamp,
-                    "category" to n.category.name,
-                    "isRead" to n.isRead
-                )
-            }
-
-            return SkillResult(true, formatNotificationList(result, finalNotifications.size), "")
+            val cardJson = buildNotificationListCard(finalNotifications, limit, packageName)
+            return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
         }
     }
 
@@ -135,7 +126,8 @@ class NotificationSkill(private val context: Context) : Skill {
 
             notificationManager.notify(notificationId, notification)
 
-            return SkillResult(true, "通知已发送: $title", "")
+            val cardJson = buildNotificationSendCard(title)
+            return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
         }
     }
 
@@ -161,7 +153,8 @@ class NotificationSkill(private val context: Context) : Skill {
             // 同时从 SmartNotificationListener 中删除
             SmartNotificationListener.deleteNotification(notificationId)
 
-            return SkillResult(true, "通知已删除: $notificationId", "")
+            val cardJson = buildNotificationActionCard("delete", "通知已删除")
+            return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
         }
     }
 
@@ -175,7 +168,8 @@ class NotificationSkill(private val context: Context) : Skill {
         override suspend fun execute(params: Map<String, Any>): SkillResult {
             notificationManager.cancelAll()
             SmartNotificationListener.clearAll()
-            return SkillResult(true, "所有通知已清空", "")
+            val cardJson = buildNotificationActionCard("clear", "通知已清空")
+            return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
         }
     }
 
@@ -191,23 +185,102 @@ class NotificationSkill(private val context: Context) : Skill {
                 ?: return SkillResult(false, "", "缺少 notificationId 参数")
 
             SmartNotificationListener.markAsRead(notificationId)
-            return SkillResult(true, "已标记为已读", "")
+            val cardJson = buildNotificationActionCard("mark_read", "已标记已读")
+            return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
         }
     }
 
-    private fun formatNotificationList(notifications: List<Map<String, Any>>, total: Int): String {
-        if (notifications.isEmpty()) {
-            return "当前没有通知"
+    // ==================== A2UI Card JSON 构建 ====================
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildNotificationListCard(notifications: List<SmartNotification>, limit: Int, packageName: String?): String {
+        val filtered = if (packageName != null) {
+            notifications.filter { it.packageName.contains(packageName, ignoreCase = true) }
+        } else {
+            notifications
         }
-        val sb = StringBuilder()
-        sb.append("通知列表（共 $total 条）\n\n")
-        notifications.forEachIndexed { index, n ->
-            sb.append("${index + 1}. [${n["category"]}] ${n["title"]}\n")
-            sb.append("   来源: ${n["package"]}\n")
-            sb.append("   内容: ${n["text"]}\n")
-            sb.append("   状态: ${if (n["isRead"] == true) "已读" else "未读"}\n\n")
+        val unreadCount = filtered.count { !it.isRead }
+        val displayed = filtered.take(limit)
+        
+        val notificationsArray = JsonArray(
+            displayed.map { n ->
+                JsonObject(
+                    mapOf(
+                        "package" to JsonPrimitive(n.packageName),
+                        "title" to JsonPrimitive(n.title),
+                        "text" to JsonPrimitive(n.text),
+                        "time" to JsonPrimitive(formatTimestamp(n.timestamp))
+                    )
+                )
+            }
+        )
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("notification_list"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("通知"),
+                        "notifications" to notificationsArray,
+                        "total" to JsonPrimitive(filtered.size),
+                        "unread" to JsonPrimitive(unreadCount)
+                    )
+                ),
+                "actions" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("🗑️ 清除所有"),
+                                "action" to JsonPrimitive("clear_all")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildNotificationSendCard(title: String): String {
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("notification_send"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("通知已发送"),
+                        "notificationTitle" to JsonPrimitive(title)
+                    )
+                ),
+                "actions" to JsonArray(emptyList())
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildNotificationActionCard(action: String, title: String): String {
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("notification_action"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive(title),
+                        "action" to JsonPrimitive(action)
+                    )
+                ),
+                "actions" to JsonArray(emptyList())
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    private fun formatTimestamp(timestamp: Long): String {
+        return try {
+            java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date(timestamp))
+        } catch (e: Exception) {
+            ""
         }
-        return sb.toString()
     }
 
     override fun initialize(context: SkillContext) {}

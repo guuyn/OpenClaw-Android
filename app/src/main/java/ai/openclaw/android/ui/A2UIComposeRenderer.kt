@@ -408,7 +408,20 @@ private fun typeTitle(type: String) = when (type) {
     "contact" -> "👤 联系人"
     "sms" -> "💬 短信"
     "app" -> "📱 应用"
+    "app_list" -> "📱 已安装应用"
     "settings" -> "⚙️ 设置"
+    "file_read" -> "📄 文件内容"
+    "file_write" -> "📝 写入成功"
+    "file_list" -> "📁 目录"
+    "bluetooth" -> "🔵 蓝牙"
+    "volume" -> "🔊 音量"
+    "sms_list" -> "💬 短信"
+    "sms_send" -> "📤 短信已发送"
+    "sms_unread" -> "🔔 未读短信"
+    "device_action" -> "⚡ 设备操作"
+    "notification_list" -> "🔔 通知"
+    "notification_send" -> "📬 通知已发送"
+    "notification_action" -> "🔔 通知操作"
     else -> type.replaceFirstChar { it.uppercase() }
 }
 
@@ -630,7 +643,20 @@ object A2UIParseUtils {
         "contact" -> "👤 联系人"
         "sms" -> "💬 短信"
         "app" -> "📱 应用"
+        "app_list" -> "📱 已安装应用"
         "settings" -> "⚙️ 设置"
+        "file_read" -> "📄 文件内容"
+        "file_write" -> "📝 写入成功"
+        "file_list" -> "📁 目录"
+        "bluetooth" -> "🔵 蓝牙"
+        "volume" -> "🔊 音量"
+        "sms_list" -> "💬 短信"
+        "sms_send" -> "📤 短信已发送"
+        "sms_unread" -> "🔔 未读短信"
+        "device_action" -> "⚡ 设备操作"
+        "notification_list" -> "🔔 通知"
+        "notification_send" -> "📬 通知已发送"
+        "notification_action" -> "🔔 通知操作"
         else -> type.replaceFirstChar { it.uppercase() }
     }
 

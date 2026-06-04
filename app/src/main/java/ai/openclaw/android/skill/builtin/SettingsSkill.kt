@@ -10,6 +10,8 @@ import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import ai.openclaw.android.skill.*
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 
 class SettingsSkill : Skill {
     override val id = "settings"
@@ -77,8 +79,8 @@ class SettingsSkill : Skill {
 
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 ctx.startActivity(intent)
-                val label = if (type.isNullOrBlank()) "系统设置" else "$type 设置"
-                return SkillResult(true, "已打开${label}页面")
+                val cardJson = buildSettingsCard(type ?: "")
+                return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             } catch (e: Exception) {
                 return SkillResult(false, "", "打开设置失败: ${e.message}")
             }
@@ -115,24 +117,30 @@ class SettingsSkill : Skill {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     ctx.startActivity(intent)
-                    return SkillResult(
-                        true,
-                        "Android 13+ 无法直接${if (enable) "开启" else "关闭"}蓝牙，已打开蓝牙设置页面，请手动操作"
+                    val cardJson = buildBluetoothCard(
+                        enabled = null,
+                        note = "Android 13+ 无法直接${if (enable) "开启" else "关闭"}蓝牙，已打开蓝牙设置页面，请手动操作"
                     )
+                    return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                 }
 
                 @Suppress("DEPRECATION")
                 val success = if (enable) adapter.enable() else adapter.disable()
 
                 return if (success) {
-                    SkillResult(true, "已${if (enable) "开启" else "关闭"}蓝牙")
+                    val cardJson = buildBluetoothCard(enabled = enable, note = "已${if (enable) "开启" else "关闭"}蓝牙")
+                    SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                 } else {
                     // Fallback to settings page
                     val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     ctx.startActivity(intent)
-                    SkillResult(true, "已打开蓝牙设置页面，请手动${if (enable) "开启" else "关闭"}蓝牙")
+                    val cardJson = buildBluetoothCard(
+                        enabled = null,
+                        note = "已打开蓝牙设置页面，请手动${if (enable) "开启" else "关闭"}蓝牙"
+                    )
+                    SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                 }
             } catch (e: SecurityException) {
                 // Fallback to settings page on permission denial
@@ -140,7 +148,11 @@ class SettingsSkill : Skill {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 ctx.startActivity(intent)
-                return SkillResult(true, "权限不足，已打开蓝牙设置页面，请手动操作")
+                val cardJson = buildBluetoothCard(
+                    enabled = null,
+                    note = "权限不足，已打开蓝牙设置页面，请手动操作"
+                )
+                return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             } catch (e: Exception) {
                 return SkillResult(false, "", "操作蓝牙失败: ${e.message}")
             }
@@ -185,11 +197,13 @@ class SettingsSkill : Skill {
                 when (action.lowercase()) {
                     "up" -> {
                         am.adjustVolume(AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
-                        return SkillResult(true, "音量已调高")
+                        val cardJson = buildVolumeCard("up", am.getStreamVolume(streamType), getStreamLabel(streamType))
+                        return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
                     "down" -> {
                         am.adjustVolume(AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
-                        return SkillResult(true, "音量已调低")
+                        val cardJson = buildVolumeCard("down", am.getStreamVolume(streamType), getStreamLabel(streamType))
+                        return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
                     "mute" -> {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -197,7 +211,8 @@ class SettingsSkill : Skill {
                         } else {
                             am.setStreamMute(streamType, true)
                         }
-                        return SkillResult(true, "已静音")
+                        val cardJson = buildVolumeCard("mute", 0, getStreamLabel(streamType))
+                        return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
                     "unmute" -> {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -205,7 +220,8 @@ class SettingsSkill : Skill {
                         } else {
                             am.setStreamMute(streamType, false)
                         }
-                        return SkillResult(true, "已取消静音")
+                        val cardJson = buildVolumeCard("unmute", am.getStreamVolume(streamType), getStreamLabel(streamType))
+                        return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
                     "set" -> {
                         val level = (params["level"] as? Number)?.toInt()
@@ -213,7 +229,8 @@ class SettingsSkill : Skill {
                         val max = am.getStreamMaxVolume(streamType)
                         val clampedLevel = level.coerceIn(0, max)
                         am.setStreamVolume(streamType, clampedLevel, AudioManager.FLAG_SHOW_UI)
-                        return SkillResult(true, "音量已设置为 $clampedLevel (最大 $max)")
+                        val cardJson = buildVolumeCard("set", clampedLevel, getStreamLabel(streamType))
+                        return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
                     else -> return SkillResult(false, "", "不支持的操作: $action")
                 }
@@ -229,5 +246,68 @@ class SettingsSkill : Skill {
 
     override fun cleanup() {
         context = null
+    }
+
+    // ==================== A2UI Card JSON 构建 ====================
+
+    private fun getStreamLabel(streamType: Int): String = when (streamType) {
+        AudioManager.STREAM_RING -> "铃声"
+        AudioManager.STREAM_ALARM -> "闹钟"
+        AudioManager.STREAM_NOTIFICATION -> "通知"
+        else -> "媒体"
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildSettingsCard(settingType: String): String {
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("settings"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("已打开设置"),
+                        "settingType" to JsonPrimitive(settingType)
+                    )
+                ),
+                "actions" to JsonArray(emptyList())
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildBluetoothCard(enabled: Boolean?, note: String): String {
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("bluetooth"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("蓝牙"),
+                        "enabled" to (if (enabled != null) JsonPrimitive(enabled) else JsonPrimitive("N/A")),
+                        "note" to JsonPrimitive(note)
+                    )
+                ),
+                "actions" to JsonArray(emptyList())
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildVolumeCard(action: String, level: Int, stream: String): String {
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("volume"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("音量"),
+                        "action" to JsonPrimitive(action),
+                        "level" to JsonPrimitive(level),
+                        "stream" to JsonPrimitive(stream)
+                    )
+                ),
+                "actions" to JsonArray(emptyList())
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
     }
 }

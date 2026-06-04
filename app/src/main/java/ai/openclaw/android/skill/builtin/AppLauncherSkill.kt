@@ -4,6 +4,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import ai.openclaw.android.skill.*
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 
 class AppLauncherSkill : Skill {
     override val id = "applauncher"
@@ -74,7 +76,8 @@ class AppLauncherSkill : Skill {
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 ctx.startActivity(launchIntent)
-                return SkillResult(true, "已打开应用: $packageName")
+                val cardJson = buildAppOpenCard(packageName)
+                return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             }
             return SkillResult(false, "", "未找到应用: $packageName")
         }
@@ -121,7 +124,8 @@ class AppLauncherSkill : Skill {
 
             ctx.startActivity(launchIntent)
             val label = exactMatch.loadLabel(pm).toString()
-            return SkillResult(true, "已打开应用: $label")
+            val cardJson = buildAppOpenCard(label)
+            return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
         }
     }
 
@@ -169,13 +173,8 @@ class AppLauncherSkill : Skill {
                     "- $label ($pkg)"
                 }
 
-                val summary = if (apps.size > 50) {
-                    "共 ${apps.size} 个应用，显示前 50 个:\n$result"
-                } else {
-                    "共 ${apps.size} 个应用:\n$result"
-                }
-
-                return SkillResult(true, summary)
+                val cardJson = buildAppListCard(apps.take(50), apps.size)
+                return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             } catch (e: Exception) {
                 return SkillResult(false, "", "获取应用列表失败: ${e.message}")
             }
@@ -188,5 +187,52 @@ class AppLauncherSkill : Skill {
 
     override fun cleanup() {
         context = null
+    }
+
+    // ==================== A2UI Card JSON 构建 ====================
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildAppOpenCard(appName: String): String {
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("app"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("已打开应用"),
+                        "appName" to JsonPrimitive(appName)
+                    )
+                ),
+                "actions" to JsonArray(emptyList())
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildAppListCard(apps: List<Pair<String, String>>, total: Int): String {
+        val appsArray = JsonArray(
+            apps.map { (name, packageName) ->
+                JsonObject(
+                    mapOf(
+                        "name" to JsonPrimitive(name),
+                        "packageName" to JsonPrimitive(packageName)
+                    )
+                )
+            }
+        )
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("app_list"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("已安装应用"),
+                        "apps" to appsArray,
+                        "total" to JsonPrimitive(total)
+                    )
+                ),
+                "actions" to JsonArray(emptyList())
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
     }
 }
