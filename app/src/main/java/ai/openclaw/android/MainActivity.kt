@@ -31,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
@@ -290,6 +291,7 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
 
     var selectedTab by remember { mutableStateOf(0) }
+    var showModelManager by remember { mutableStateOf(false) }
 
     // === Session 管理状态 ===
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -741,6 +743,7 @@ fun MainScreen(
                 },
                 isScreenCaptureReady = screenCaptureReady,
                 settingsPermRefreshKey = settingsPermRefreshKey,
+                onOpenModelManager = { showModelManager = true },
                 modifier = Modifier.padding(padding)
             )
             3 -> {
@@ -823,6 +826,14 @@ fun MainScreen(
             }
         }
     }
+
+    // 模型管理全屏覆盖层
+    if (showModelManager) {
+        ai.openclaw.android.ui.ModelDownloadScreen(
+            modelManager = ai.openclaw.android.voice.ModelDownloadManager,
+            onNavigateBack = { showModelManager = false }
+        )
+    }
     }
 }
 
@@ -851,6 +862,7 @@ fun SettingsScreen(
     onRequestScreenCapture: () -> Unit,
     isScreenCaptureReady: Boolean,
     settingsPermRefreshKey: Int,
+    onOpenModelManager: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1106,6 +1118,44 @@ fun SettingsScreen(
             onRequestAllFilesAccess = onRequestAllFilesAccess,
             refreshKey = settingsPermRefreshKey
         )
+
+        // 模型管理入口
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenModelManager),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.Memory,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "模型管理",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "下载和管理本地 STT/TTS 模型",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
         // Screen Capture Card
         Card(modifier = Modifier.fillMaxWidth()) {

@@ -58,6 +58,7 @@ fun SettingsScreen(
     onRequestPermissions: (Array<String>) -> Unit,
     onRequestAllFilesAccess: () -> Unit,
     settingsPermRefreshKey: Int,
+    onOpenModelManager: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -285,6 +286,46 @@ fun SettingsScreen(
             onRequestAllFilesAccess = onRequestAllFilesAccess,
             refreshKey = settingsPermRefreshKey
         )
+
+        // 模型管理入口
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenModelManager),
+            colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, SciFiOutline)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.Memory,
+                        contentDescription = null,
+                        tint = SciFiPrimary
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "模型管理",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "下载和管理本地 STT/TTS 模型",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
         // 日志卡片
         Card(
