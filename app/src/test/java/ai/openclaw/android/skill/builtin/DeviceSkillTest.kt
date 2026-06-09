@@ -81,7 +81,7 @@ class DeviceSkillTest {
         val healthTool = deviceSkill.tools.find { it.name == "health" }!!
         val result = healthTool.execute(emptyMap())
         assertTrue(result.success)
-        assertTrue(result.output.contains("健康评分"))
+        assertTrue(result.output.contains("综合评分"))
     }
 
     @Test

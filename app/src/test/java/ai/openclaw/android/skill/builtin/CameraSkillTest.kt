@@ -3,13 +3,19 @@ package ai.openclaw.android.skill.builtin
 import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraManager
+import androidx.test.core.app.ApplicationProvider
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE, sdk = [35])
 class CameraSkillTest {
 
     private lateinit var mockContext: Context
@@ -27,9 +33,10 @@ class CameraSkillTest {
     fun `skill metadata is correct`() {
         assertEquals("camera", cameraSkill.id)
         assertEquals("摄像头", cameraSkill.name)
-        assertEquals(2, cameraSkill.tools.size)
-        assertEquals("camera_capture", cameraSkill.tools[0].name)
-        assertEquals("camera_record", cameraSkill.tools[1].name)
+        assertEquals(3, cameraSkill.tools.size) // capture, record, gallery_latest
+        assertEquals("capture", cameraSkill.tools[0].name)
+        assertEquals("record", cameraSkill.tools[1].name)
+        assertEquals("gallery_latest", cameraSkill.tools[2].name)
     }
 
     // ==================== camera_capture ====================
@@ -40,7 +47,7 @@ class CameraSkillTest {
             mockContext.checkSelfPermission(android.Manifest.permission.CAMERA)
         } returns PackageManager.PERMISSION_DENIED
 
-        val captureTool = cameraSkill.tools.find { it.name == "camera_capture" }!!
+        val captureTool = cameraSkill.tools.find { it.name == "capture" }!!
         val result = captureTool.execute(emptyMap())
 
         assertFalse(result.success)
@@ -59,7 +66,7 @@ class CameraSkillTest {
             mockContext.getSystemService(Context.CAMERA_SERVICE)
         } returns mockCameraManager
 
-        val captureTool = cameraSkill.tools.find { it.name == "camera_capture" }!!
+        val captureTool = cameraSkill.tools.find { it.name == "capture" }!!
         val result = captureTool.execute(mapOf("facing" to "back"))
 
         assertFalse(result.success)
@@ -74,7 +81,7 @@ class CameraSkillTest {
             mockContext.checkSelfPermission(android.Manifest.permission.CAMERA)
         } returns PackageManager.PERMISSION_DENIED
 
-        val recordTool = cameraSkill.tools.find { it.name == "camera_record" }!!
+        val recordTool = cameraSkill.tools.find { it.name == "record" }!!
         val result = recordTool.execute(mapOf("duration" to "5"))
 
         assertFalse(result.success)
@@ -90,7 +97,7 @@ class CameraSkillTest {
             mockContext.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
         } returns PackageManager.PERMISSION_DENIED
 
-        val recordTool = cameraSkill.tools.find { it.name == "camera_record" }!!
+        val recordTool = cameraSkill.tools.find { it.name == "record" }!!
         val result = recordTool.execute(mapOf("duration" to "5"))
 
         assertFalse(result.success)
@@ -98,10 +105,24 @@ class CameraSkillTest {
     }
 
     @Test
-    fun `camera_record requires duration parameter`() = runTest {
-        // Should have a default or validate
-        val recordTool = cameraSkill.tools.find { it.name == "camera_record" }!!
-        assertNotNull(recordTool)
-        assertTrue(recordTool.name == "camera_record")
+    fun `camera_record returns error with no cameras`() = runTest {
+        every {
+            mockContext.checkSelfPermission(android.Manifest.permission.CAMERA)
+        } returns PackageManager.PERMISSION_GRANTED
+        every {
+            mockContext.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+        } returns PackageManager.PERMISSION_GRANTED
+
+        val mockCameraManager = mockk<CameraManager>(relaxed = true)
+        every { mockCameraManager.cameraIdList } returns arrayOf()
+        every {
+            mockContext.getSystemService(Context.CAMERA_SERVICE)
+        } returns mockCameraManager
+
+        val recordTool = cameraSkill.tools.find { it.name == "record" }!!
+        val result = recordTool.execute(mapOf("duration" to "5"))
+
+        assertFalse(result.success)
+        assertTrue(result.output.contains("未找到") || result.output.contains("摄像头"))
     }
 }
