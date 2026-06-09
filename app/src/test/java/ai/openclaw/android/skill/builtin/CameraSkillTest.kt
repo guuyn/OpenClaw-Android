@@ -3,19 +3,13 @@ package ai.openclaw.android.skill.builtin
 import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraManager
-import androidx.test.core.app.ApplicationProvider
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE, sdk = [35])
 class CameraSkillTest {
 
     private lateinit var mockContext: Context
@@ -60,7 +54,7 @@ class CameraSkillTest {
             mockContext.checkSelfPermission(android.Manifest.permission.CAMERA)
         } returns PackageManager.PERMISSION_GRANTED
 
-        val mockCameraManager = mockk<CameraManager>(relaxed = true)
+        val mockCameraManager = mockk<CameraManager>()
         every { mockCameraManager.cameraIdList } returns arrayOf()
         every {
             mockContext.getSystemService(Context.CAMERA_SERVICE)
@@ -113,7 +107,7 @@ class CameraSkillTest {
             mockContext.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
         } returns PackageManager.PERMISSION_GRANTED
 
-        val mockCameraManager = mockk<CameraManager>(relaxed = true)
+        val mockCameraManager = mockk<CameraManager>()
         every { mockCameraManager.cameraIdList } returns arrayOf()
         every {
             mockContext.getSystemService(Context.CAMERA_SERVICE)
