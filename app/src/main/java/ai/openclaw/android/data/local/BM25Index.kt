@@ -43,6 +43,15 @@ class BM25Index(
 
     /**
      * Tokenize text: Chinese character bigrams + English lowercase words.
+     *
+     * IMPORTANT: When CJK characters are immediately adjacent to an English
+     * word (e.g. "用Kotlin编程"), the English branch must stop at the first
+     * CJK char. Character.isLetterOrDigit() returns true for CJK characters,
+     * which would otherwise cause the English run to swallow the trailing
+     * CJK characters and produce tokens like "kotlin编程" instead of the
+     * correctly segmented ["kotlin", "编程", "编程"]. Fix: explicitly exclude
+     * the CJK Unicode range (U+4E00-U+9FFF) from the English collection
+     * loop. Production bug #2 from CURRENT-STATUS-2026-06-28.
      */
     fun tokenize(text: String): List<String> {
         queryTokenCache.get(text)?.let { return it }
@@ -69,9 +78,14 @@ class BM25Index(
                     if (s.length in 2..4) tokens.add(s)
                 }
                 c.isLetterOrDigit() -> {
-                    // Collect English/number word
+                    // Collect English/number word. Stop at CJK boundary so an
+                    // English word followed by Chinese (e.g. "Kotlin编程") is
+                    // split into ["kotlin", "编程"] rather than ["kotlin编程"].
                     val word = StringBuilder()
-                    while (i < chars.size && chars[i].isLetterOrDigit()) {
+                    while (i < chars.size &&
+                        chars[i].isLetterOrDigit() &&
+                        chars[i] !in '\u4e00'..'\u9fff'
+                    ) {
                         word.append(chars[i])
                         i++
                     }

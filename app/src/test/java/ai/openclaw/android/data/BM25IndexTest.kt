@@ -80,6 +80,58 @@ class BM25IndexTest {
     }
 
     @Test
+    fun `tokenize splits English from adjacent CJK without space - regression for bug #2`() {
+        // Regression test for production bug #2 (CURRENT-STATUS-2026-06-28):
+        // "用Kotlin编程" used to tokenize as ["kotlin编程"] because the English
+        // branch swallowed CJK characters (Character.isLetterOrDigit() returns
+        // true for CJK). The fix excludes the CJK Unicode range from the
+        // English collection loop, so the expected segmentation is:
+        //   - "用" → single CJK char (run length 1; not a bigram, not kept)
+        //   - "Kotlin" → English word → "kotlin"
+        //   - "编程" → 2-char CJK run → bigram "编程" + full word "编程" (length 2)
+        val tokens = index.tokenize("用Kotlin编程")
+        assertTrue("Expected 'kotlin' as a standalone English token, got: $tokens",
+            tokens.contains("kotlin"))
+        assertTrue("Expected CJK bigram '编程' in tokens, got: $tokens",
+            tokens.contains("编程"))
+        // Critical regression assertion: the English word must NOT have
+        // swallowed the trailing CJK characters.
+        assertFalse("Bug #2 regression: English word should not contain CJK, got: $tokens",
+            tokens.any { it.contains("kotlin编程") || it.contains("Kotlin编程") })
+    }
+
+    @Test
+    fun `tokenize splits CJK from adjacent English when CJK comes first`() {
+        // "编程Kotlin" → "编程" bigrams + "kotlin"
+        val tokens = index.tokenize("编程Kotlin")
+        assertTrue("Expected '编程' bigram, got: $tokens", tokens.contains("编程"))
+        assertTrue("Expected 'kotlin' English word, got: $tokens", tokens.contains("kotlin"))
+        assertFalse("English branch must not start with CJK, got: $tokens",
+            tokens.any { it.contains("编程k", ignoreCase = true) || it.contains("编程K") })
+    }
+
+    @Test
+    fun `tokenize splits English between two CJK runs without spaces`() {
+        // "编程用Kotlin用编程" — CJK, English, CJK; English should remain standalone.
+        val tokens = index.tokenize("编程用Kotlin用编程")
+        assertTrue("English word 'kotlin' must be its own token, got: $tokens",
+            tokens.contains("kotlin"))
+        assertFalse("Bug #2 regression: English branch swallowed CJK, got: $tokens",
+            tokens.any { "kotlin" in it && it != "kotlin" })
+    }
+
+    @Test
+    fun `tokenize handles English-numeric-CJK mix without spaces`() {
+        // "iOS2026编程" — letters + digits + CJK all glued. English/numeric
+        // branch must stop at the CJK boundary.
+        val tokens = index.tokenize("iOS2026编程")
+        assertTrue("Expected 'ios2026' token, got: $tokens", tokens.contains("ios2026"))
+        assertTrue("Expected '编程' bigram, got: $tokens", tokens.contains("编程"))
+        assertFalse("Bug #2 regression: numeric/digit branch swallowed CJK, got: $tokens",
+            tokens.any { it.contains("ios2026编程") })
+    }
+
+    @Test
     fun `tokenize strips punctuation`() {
         val tokens = index.tokenize("hello, world! how are you?")
         assertEquals(listOf("hello", "world", "how", "are", "you"), tokens)
