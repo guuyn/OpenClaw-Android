@@ -3,7 +3,12 @@ package ai.openclaw.android.trigger.models
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.Index
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.polymorphic
+import kotlinx.serialization.modules.subclass
 
 enum class EventSource {
     CRON, NOTIFICATION, ACCESSIBILITY, SYSTEM_BROADCAST, USER_ACTION
@@ -16,15 +21,19 @@ enum class MatchMode { CONTAINS, OR, AND, EXACT }
 @Serializable
 sealed class Filter {
     @Serializable
+    @SerialName("PackageFilter")
     data class PackageFilter(val packages: List<String>) : Filter()
 
     @Serializable
+    @SerialName("KeywordFilter")
     data class KeywordFilter(val keywords: List<String>, val mode: MatchMode = MatchMode.OR) : Filter()
 
     @Serializable
+    @SerialName("TimeFilter")
     data class TimeFilter(val startHour: Int, val endHour: Int) : Filter()
 
     @Serializable
+    @SerialName("CategoryFilter")
     data class CategoryFilter(val category: String) : Filter()
 }
 
@@ -33,6 +42,7 @@ sealed class Filter {
 @Serializable
 sealed class TriggerAction {
     @Serializable
+    @SerialName("SkillCall")
     data class SkillCall(
         val skillId: String,
         val toolName: String,
@@ -40,18 +50,21 @@ sealed class TriggerAction {
     ) : TriggerAction()
 
     @Serializable
+    @SerialName("AgentQuery")
     data class AgentQuery(
         val prompt: String,
         val model: String? = null
     ) : TriggerAction()
 
     @Serializable
+    @SerialName("NotificationReply")
     data class NotificationReply(
         val template: String,
         val autoReply: Boolean = false
     ) : TriggerAction()
 
     @Serializable
+    @SerialName("CustomScript")
     data class CustomScript(val script: String) : TriggerAction()
 }
 
@@ -74,7 +87,28 @@ data class TriggerRule(
     val updatedAt: Long = System.currentTimeMillis()
 ) {
     companion object {
-        private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        // NOTE: The sealed `Filter` and `TriggerAction` hierarchies require
+        // polymorphic serializers to be registered, otherwise decodeFromString
+        // throws SerializationException (we catch it and return empty/null).
+        // The discriminator field `type` is added automatically by the default
+        // Json configuration because the subclasses are annotated @Serializable.
+        private val json = Json {
+            ignoreUnknownKeys = true
+            serializersModule = SerializersModule {
+                polymorphic(Filter::class) {
+                    subclass(Filter.PackageFilter::class)
+                    subclass(Filter.KeywordFilter::class)
+                    subclass(Filter.TimeFilter::class)
+                    subclass(Filter.CategoryFilter::class)
+                }
+                polymorphic(TriggerAction::class) {
+                    subclass(TriggerAction.SkillCall::class)
+                    subclass(TriggerAction.AgentQuery::class)
+                    subclass(TriggerAction.NotificationReply::class)
+                    subclass(TriggerAction.CustomScript::class)
+                }
+            }
+        }
 
         fun parseFilters(jsonStr: String): List<Filter> {
             return try {

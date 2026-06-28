@@ -172,21 +172,76 @@ class TriggerRuleDaoTest {
     // ==================== Filter parsing ====================
 
     @Test
-    fun `parseFilters returns empty list - sealed class polymorphism not configured`() {
-        // TODO(production-bug): TriggerRule.parseFilters uses a bare `json` instance
-        // without registering polymorphic subclass serializers for the sealed Filter
-        // hierarchy. The kotlinx.serialization call throws (caught), so we always
-        // get an empty list back, even for valid JSON.
-        // Fix: configure the Json instance with a SerializersModule that registers
-        // Filter subclasses, or use json.decodeFromString<Filter>(jsonStr) with
-        // PolymorphicSerializer.
+    fun `parseFilters deserializes PackageFilter correctly with polymorphic Json`() {
+        // Regression test for production bug #1: previously the Json instance
+        // did not register polymorphic serializers for the sealed Filter
+        // hierarchy, so decodeFromString always threw (and we caught it,
+        // returning an empty list). With the polymorphic module configured,
+        // valid JSON now round-trips into a typed list.
         val validJson = """[{"type":"PackageFilter","packages":["com.example","com.test"]}]"""
         val filters = TriggerRule.parseFilters(validJson)
-        // Document the current (buggy) behavior — should be 1 if fixed.
-        assertTrue(
-            "parseFilters currently returns empty due to missing polymorphic setup: $filters",
-            filters.isEmpty()
+        assertEquals(1, filters.size)
+        val pf = filters[0] as Filter.PackageFilter
+        assertEquals(listOf("com.example", "com.test"), pf.packages)
+    }
+
+    @Test
+    fun `parseFilters deserializes KeywordFilter correctly`() {
+        val json = """[{"type":"KeywordFilter","keywords":["foo","bar"],"mode":"AND"}]"""
+        val filters = TriggerRule.parseFilters(json)
+        assertEquals(1, filters.size)
+        val kf = filters[0] as Filter.KeywordFilter
+        assertEquals(listOf("foo", "bar"), kf.keywords)
+        assertEquals(MatchMode.AND, kf.mode)
+    }
+
+    @Test
+    fun `parseFilters deserializes TimeFilter correctly`() {
+        val json = """[{"type":"TimeFilter","startHour":9,"endHour":18}]"""
+        val filters = TriggerRule.parseFilters(json)
+        assertEquals(1, filters.size)
+        val tf = filters[0] as Filter.TimeFilter
+        assertEquals(9, tf.startHour)
+        assertEquals(18, tf.endHour)
+    }
+
+    @Test
+    fun `parseFilters deserializes CategoryFilter correctly`() {
+        val json = """[{"type":"CategoryFilter","category":"social"}]"""
+        val filters = TriggerRule.parseFilters(json)
+        assertEquals(1, filters.size)
+        val cf = filters[0] as Filter.CategoryFilter
+        assertEquals("social", cf.category)
+    }
+
+    @Test
+    fun `parseFilters deserializes a heterogeneous list of all filter types`() {
+        val json = """[
+            {"type":"PackageFilter","packages":["a.b"]},
+            {"type":"KeywordFilter","keywords":["k"],"mode":"OR"},
+            {"type":"TimeFilter","startHour":1,"endHour":2},
+            {"type":"CategoryFilter","category":"x"}
+        ]""".trimIndent()
+        val filters = TriggerRule.parseFilters(json)
+        assertEquals(4, filters.size)
+        assertTrue(filters[0] is Filter.PackageFilter)
+        assertTrue(filters[1] is Filter.KeywordFilter)
+        assertTrue(filters[2] is Filter.TimeFilter)
+        assertTrue(filters[3] is Filter.CategoryFilter)
+    }
+
+    @Test
+    fun `parseFilters round-trips through serializeFilters for each Filter type`() {
+        // Serialize → parse → equality check
+        val original = listOf(
+            Filter.PackageFilter(listOf("com.foo", "com.bar")),
+            Filter.KeywordFilter(listOf("alpha", "beta"), MatchMode.AND),
+            Filter.TimeFilter(startHour = 8, endHour = 20),
+            Filter.CategoryFilter("work")
         )
+        val serialized = TriggerRule.serializeFilters(original)
+        val parsed = TriggerRule.parseFilters(serialized)
+        assertEquals(original, parsed)
     }
 
     @Test
@@ -209,15 +264,84 @@ class TriggerRuleDaoTest {
         assertEquals(emptyList<Filter>(), TriggerRule.parseFilters("["))
     }
 
+    @Test
+    fun `parseFilters ignores unknown subclass types without throwing`() {
+        // The configured Json uses ignoreUnknownKeys=true, but unknown POLYMORPHIC
+        // types are still treated as a serialization failure → empty list. This
+        // guards the caller from crashes when an old payload references a removed
+        // filter type.
+        val json = """[{"type":"UnknownFilter","foo":1}]"""
+        val filters = TriggerRule.parseFilters(json)
+        assertTrue(filters.isEmpty())
+    }
+
     // ==================== Action parsing ====================
 
     @Test
-    fun `parseAction returns null for any input - sealed class polymorphism not configured`() {
-        // TODO(production-bug): same root cause as parseFilters — the sealed
-        // TriggerAction hierarchy isn't registered for polymorphic serialization.
+    fun `parseAction deserializes SkillCall correctly with polymorphic Json`() {
+        // Regression test for production bug #1: same root cause as parseFilters
+        // — the sealed TriggerAction hierarchy wasn't registered for polymorphic
+        // serialization, so parseAction always returned null.
         val validJson = """{"type":"SkillCall","skillId":"weather","toolName":"get_weather","paramsJson":"{}"}"""
         val action = TriggerRule.parseAction(validJson)
-        assertNull("parseAction currently always returns null: $action", action)
+        assertNotNull(action)
+        val sc = action as TriggerAction.SkillCall
+        assertEquals("weather", sc.skillId)
+        assertEquals("get_weather", sc.toolName)
+        assertEquals("{}", sc.paramsJson)
+    }
+
+    @Test
+    fun `parseAction deserializes AgentQuery correctly`() {
+        val json = """{"type":"AgentQuery","prompt":"summarize this","model":"gpt-4"}"""
+        val action = TriggerRule.parseAction(json)
+        assertNotNull(action)
+        val aq = action as TriggerAction.AgentQuery
+        assertEquals("summarize this", aq.prompt)
+        assertEquals("gpt-4", aq.model)
+    }
+
+    @Test
+    fun `parseAction deserializes AgentQuery with null model correctly`() {
+        val json = """{"type":"AgentQuery","prompt":"hi","model":null}"""
+        val action = TriggerRule.parseAction(json)
+        assertNotNull(action)
+        val aq = action as TriggerAction.AgentQuery
+        assertEquals("hi", aq.prompt)
+        assertNull(aq.model)
+    }
+
+    @Test
+    fun `parseAction deserializes NotificationReply correctly`() {
+        val json = """{"type":"NotificationReply","template":"Hi {name}","autoReply":true}"""
+        val action = TriggerRule.parseAction(json)
+        assertNotNull(action)
+        val nr = action as TriggerAction.NotificationReply
+        assertEquals("Hi {name}", nr.template)
+        assertTrue(nr.autoReply)
+    }
+
+    @Test
+    fun `parseAction deserializes CustomScript correctly`() {
+        val json = """{"type":"CustomScript","script":"ctx.send('hello')"}"""
+        val action = TriggerRule.parseAction(json)
+        assertNotNull(action)
+        val cs = action as TriggerAction.CustomScript
+        assertEquals("ctx.send('hello')", cs.script)
+    }
+
+    @Test
+    fun `parseAction round-trips through serializeAction for each action type`() {
+        listOf(
+            TriggerAction.SkillCall("skill1", "tool1", """{"k":"v"}"""),
+            TriggerAction.AgentQuery("prompt here", "claude-3"),
+            TriggerAction.NotificationReply("template", autoReply = false),
+            TriggerAction.CustomScript("script body")
+        ).forEach { original ->
+            val serialized = TriggerRule.serializeAction(original)
+            val parsed = TriggerRule.parseAction(serialized)
+            assertEquals(original, parsed)
+        }
     }
 
     @Test
@@ -232,6 +356,13 @@ class TriggerRuleDaoTest {
         assertNull(TriggerRule.parseAction("not json"))
         assertNull(TriggerRule.parseAction(""))
         assertNull(TriggerRule.parseAction("{"))
+    }
+
+    @Test
+    fun `parseAction returns null for unknown action type`() {
+        val json = """{"type":"UnknownAction","foo":1}"""
+        val action = TriggerRule.parseAction(json)
+        assertNull(action)
     }
 
     @Test
@@ -259,9 +390,11 @@ class TriggerRuleDaoTest {
     // ==================== TriggerRule getFilters / getAction accessors ====================
 
     @Test
-    fun `TriggerRule getFilters returns empty list due to polymorphic bug`() {
-        // Documents current behavior: getFilters() returns empty list because
-        // parseFilters() can't deserialize sealed classes.
+    fun `TriggerRule getFilters returns parsed filter list`() {
+        // Regression test for production bug #1: previously getFilters()
+        // returned an empty list because parseFilters() could not deserialize
+        // sealed classes. With polymorphic serializers registered, it now
+        // returns the typed filter objects.
         val rule = TriggerRule(
             id = "r1",
             name = "r",
@@ -270,13 +403,17 @@ class TriggerRuleDaoTest {
             actionJson = """{"type":"SkillCall","skillId":"s","toolName":"t"}"""
         )
         val filters = rule.getFilters()
-        assertTrue(filters.isEmpty())
+        assertEquals(1, filters.size)
+        val cf = filters[0] as Filter.CategoryFilter
+        assertEquals("social", cf.category)
     }
 
     @Test
-    fun `TriggerRule getAction returns null due to polymorphic bug`() {
-        // Documents current behavior: getAction() returns null because
-        // parseAction() can't deserialize sealed classes.
+    fun `TriggerRule getAction returns parsed TriggerAction`() {
+        // Regression test for production bug #1: previously getAction()
+        // returned null because parseAction() could not deserialize sealed
+        // classes. With polymorphic serializers registered, it now returns
+        // the typed TriggerAction.
         val rule = TriggerRule(
             id = "r1",
             name = "r",
@@ -284,6 +421,8 @@ class TriggerRuleDaoTest {
             actionJson = """{"type":"AgentQuery","prompt":"p"}"""
         )
         val action = rule.getAction()
-        assertNull(action)
+        assertNotNull(action)
+        val aq = action as TriggerAction.AgentQuery
+        assertEquals("p", aq.prompt)
     }
 }
