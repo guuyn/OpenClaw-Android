@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.res.AssetManager
 import android.util.Log
 import io.mockk.*
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -65,6 +66,12 @@ class AgentConfigManagerTest {
         every { Log.e(any(), any<String>()) } returns 0
 
         manager = AgentConfigManager(mockContext)
+    }
+
+    @After
+    fun tearDown() {
+        // Release MockK static mocks (Log) so they don't leak into other test classes
+        unmockkAll()
     }
 
     // ========== Load from Assets ==========
