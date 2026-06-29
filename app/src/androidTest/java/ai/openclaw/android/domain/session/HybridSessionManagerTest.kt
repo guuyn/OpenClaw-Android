@@ -38,11 +38,17 @@ class HybridSessionManagerTest {
         summaryDao = db.summaryDao()
         mockLlmClient = mockk()
         
+        val sessionCompressor = SessionCompressor(
+            llmClient = mockLlmClient,
+            summaryDao = summaryDao,
+            isLlmReady = { false }
+        )
+        
         manager = HybridSessionManager(
             sessionDao = sessionDao,
             messageDao = messageDao,
             summaryDao = summaryDao,
-            llmClient = mockLlmClient,
+            sessionCompressor = sessionCompressor,
             tokenCounter = TokenCounter()
         )
     }
