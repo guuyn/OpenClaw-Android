@@ -157,7 +157,7 @@ open class AgentSessionManager(
         // 2. Otherwise fall back to user's ConfigManager settings
         val effectiveModel = if (config.model.isNotBlank()) config.model else ConfigManager.getModelName()
 
-        // Parse model string: "openai/qwen3.5-plus" → provider=openai, name=qwen3.5-plus
+        // Parse model string: "openai/MiniMax-M3" → provider=openai, name=MiniMax-M3
         val parts = effectiveModel.split("/", limit = 2)
         val providerStr = if (parts.size > 1) parts[0] else "openai"
         val modelName = if (parts.size > 1) parts[1] else effectiveModel
