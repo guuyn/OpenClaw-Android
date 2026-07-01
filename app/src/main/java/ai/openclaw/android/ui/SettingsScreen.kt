@@ -24,6 +24,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
+import ai.openclaw.android.ConfigManager
 import ai.openclaw.android.LogManager
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.ui.theme.SciFiPrimary
@@ -198,7 +199,7 @@ fun SettingsScreen(
                             value = modelName,
                             onValueChange = onModelNameChange,
                             label = { Text("Model Name") },
-                            placeholder = { Text("qwen-plus") },
+                            placeholder = { Text(ConfigManager.getModelName()) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp),

@@ -311,7 +311,7 @@ fun MainScreen(
 
     // Configuration state
     var modelApiKey by remember { mutableStateOf("") }
-    var modelName by remember { mutableStateOf("qwen-plus") }
+    var modelName by remember { mutableStateOf("") }
     var modelProvider by remember { mutableStateOf(
         try { ConfigManager.getModelProvider() } catch (_: Exception) { "OPENAI" }
     ) }
@@ -440,7 +440,6 @@ fun MainScreen(
             ConfigManager.setModelProvider("OPENAI")
             ConfigManager.setModelBaseUrl("https://coding.dashscope.aliyuncs.com/v1")
             ConfigManager.setModelApiKey("sk-sp-20300993405641aab0fb73aedac15d33")
-            ConfigManager.setModelName("qwen-plus")
             Log.d("MainScreen", "Default API key set for debugging")
         }
 
@@ -1030,7 +1029,7 @@ fun SettingsScreen(
                             value = modelName,
                             onValueChange = onModelNameChange,
                             label = { Text("Model Name") },
-                            placeholder = { Text("qwen-plus") },
+                            placeholder = { Text(ConfigManager.getModelName()) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp),
