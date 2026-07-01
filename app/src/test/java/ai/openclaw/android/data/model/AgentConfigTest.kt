@@ -18,7 +18,7 @@ class AgentConfigTest {
                 AgentConfig(
                     id = "main",
                     name = "OpenClaw",
-                    model = "bailian/qwen3.5-plus",
+                    model = "",
                     systemPrompt = "你是 AI 助手",
                     tools = listOf("all"),
                     keywords = emptyList(),
@@ -27,7 +27,7 @@ class AgentConfigTest {
                 AgentConfig(
                     id = "coder",
                     name = "Coder",
-                    model = "bailian/qwen3.5-coder",
+                    model = "",
                     systemPrompt = "你是开发助手",
                     tools = listOf("script", "search"),
                     keywords = listOf("代码", "kotlin"),
@@ -58,7 +58,7 @@ class AgentConfigTest {
                 {
                   "id": "main",
                   "name": "OpenClaw",
-                  "model": "bailian/qwen3.5-plus",
+                  "model": "",
                   "systemPrompt": "你是一个 Android 设备上的 AI 助手，拥有设备控制、技能调用和记忆检索能力。",
                   "tools": ["all"],
                   "isDefault": true
@@ -66,7 +66,7 @@ class AgentConfigTest {
                 {
                   "id": "coder",
                   "name": "Coder",
-                  "model": "bailian/qwen3.5-coder",
+                  "model": "",
                   "systemPrompt": "你是一个 Android 开发助手，精通 Kotlin、Jetpack Compose、Gradle 构建系统和 Android SDK。回答问题时要给出具体代码示例。",
                   "tools": ["script", "search", "file"],
                   "keywords": ["代码", "java", "kotlin", "build", "gradle", "pr", "commit", "bug", "debug", "编译", "构建", "apk", "compose", "android"]
@@ -74,7 +74,7 @@ class AgentConfigTest {
                 {
                   "id": "security",
                   "name": "Security",
-                  "model": "bailian/qwen3.5-plus",
+                  "model": "",
                   "systemPrompt": "你是一个 Android 安全审计专家，负责检测应用的安全漏洞、权限配置问题和数据泄露风险。",
                   "tools": ["search", "audit"],
                   "keywords": ["安全", "漏洞", "审计", "权限", "加密", "injection", "xss", "csrf", "token", "key"]
@@ -193,7 +193,7 @@ class AgentConfigTest {
     fun `AgentConfig uses correct default values`() {
         val config = AgentConfig(id = "test", name = "Test")
 
-        assertEquals("openai/qwen3.5-plus", config.model)
+        assertEquals("", config.model)
         assertNull(config.systemPrompt)
         assertEquals(listOf("all"), config.tools)
         assertEquals(emptyList<String>(), config.keywords)
@@ -239,7 +239,7 @@ class AgentConfigTest {
 
         assertEquals("minimal", agent.id)
         assertEquals("Minimal", agent.name)
-        assertEquals("openai/qwen3.5-plus", agent.model)
+        assertEquals("", agent.model)
         assertNull(agent.systemPrompt)
         assertEquals(listOf("all"), agent.tools)
         assertEquals(emptyList<String>(), agent.keywords)

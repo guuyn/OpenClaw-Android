@@ -28,7 +28,7 @@ class AgentConfigManagerTest {
             {
               "id": "main",
               "name": "OpenClaw",
-              "model": "bailian/qwen3.5-plus",
+              "model": "",
               "systemPrompt": "你是 AI 助手",
               "tools": ["all"],
               "isDefault": true
@@ -36,7 +36,7 @@ class AgentConfigManagerTest {
             {
               "id": "coder",
               "name": "Coder",
-              "model": "bailian/qwen3.5-coder",
+              "model": "",
               "systemPrompt": "你是开发助手",
               "tools": ["script", "search"],
               "keywords": ["代码", "kotlin", "build", "gradle"]
@@ -44,7 +44,7 @@ class AgentConfigManagerTest {
             {
               "id": "security",
               "name": "Security",
-              "model": "bailian/qwen3.5-plus",
+              "model": "",
               "systemPrompt": "你是安全专家",
               "tools": ["search", "audit"],
               "keywords": ["安全", "漏洞", "audit", "token"]
@@ -121,7 +121,7 @@ class AgentConfigManagerTest {
         val mainAgent = manager.getAgentById("main")
         assertNotNull(mainAgent)
         assertEquals("OpenClaw", mainAgent!!.name)
-        assertEquals("bailian/qwen3.5-plus", mainAgent.model)
+        assertEquals("", mainAgent.model)
         assertTrue(mainAgent.isDefault)
 
         val coderAgent = manager.getAgentById("coder")
