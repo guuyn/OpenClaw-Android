@@ -49,7 +49,7 @@ open class AgentSessionManager(
             name = dataConfig.name,
             model = dataConfig.model,
             systemPrompt = dataConfig.systemPrompt ?: "",
-            maxContextTokens = 4000,
+            maxContextTokens = dataConfig.maxContextTokens,
             tools = dataConfig.tools,
             reflectionStrategy = reflectionStrategy
         )

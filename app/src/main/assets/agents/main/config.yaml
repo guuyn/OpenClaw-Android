@@ -1,7 +1,7 @@
 id: main
 name: 主助手
 model: bailian/qwen3.6-plus
-maxContextTokens: 4000
+maxContextTokens: 8000
 tools:
   - weather
   - search

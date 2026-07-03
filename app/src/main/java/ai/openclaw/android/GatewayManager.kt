@@ -262,8 +262,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         }
         agentSession = AgentSession(
             modelClient = mc,
-            skillManager = sm,
-            maxContextTokens = 4000
+            skillManager = sm
         ).apply {
             val systemPrompt = SystemPromptLoader.load(service)
             setSystemPrompt(systemPrompt)
@@ -613,8 +612,7 @@ class GatewayManager(private val service: GatewayService) : GatewayContract {
         // Initialize AgentSession with SkillManager (backward compat)
         agentSession = AgentSession(
             modelClient = modelClient!!,
-            skillManager = skillManager!!,
-            maxContextTokens = 4000
+            skillManager = skillManager!!
         ).apply {
             setToolsWithSkills(
                 accessTools = accessibilityBridge!!.getTools(),

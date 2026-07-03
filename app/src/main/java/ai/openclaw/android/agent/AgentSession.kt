@@ -38,7 +38,7 @@ class AgentSession(
     private val modelClient: ModelClient,
     private val skillManager: SkillManager,
     private val permissionManager: PermissionManager? = null,
-    private val maxContextTokens: Int = 4000
+    private val maxContextTokens: Int = 8000
 ) {
     // Agent-specific fields (mutable backing, exposed via factory constructor)
     private var _agentConfig: AgentConfig? = null
@@ -76,13 +76,19 @@ class AgentSession(
         skillManager: SkillManager,
         agentConfig: AgentConfig,
         permissionManager: PermissionManager? = null,
-        maxContextTokens: Int = 4000
+        maxContextTokens: Int = 8000
     ) : this(modelClient, skillManager, permissionManager, maxContextTokens) {
         // Tool filtering: null means all tools allowed, otherwise store prefixes
         _allowedToolPrefixes = if (agentConfig.tools.contains("all")) null else {
             agentConfig.tools
         }
+        // [FIX] Mirror the agentConfig to the legacy `agentConfig` field so
+        // getMaxContextTokens() (which reads from that field) sees the same
+        // value the factory constructor just assigned to _agentConfig.
+        // Previously the two fields were set independently, causing trim to
+        // never trigger in production because the read field stayed null.
         _agentConfig = agentConfig
+        this.agentConfig = agentConfig
         // Auto-select reflection strategy based on agent config
         _reflectionConfig = ReflectionConfig.defaultFor(agentConfig.reflectionStrategy)
     }
@@ -965,8 +971,16 @@ Example:
      */
     private fun trimHistoryByTokens() {
         val effectiveMaxTokens = getMaxContextTokens()
-        if (estimateTokens(history) <= effectiveMaxTokens) return
-        if (history.size <= 2) return
+        val estimatedTokens = estimateTokens(history)
+        if (estimatedTokens <= effectiveMaxTokens) {
+            Log.d(TAG, "[trim] skip: estimatedTokens=$estimatedTokens <= effectiveMaxTokens=$effectiveMaxTokens (history.size=${history.size})")
+            return
+        }
+        if (history.size <= 2) {
+            Log.d(TAG, "[trim] skip: history.size=${history.size} <= 2")
+            return
+        }
+        Log.d(TAG, "[trim] triggered: estimatedTokens=$estimatedTokens > effectiveMaxTokens=$effectiveMaxTokens (history.size=${history.size})")
 
         // 跳过 tool-call 配对块作为原子单位: assistant(tool_calls) + N×tool(tool_call_id)
         // 防止留下 orphan tool 消息导致 API 报 "tool result's tool id not found"
@@ -990,6 +1004,7 @@ Example:
         }
 
         if (trimStart > 0) {
+            Log.d(TAG, "[trim] removing first $trimStart messages (history.size: ${history.size} → ${history.size - trimStart})")
             history.subList(0, trimStart).clear()
         }
     }
