@@ -424,9 +424,17 @@ Example:
     }
 
     /**
-     * Get effective max context tokens (from config or default)
+     * Get effective max context tokens (from config or default).
+     *
+     * Treats `maxContextTokens <= 0` on the agent config as "not set" and
+     * falls back to the session default (8k) so a missing yaml value doesn't
+     * silently turn trim into a no-op (0 means "trim every round", which is
+     * even worse than never trimming).
      */
-    fun getMaxContextTokens(): Int = agentConfig?.maxContextTokens ?: maxContextTokens
+    fun getMaxContextTokens(): Int {
+        val fromConfig = agentConfig?.maxContextTokens ?: 0
+        return if (fromConfig > 0) fromConfig else maxContextTokens
+    }
 
     // Memory & persistence hooks (set via setters)
     private var memoryContextProvider: (suspend () -> String?)? = null
