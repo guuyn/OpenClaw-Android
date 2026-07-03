@@ -767,6 +767,19 @@ Example:
                 ),
                 currentToolCalls = toolCalls
             )
+            // [FIX] sync mutable history list with state.history so the legacy
+            // history list (consumed by trimHistoryByTokens and the next round's
+            // buildMessagesFromState) stays in lock-step with state. Previously
+            // only tool messages were appended to history, leaving the
+            // assistant(tool_calls) message absent — subsequent rounds would
+            // then send a tool result whose tool_call_id had no matching
+            // assistant(tool_calls) preceding it, triggering the API
+            // 'tool result's tool id(...) not found' (2013) error.
+            history.add(Message(
+                role = "assistant",
+                content = "",
+                toolCalls = toolCalls
+            ))
             Log.d(TAG, "[State] Tool calls → ${state.dump()}")
 
             // Execute tools
