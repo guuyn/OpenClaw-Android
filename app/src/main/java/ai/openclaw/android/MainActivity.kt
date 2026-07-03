@@ -16,6 +16,7 @@ import android.os.IBinder
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -38,6 +39,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -702,6 +704,16 @@ fun MainScreen(
                 },
                 onSaveConfig = {
                     scope.launch {
+                        // 持久化配置到 SharedPreferences, 避免重启后丢失配置
+                        try {
+                            ConfigManager.setModelApiKey(modelApiKey)
+                            ConfigManager.setModelName(modelName)
+                            ConfigManager.setModelBaseUrl(modelBaseUrl)
+                            ConfigManager.setModelProvider(modelProvider)
+                            LogManager.shared.log("INFO", "MainActivity", "Persisted config to SharedPreferences: apiKey len=${modelApiKey.length} model=$modelName baseUrl=$modelBaseUrl provider=$modelProvider")
+                        } catch (e: Exception) {
+                            LogManager.shared.log("ERROR", "MainActivity", "Failed to persist config: ${e.message}")
+                        }
                         val contract = gatewayContractProvider()
                         val success = contract?.reconfigureModel(
                             ModelConfig(
@@ -865,12 +877,13 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Service Status Card
@@ -1216,6 +1229,25 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleMedium
                     )
                     Spacer(modifier = Modifier.weight(1f))
+
+                    // 复制全部按钮：仅在展开时显示
+                    if (logExpanded) {
+                        TextButton(
+                            onClick = {
+                                val text = LogManager.shared.getAllAsText()
+                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
+                                val count = LogManager.shared.logs.value.size
+                                Toast.makeText(
+                                    context,
+                                    "已复制 $count 条日志",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        ) {
+                            Text("复制")
+                        }
+                    }
+
                     Icon(
                         imageVector = if (logExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                         contentDescription = if (logExpanded) "Collapse" else "Expand"

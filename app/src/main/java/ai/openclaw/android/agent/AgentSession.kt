@@ -945,11 +945,39 @@ Example:
     /**
      * Token-aware history trimming.
      * Estimates ~1.3 tokens per CJK character, ~0.25 tokens per ASCII character.
+     *
+     * Treats assistant(tool_calls) + N×tool(tool_call_id) as atomic blocks so we
+     * never leave orphan tool messages that would cause the API to reject the
+     * next request with "tool result's tool id(...) not found" (2013).
      */
     private fun trimHistoryByTokens() {
         val effectiveMaxTokens = getMaxContextTokens()
-        while (estimateTokens(history) > effectiveMaxTokens && history.size > 2) {
-            history.removeAt(0)
+        if (estimateTokens(history) <= effectiveMaxTokens) return
+        if (history.size <= 2) return
+
+        // 跳过 tool-call 配对块作为原子单位: assistant(tool_calls) + N×tool(tool_call_id)
+        // 防止留下 orphan tool 消息导致 API 报 "tool result's tool id not found"
+        var trimStart = 0
+        while (trimStart < history.size - 2 &&
+               estimateTokens(history.subList(trimStart, history.size)) > effectiveMaxTokens) {
+            val msg = history[trimStart]
+            if (msg.role == "assistant" && !msg.toolCalls.isNullOrEmpty()) {
+                // 跳过整个 assistant + tools 配对块
+                val toolIds = msg.toolCalls!!.map { it.id }.toSet()
+                var next = trimStart + 1
+                while (next < history.size &&
+                       history[next].role == "tool" &&
+                       history[next].toolCallId in toolIds) {
+                    next++
+                }
+                trimStart = next
+            } else {
+                trimStart++
+            }
+        }
+
+        if (trimStart > 0) {
+            history.subList(0, trimStart).clear()
         }
     }
 

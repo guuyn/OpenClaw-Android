@@ -1,5 +1,6 @@
 package ai.openclaw.android.model
 
+import ai.openclaw.android.LogManager
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -119,6 +120,13 @@ class OpenAIClient : ModelClient {
         }
 
         bodyBuilder.append("}")
+
+        // 输出完整 body 到运行日志（供 tool_call id 不匹配问题诊断；截断 2000 字符避免单条过长）
+        val fullBody = bodyBuilder.toString()
+        val bodyPreview = if (fullBody.length > 2000) {
+            fullBody.take(2000) + "...[truncated,total=${fullBody.length}]"
+        } else fullBody
+        LogManager.shared.log("DEBUG", TAG, "[${if (stream) "Stream" else "Chat"} req body] $bodyPreview")
 
         val httpRequest = Request.Builder()
             .url("$baseUrl/chat/completions")
