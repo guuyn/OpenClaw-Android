@@ -18,6 +18,8 @@ import android.os.PowerManager
 import android.os.StatFs
 import android.os.SystemClock
 import android.util.Log
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 import java.io.File
 
 /**
@@ -428,9 +430,9 @@ class DeviceSkill(
                     Log.i("DeviceSkill", "Flashlight turned OFF")
                 }
 
-                val statusText = if (turnOn) "已开启" else "已关闭"
-
-                SkillResult(true, "手电筒$statusText")
+                val statusText = if (turnOn) "开启" else "关闭"
+                val cardJson = buildDeviceActionCard("flashlight", "手电筒", statusText)
+                SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             } catch (e: SecurityException) {
                 SkillResult(false, "", "权限不足: 需要 CAMERA 权限才能控制闪光灯 (${e.message})")
             } catch (e: Exception) {
@@ -472,14 +474,9 @@ class DeviceSkill(
                     "get" -> {
                         val isMuted = audioManager.ringerMode == AudioManager.RINGER_MODE_SILENT ||
                                 currentVolume == 0
-                        val resultText = buildString {
-                            append("音量信息:\n")
-                            append("---\n")
-                            append("当前音量: $currentVolume / $maxVolume\n")
-                            append("静音状态: ${if (isMuted) "是" else "否"}\n")
-                            append("铃声模式: ${getRingerModeLabel(audioManager.ringerMode)}\n")
-                        }
-                        SkillResult(true, resultText)
+                        val detail = "当前音量: $currentVolume / $maxVolume, 静音: ${if (isMuted) "是" else "否"}"
+                        val cardJson = buildDeviceActionCard("volume", "音量", detail)
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
 
                     "set" -> {
@@ -489,32 +486,30 @@ class DeviceSkill(
                         val clampedLevel = level.coerceIn(0, maxVolume)
                         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, clampedLevel, 0)
                         Log.i("DeviceSkill", "Volume set to $clampedLevel (max: $maxVolume)")
-
-                        SkillResult(true, "音量已设置为 $clampedLevel / $maxVolume")
+                        val cardJson = buildDeviceActionCard("volume", "音量", "音量已设置为 $clampedLevel / $maxVolume")
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
 
                     "mute" -> {
                         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
                         Log.i("DeviceSkill", "Device muted")
-
-                        SkillResult(true, "已静音（音量设为 0）")
+                        val cardJson = buildDeviceActionCard("volume", "音量", "已静音（音量设为 0）")
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
 
                     "unmute" -> {
-                        // Restore to a reasonable default if currently muted
                         val restoreLevel = if (currentVolume == 0) {
                             (maxVolume * 0.4).toInt().coerceAtLeast(1)
                         } else {
                             currentVolume
                         }
                         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, restoreLevel, 0)
-                        // Also restore ringer mode if silent
                         if (audioManager.ringerMode == AudioManager.RINGER_MODE_SILENT) {
                             audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
                         }
                         Log.i("DeviceSkill", "Device unmuted, volume: $restoreLevel")
-
-                        SkillResult(true, "已取消静音，音量: $restoreLevel / $maxVolume")
+                        val cardJson = buildDeviceActionCard("volume", "音量", "已取消静音，音量: $restoreLevel / $maxVolume")
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
 
                     else -> {
@@ -558,18 +553,22 @@ class DeviceSkill(
                 when (action) {
                     "get" -> {
                         if (!clipboard.hasPrimaryClip()) {
-                            return SkillResult(true, "剪贴板为空")
+                            val cardJson = buildDeviceActionCard("clipboard", "剪贴板", "剪贴板为空")
+                            return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                         }
                         val clip = clipboard.primaryClip
                         if (clip == null || clip.itemCount == 0) {
-                            return SkillResult(true, "剪贴板为空")
+                            val cardJson = buildDeviceActionCard("clipboard", "剪贴板", "剪贴板内容为空")
+                            return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                         }
                         val text = clip.getItemAt(0).coerceToText(context).toString()
                         if (text.isBlank()) {
-                            return SkillResult(true, "剪贴板内容为空")
+                            val cardJson = buildDeviceActionCard("clipboard", "剪贴板", "剪贴板内容为空")
+                            return SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                         }
                         Log.i("DeviceSkill", "Clipboard read, length: ${text.length}")
-                        SkillResult(true, "剪贴板内容:\n$text")
+                        val cardJson = buildDeviceActionCard("clipboard", "剪贴板", text)
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
 
                     "set" -> {
@@ -578,18 +577,19 @@ class DeviceSkill(
                         if (text.isEmpty()) {
                             return SkillResult(false, "", "参数错误: text 不能为空字符串")
                         }
-
                         val clipData = ClipData.newPlainText("OpenClaw Clipboard", text)
                         clipboard.setPrimaryClip(clipData)
                         Log.i("DeviceSkill", "Clipboard set, length: ${text.length}")
-                        SkillResult(true, "已写入剪贴板（${text.length} 字符）")
+                        val cardJson = buildDeviceActionCard("clipboard", "剪贴板", "已写入剪贴板（${text.length} 字符）")
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
 
                     "clear" -> {
                         val clipData = ClipData.newPlainText("", "")
                         clipboard.setPrimaryClip(clipData)
                         Log.i("DeviceSkill", "Clipboard cleared")
-                        SkillResult(true, "剪贴板已清空")
+                        val cardJson = buildDeviceActionCard("clipboard", "剪贴板", "剪贴板已清空")
+                        SkillResult(true, "[A2UI]$cardJson[/A2UI]")
                     }
 
                     else -> {
@@ -636,7 +636,8 @@ class DeviceSkill(
                 }
 
                 Log.i("DeviceSkill", "Screen woken and kept awake (5min timeout)")
-                SkillResult(true, "屏幕已唤醒并保持常亮（5分钟内不会息屏）")
+                val cardJson = buildDeviceActionCard("wake_screen", "亮屏", "成功")
+                SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             } catch (e: SecurityException) {
                 SkillResult(false, "", "权限不足: 唤醒屏幕需要 WAKE_LOCK 权限 (${e.message})")
             } catch (e: Exception) {
@@ -860,5 +861,25 @@ class DeviceSkill(
             wakeLock?.takeIf { it.isHeld }?.release()
             wakeLock = null
         } catch (_: Exception) {}
+    }
+
+    // ==================== A2UI Card JSON 构建 ====================
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildDeviceActionCard(action: String, title: String, detail: String): String {
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("device_action"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive(title),
+                        "action" to JsonPrimitive(action),
+                        "detail" to JsonPrimitive(detail)
+                    )
+                ),
+                "actions" to JsonArray(emptyList())
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
     }
 }
