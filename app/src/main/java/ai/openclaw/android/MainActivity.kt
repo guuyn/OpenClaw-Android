@@ -58,6 +58,11 @@ import ai.openclaw.android.personalcenter.PersonalCenterViewModel
 import ai.openclaw.android.personalcenter.PersonalCenterViewModelFactory
 import ai.openclaw.android.viewmodel.ChatViewModel
 import ai.openclaw.android.viewmodel.ChatViewModelFactory
+import ai.openclaw.android.viewmodel.TriggerViewModel
+import ai.openclaw.android.ui.trigger.TriggerScreen
+import ai.openclaw.android.data.local.AppDatabase
+import ai.openclaw.android.trigger.scheduler.CronScheduler
+import ai.openclaw.android.trigger.EventBus
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CoroutineScope
@@ -487,7 +492,9 @@ fun MainScreen(
                     Text(when (selectedTab) {
                         0 -> "聊天"
                         1 -> "通知"
-                        else -> "设置"
+                        2 -> "设置"
+                        3 -> "触发器"
+                        else -> ""
                     })
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -526,6 +533,12 @@ fun MainScreen(
                     onClick = { selectedTab = 2 },
                     icon = { Icon(Icons.Default.Settings, "设置") },
                     label = { Text("设置") }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
+                    icon = { Icon(Icons.Default.AutoFixHigh, "触发器") },
+                    label = { Text("触发器") }
                 )
             }
         }
@@ -734,6 +747,17 @@ fun MainScreen(
                 settingsPermRefreshKey = settingsPermRefreshKey,
                 modifier = Modifier.padding(padding)
             )
+            3 -> {
+                TriggerScreen(
+                    viewModel = remember { TriggerViewModel(
+                        database = AppDatabase.getInstance(context),
+                        agentSessionFactory = { null },
+                        cronScheduler = CronScheduler(context, EventBus.instance!!)
+                    ) },
+                    onNavigateBack = { selectedTab = 0 },
+                    modifier = Modifier.padding(padding)
+                )
+            }
         }
     }
     }
