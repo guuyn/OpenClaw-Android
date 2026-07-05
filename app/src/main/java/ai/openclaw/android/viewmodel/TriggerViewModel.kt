@@ -13,6 +13,7 @@ import ai.openclaw.android.trigger.v2.TriggerLogManager
 import ai.openclaw.android.trigger.v2.TriggerDecision
 import ai.openclaw.android.trigger.v2.UserFeedback
 import ai.openclaw.android.trigger.v2.TriggerTemplates
+import ai.openclaw.android.trigger.v2.toV1Rule
 import ai.openclaw.android.agent.AgentSession
 import ai.openclaw.android.trigger.scheduler.CronScheduler
 import androidx.lifecycle.ViewModel
@@ -24,11 +25,21 @@ import kotlinx.coroutines.launch
  * TriggerViewModel — Trigger v2 管理界面 ViewModel
  *
  * 管理 Trigger 列表、CRUD 操作、日志查询、AI 决策统计
+ *
+ * 设计变更 (2026-07-05)：
+ * - 新增可选参数 `triggerConfigManager` 和 `triggerEngine`，仅在调用方传参时启用。
+ *   保留 3-参构造以保持向后兼容（TriggerScreen 现有调用点无需修改）。
+ * - 当传入 configManager 时，loadRules() 会同时读取 v1 dao 与 v2 configManager 并
+ *   按 id 去重合并（v1 dao 是唯一写入路径）。
+ * - 当传入 engine 时，addRule/updateRule/deleteRule 优先走 engine.addRule 等方法；
+ *   否则直接走 dao。
  */
 class TriggerViewModel(
     database: AppDatabase,
     agentSessionFactory: suspend () -> AgentSession?,
-    cronScheduler: CronScheduler
+    cronScheduler: CronScheduler,
+    triggerConfigManager: TriggerConfigManager? = null,
+    triggerEngine: TriggerEngine? = null
 ) : ViewModel() {
 
     companion object {
@@ -40,9 +51,20 @@ class TriggerViewModel(
     private val ruleDao: TriggerRuleDao = database.triggerRuleDao()
     private val logDao: TriggerLogDao = database.triggerLogDao()
 
+    // ==================== 注入依赖 ====================
+
+    private val configManager: TriggerConfigManager? = triggerConfigManager
+
+    // 注：agentSessionFactory / cronScheduler 为预留给未来使用的注入点；当前 ViewModel
+    // 主要走 dao / configManager / engine 路径，避免将他们存为私有字段造成 API 膨胀。
+    @Suppress("UNUSED_PARAMETER")
+    private val _unusedAgentSessionFactory: Any? = agentSessionFactory
+    @Suppress("UNUSED_PARAMETER")
+    private val _unusedCronScheduler: Any? = cronScheduler
+
     // ==================== State ====================
 
-    /** Trigger 配置列表 (v1 rules + v2 configs) */
+    /** Trigger 配置列表 (v1 rules + v2 configs，合并后按 id 去重) */
     private val _triggerConfigs = MutableStateFlow<List<TriggerConfig>>(emptyList())
     val triggerConfigs: StateFlow<List<TriggerConfig>> = _triggerConfigs.asStateFlow()
 
@@ -76,7 +98,7 @@ class TriggerViewModel(
 
     // ==================== 引用（延迟初始化） ====================
 
-    private var triggerEngine: TriggerEngine? = null
+    private var triggerEngine: TriggerEngine? = triggerEngine
     private var aiDecision: AITriggerDecision? = null
     private var logManager: TriggerLogManager? = null
 
@@ -122,13 +144,23 @@ class TriggerViewModel(
 
     fun loadRules() {
         viewModelScope.launch {
-            val allRules = ruleDao.getAll()
-            _rules.value = allRules
+            // 读取 v1 dao（唯一写入路径）
+            val daoRules = ruleDao.getAll()
 
-            // 转换为 v2 Config
-            val configs = allRules.map { rule ->
-                TriggerConfig.fromRule(rule)
+            // 如果传入了 configManager，同时读取 v2 configManager。
+            // 设计上 v2 configManager 在 fix 之后也是读取同一个 dao，所以这两路返回相同的
+            // TriggerConfig 集合；dedup 仍然保留是为了在混合配置期间保持幂等。
+            val configs = if (configManager != null) {
+                val daoConfigs = daoRules.map { TriggerConfig.fromRule(it) }
+                val managerConfigs = configManager.loadAll()
+                (daoConfigs + managerConfigs)
+                    .distinctBy { it.id }
+                    .sortedByDescending { it.name }
+            } else {
+                daoRules.map { TriggerConfig.fromRule(it) }
             }
+
+            _rules.value = daoRules
             _triggerConfigs.value = configs
         }
     }
@@ -141,45 +173,67 @@ class TriggerViewModel(
 
     fun addRule(rule: TriggerRule) {
         viewModelScope.launch {
-            triggerEngine?.addRule(rule)
+            // 优先走 engine（如可用）；否则直接走 configManager → dao。
+            // 两者在 fix 之后都写入同一个 dao，不会产生重复（OnConflictStrategy.REPLACE）。
+            if (triggerEngine != null) {
+                triggerEngine?.addRule(rule)
+            } else if (configManager != null) {
+                configManager.save(TriggerConfig.fromRule(rule))
+                loadRules()
+            } else {
+                ruleDao.insert(rule)
+                loadRules()
+            }
             _toastMessage.emit("已添加触发器: ${rule.name}")
         }
     }
 
     fun updateRule(rule: TriggerRule) {
         viewModelScope.launch {
-            triggerEngine?.updateRule(rule)
+            if (triggerEngine != null) {
+                triggerEngine?.updateRule(rule)
+            } else if (configManager != null) {
+                configManager.save(TriggerConfig.fromRule(rule))
+                loadRules()
+            } else {
+                ruleDao.insert(rule)
+                loadRules()
+            }
             _toastMessage.emit("已更新触发器: ${rule.name}")
         }
     }
 
     fun deleteRule(ruleId: String) {
         viewModelScope.launch {
-            triggerEngine?.deleteRule(ruleId)
+            if (triggerEngine != null) {
+                triggerEngine?.deleteRule(ruleId)
+            } else if (configManager != null) {
+                configManager.delete(ruleId)
+                loadRules()
+            } else {
+                ruleDao.deleteById(ruleId)
+                loadRules()
+            }
             _toastMessage.emit("已删除触发器")
         }
     }
 
     fun toggleRule(ruleId: String, enabled: Boolean) {
         viewModelScope.launch {
-            triggerEngine?.toggleRule(ruleId, enabled)
+            if (triggerEngine != null) {
+                triggerEngine?.toggleRule(ruleId, enabled)
+            } else {
+                ruleDao.setEnabled(ruleId, enabled)
+                loadRules()
+            }
         }
     }
 
     fun addPresetTemplate(template: TriggerConfig) {
         viewModelScope.launch {
-            when (template) {
-                is ai.openclaw.android.trigger.v2.TimeTrigger -> {
-                    addRule(template.toV1Rule())
-                }
-                is ai.openclaw.android.trigger.v2.NotificationPatternTrigger -> {
-                    addRule(template.toV1Rule())
-                }
-                is ai.openclaw.android.trigger.v2.DeviceStateTrigger -> {
-                    addRule(template.toV1Rule())
-                }
-                else -> {}
-            }
+            // v2 TriggerConfig 统一走 toV1Rule() 转换后走 addRule 路径，
+            // v1 dao 的 OnConflictStrategy.REPLACE 保证幂等。
+            addRule(template.toV1Rule())
         }
     }
 
@@ -209,99 +263,6 @@ class TriggerViewModel(
     }
 }
 
-// ==================== v2 Config → v1 Rule 转换 ====================
-
-fun ai.openclaw.android.trigger.v2.TimeTrigger.toV1Rule(): TriggerRule {
-    return TriggerRule(
-        id = id,
-        name = name,
-        enabled = enabled,
-        source = ai.openclaw.android.trigger.models.EventSource.CRON,
-        scheduleCron = cronExpression,
-        actionJson = ai.openclaw.android.trigger.models.TriggerRule.serializeAction(
-            when (action) {
-                is ai.openclaw.android.trigger.v2.SkillCallActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.SkillCall(
-                        action.skillId, action.toolName, action.paramsJson
-                    )
-                is ai.openclaw.android.trigger.v2.AgentQueryActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.AgentQuery(action.prompt, action.model)
-                is ai.openclaw.android.trigger.v2.NotificationReplyActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.NotificationReply(action.template, action.autoReply)
-                is ai.openclaw.android.trigger.v2.CustomScriptActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.CustomScript(action.script)
-                is ai.openclaw.android.trigger.v2.NotificationActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.AgentQuery(action.message)
-            }
-        ),
-        filtersJson = "[]"
-    )
-}
-
-fun ai.openclaw.android.trigger.v2.NotificationPatternTrigger.toV1Rule(): TriggerRule {
-    val filters = mutableListOf<ai.openclaw.android.trigger.models.Filter>()
-    if (packageName.isNotBlank()) {
-        filters.add(ai.openclaw.android.trigger.models.Filter.PackageFilter(listOf(packageName)))
-    }
-    if (keywords.isNotEmpty()) {
-        val mode = when (matchMode) {
-            "AND" -> ai.openclaw.android.trigger.models.MatchMode.AND
-            "EXACT" -> ai.openclaw.android.trigger.models.MatchMode.EXACT
-            else -> ai.openclaw.android.trigger.models.MatchMode.OR
-        }
-        filters.add(ai.openclaw.android.trigger.models.Filter.KeywordFilter(keywords, mode))
-    }
-    timeRange?.let { (start, end) ->
-        filters.add(ai.openclaw.android.trigger.models.Filter.TimeFilter(start, end))
-    }
-
-    return TriggerRule(
-        id = id,
-        name = name,
-        enabled = enabled,
-        source = ai.openclaw.android.trigger.models.EventSource.NOTIFICATION,
-        filtersJson = ai.openclaw.android.trigger.models.TriggerRule.serializeFilters(filters),
-        actionJson = ai.openclaw.android.trigger.models.TriggerRule.serializeAction(
-            when (action) {
-                is ai.openclaw.android.trigger.v2.SkillCallActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.SkillCall(
-                        action.skillId, action.toolName, action.paramsJson
-                    )
-                is ai.openclaw.android.trigger.v2.AgentQueryActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.AgentQuery(action.prompt, action.model)
-                is ai.openclaw.android.trigger.v2.NotificationReplyActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.NotificationReply(action.template, action.autoReply)
-                is ai.openclaw.android.trigger.v2.CustomScriptActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.CustomScript(action.script)
-                is ai.openclaw.android.trigger.v2.NotificationActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.AgentQuery(action.message)
-            }
-        )
-    )
-}
-
-fun ai.openclaw.android.trigger.v2.DeviceStateTrigger.toV1Rule(): TriggerRule {
-    return TriggerRule(
-        id = id,
-        name = name,
-        enabled = enabled,
-        source = ai.openclaw.android.trigger.models.EventSource.SYSTEM_BROADCAST,
-        filtersJson = "[]",
-        actionJson = ai.openclaw.android.trigger.models.TriggerRule.serializeAction(
-            when (action) {
-                is ai.openclaw.android.trigger.v2.SkillCallActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.SkillCall(
-                        action.skillId, action.toolName, action.paramsJson
-                    )
-                is ai.openclaw.android.trigger.v2.AgentQueryActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.AgentQuery(action.prompt, action.model)
-                is ai.openclaw.android.trigger.v2.NotificationReplyActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.NotificationReply(action.template, action.autoReply)
-                is ai.openclaw.android.trigger.v2.CustomScriptActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.CustomScript(action.script)
-                is ai.openclaw.android.trigger.v2.NotificationActionDef ->
-                    ai.openclaw.android.trigger.models.TriggerAction.AgentQuery(action.message)
-            }
-        )
-    )
-}
+// 注意：v2 Config → v1 Rule 的转换函数已迁移至 trigger.v2.TriggerConfig（顶层 dispatch 函数
+// TriggerConfig.toV1Rule() 与各子类型的 receiver-specific 扩展）。本文件通过
+// `import ai.openclaw.android.trigger.v2.toV1Rule` 自动可见，不再在此重复定义。

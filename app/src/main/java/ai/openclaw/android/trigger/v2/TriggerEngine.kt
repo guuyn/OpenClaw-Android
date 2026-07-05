@@ -43,7 +43,14 @@ class TriggerEngine(
     private val actionExecutor: ActionExecutor,
     private val aiDecision: AITriggerDecision,
     private val cronScheduler: CronScheduler,
-    private val agentSessionFactory: suspend () -> AgentSession?
+    private val agentSessionFactory: suspend () -> AgentSession?,
+    /**
+     * 可选的 v2 TriggerConfigManager（与 dao 同源，可空以保持向后兼容）。
+     * 设计说明：2026-07-05 fix 后，manager 内部也使用 ruleDao，所以 configManager.loadAll()
+     * 与 ruleDao.getAll() 返回同一份数据。configManager 在 engine 中的作用是提供一个统一的
+     * TriggerConfig API 给上层调用方（ViewModel 等）。
+     */
+    private val configManager: TriggerConfigManager? = null
 ) {
     companion object {
         private const val TAG = "TriggerEngine"
@@ -58,11 +65,12 @@ class TriggerEngine(
             actionExecutor: ActionExecutor,
             aiDecision: AITriggerDecision,
             cronScheduler: CronScheduler,
-            agentSessionFactory: suspend () -> AgentSession?
+            agentSessionFactory: suspend () -> AgentSession?,
+            configManager: TriggerConfigManager? = null
         ): TriggerEngine = instance ?: synchronized(this) {
             instance ?: TriggerEngine(
                 context, ruleDao, logDao, actionExecutor,
-                aiDecision, cronScheduler, agentSessionFactory
+                aiDecision, cronScheduler, agentSessionFactory, configManager
             ).also { instance = it }
         }
 
@@ -310,15 +318,20 @@ class TriggerEngine(
 
     /**
      * 加载并调度所有规则
+     *
+     * 同时读取 v1 dao 与 v2 configManager 并去重合并 —— fix 之后两者读取的是同一份 dao
+     * 数据，dedup 是为了在配置迁移期间保持幂等。
      */
     suspend fun loadAndScheduleRules() {
         val rules = ruleDao.getAll()
         cronScheduler.scheduleAllCronRules(rules)
 
-        // 更新配置流
-        val configs = rules.map { rule ->
-            TriggerConfig.fromRule(rule)
-        }
+        // 从 dao + configManager 合并去重
+        val daoConfigs = rules.map { TriggerConfig.fromRule(it) }
+        val managerConfigs = configManager?.loadAll().orEmpty()
+        val configs = (daoConfigs + managerConfigs)
+            .distinctBy { it.id }
+            .sortedBy { it.name }
         _triggerConfigs.value = configs
 
         _triggerEvents.tryEmit(TriggerEngineEvent.RulesLoaded(configs.size))
@@ -329,6 +342,8 @@ class TriggerEngine(
      */
     suspend fun addRule(rule: TriggerRule) {
         ruleDao.insert(rule)
+        // 同步写入 configManager（如可用）。dao OnConflictStrategy.REPLACE 保证幂等。
+        configManager?.save(TriggerConfig.fromRule(rule))
         if (rule.source == EventSource.CRON && rule.scheduleCron != null) {
             cronScheduler.scheduleCronTask(rule)
         }
@@ -341,6 +356,7 @@ class TriggerEngine(
      */
     suspend fun updateRule(rule: TriggerRule) {
         ruleDao.insert(rule) // OnConflictStrategy.REPLACE
+        configManager?.save(TriggerConfig.fromRule(rule))
         if (rule.source == EventSource.CRON && rule.scheduleCron != null) {
             cronScheduler.scheduleCronTask(rule)
         }
@@ -354,6 +370,7 @@ class TriggerEngine(
     suspend fun deleteRule(ruleId: String) {
         val rule = ruleDao.getById(ruleId) ?: return
         ruleDao.delete(rule)
+        configManager?.delete(ruleId)
         if (rule.source == EventSource.CRON) {
             cronScheduler.cancelCronTask(ruleId)
         }
@@ -366,6 +383,7 @@ class TriggerEngine(
      */
     suspend fun toggleRule(ruleId: String, enabled: Boolean) {
         ruleDao.setEnabled(ruleId, enabled)
+        // configManager 不直接持有 enabled 标志位；下次 loadAll() 会从 dao 读到最新值。
         if (!enabled && ruleId.isNotEmpty()) {
             // 取消已禁用的 CRON 任务
             cronScheduler.cancelCronTask(ruleId)

@@ -66,6 +66,8 @@ import ai.openclaw.android.ui.trigger.TriggerScreen
 import ai.openclaw.android.data.local.AppDatabase
 import ai.openclaw.android.trigger.scheduler.CronScheduler
 import ai.openclaw.android.trigger.EventBus
+import ai.openclaw.android.trigger.v2.TriggerConfigManager
+import ai.openclaw.android.trigger.v2.TriggerEngine
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CoroutineScope
@@ -90,6 +92,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private lateinit var chatViewModel: ChatViewModel
+
+    // 触发器子系统引用（2026-07-05 fix：v1 dao + v2 TriggerConfigManager 统一到 Room，
+    // 负责在应用启动时种入 5 个预设模板，并提供给 TriggerViewModel）。
+    private var triggerConfigManager: TriggerConfigManager? = null
+    private var triggerEngine: TriggerEngine? = null
 
     private var gatewayContract: GatewayContract? = null
     private var serviceBound = false
@@ -207,12 +214,39 @@ class MainActivity : ComponentActivity() {
             bindService(it, serviceConnection, Context.BIND_AUTO_CREATE)
         }
 
+        // 初始化触发器子系统（fix for "数量一直是 0"）
+        // - 创建 v2 TriggerConfigManager（Room-backed，取代 EncryptedSharedPreferences）。
+        // - 调用 initDefaults()：在 dao 为空时种入 5 个预设模板 + 从旧版 prefs 迁移遗留数据。
+        // - 不调用 triggerEngine.start()，避免与 v1 EventBus 的 BroadcastReceiver / CronScheduler 冲突。
+        try {
+            val database = AppDatabase.getInstance(applicationContext)
+            val manager = TriggerConfigManager(
+                dao = database.triggerRuleDao(),
+                context = applicationContext
+            )
+            triggerConfigManager = manager
+            // 这里是 Application onCreate 的同步点，initDefaults() 会读取 dao 并启动迁移；
+            // 使用 runBlocking 是可接受的，因为 initDefaults 是 IO 密集型但不阻塞主线程太久。
+            // 为避免在主线程上发生 ANR，仍放在 activityScope 异步执行。
+            activityScope.launch {
+                try {
+                    manager.initDefaults()
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "TriggerConfigManager.initDefaults failed: ${e.message}", e)
+                }
+            }
+            Log.i("MainActivity", "Trigger subsystem initialized (manager ready)")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to initialize trigger subsystem: ${e.message}", e)
+        }
+
         setContent {
             OpenClawTheme {
                 MainScreen(
                     chatViewModel = chatViewModel,
                     gatewayContractProvider = { gatewayContract },
-                    initialTab = intent?.getIntExtra("tab_index", 0) ?: 0
+                    initialTab = intent?.getIntExtra("tab_index", 0) ?: 0,
+                    triggerConfigManager = triggerConfigManager
                 )
             }
         }
@@ -289,7 +323,8 @@ class MainActivity : ComponentActivity() {
 fun MainScreen(
     chatViewModel: ChatViewModel,
     gatewayContractProvider: () -> GatewayContract?,
-    initialTab: Int = 0
+    initialTab: Int = 0,
+    triggerConfigManager: TriggerConfigManager? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -766,7 +801,8 @@ fun MainScreen(
                     viewModel = remember { TriggerViewModel(
                         database = AppDatabase.getInstance(context),
                         agentSessionFactory = { null },
-                        cronScheduler = CronScheduler(context, EventBus.instance!!)
+                        cronScheduler = CronScheduler(context, EventBus.instance!!),
+                        triggerConfigManager = triggerConfigManager
                     ) },
                     onNavigateBack = { selectedTab = 0 },
                     modifier = Modifier.padding(padding)
