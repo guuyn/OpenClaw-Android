@@ -40,16 +40,44 @@ class AgentRegistry(
     }
 
     /**
-     * Get or create an AgentSession for the given agent
+     * Get or create an AgentSession for the given agent.
+     *
+     * Fallback semantics (production bug #3, CURRENT-STATUS-2026-06-28):
+     * Previously, when an unknown agent id was requested, the registry
+     * created a *new* session instance under that unknown id using the
+     * default agent's config. That session did not share message history
+     * with the main session, so messages routed to a typo'd agent (e.g.
+     * \"@mai\" for \"main\") lost the main conversation context.
+     *
+     * New behavior: an unknown agent id returns the SAME session instance
+     * as the default agent. This keeps the message history shared, and we
+     * log a warning so the caller can see the fallback in logs / audit.
+     * The fallback session's underlying AgentConfig still carries the
+     * default agent's id (\"main\") via AgentSession.setAgentConfig(), so
+     * downstream code that inspects the config sees the canonical id.
      */
     fun getSession(agentId: String): AgentSession {
-        return sessions.getOrPut(agentId) {
-            val config = configs[agentId] ?: run {
-                Log.w(TAG, "Agent $agentId not found, falling back to $defaultAgentId")
-                configs[defaultAgentId] ?: throw IllegalStateException("No agents configured")
+        val existing = sessions[agentId]
+        if (existing != null) return existing
+
+        val config = configs[agentId]
+        if (config == null) {
+            if (agentId != defaultAgentId) {
+                Log.w(
+                    TAG,
+                    "Agent '$agentId' not found, falling back to '$defaultAgentId' " +
+                        "(sharing its session to preserve conversation context)"
+                )
             }
-            createSession(config)
+            val defaultConfig = configs[defaultAgentId]
+                ?: throw IllegalStateException("No agents configured (cannot satisfy fallback to '$defaultAgentId')")
+            // Return the default agent's session directly so the conversation
+            // history is shared. Do NOT cache this under the unknown id —
+            // that would silently fork the main session.
+            return sessions.getOrPut(defaultAgentId) { createSession(defaultConfig) }
         }
+
+        return sessions.getOrPut(agentId) { createSession(config) }
     }
 
     /**
@@ -178,7 +206,7 @@ tools: []
             val parsedConfig = AgentConfig(
                 id = map["id"] as? String ?: agentId,
                 name = map["name"] as? String ?: agentId,
-                model = map["model"] as? String ?: "openai/qwen3.6-plus",
+                model = map["model"] as? String ?: "",
                 maxContextTokens = (map["maxContextTokens"] as? Number)?.toInt() ?: 4000,
                 tools = (map["tools"] as? List<*>)?.filterIsInstance<String>() ?: emptyList()
             )

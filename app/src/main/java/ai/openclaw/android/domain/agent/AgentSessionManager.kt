@@ -49,7 +49,7 @@ open class AgentSessionManager(
             name = dataConfig.name,
             model = dataConfig.model,
             systemPrompt = dataConfig.systemPrompt ?: "",
-            maxContextTokens = 4000,
+            maxContextTokens = dataConfig.maxContextTokens,
             tools = dataConfig.tools,
             reflectionStrategy = reflectionStrategy
         )
@@ -152,10 +152,15 @@ open class AgentSessionManager(
             return LocalLLMClient(context)
         }
 
-        // Parse model string: "openai/qwen3.5-plus" → provider=openai, name=qwen3.5-plus
-        val parts = config.model.split("/", limit = 2)
+        // Resolve effective model:
+        // 1. If agent has an explicit model (non-empty), use it
+        // 2. Otherwise fall back to user's ConfigManager settings
+        val effectiveModel = if (config.model.isNotBlank()) config.model else ConfigManager.getModelName()
+
+        // Parse model string: "openai/MiniMax-M3" → provider=openai, name=MiniMax-M3
+        val parts = effectiveModel.split("/", limit = 2)
         val providerStr = if (parts.size > 1) parts[0] else "openai"
-        val modelName = if (parts.size > 1) parts[1] else config.model
+        val modelName = if (parts.size > 1) parts[1] else effectiveModel
 
         val apiKey = ConfigManager.getModelApiKey()
         val baseUrl = ConfigManager.getEffectiveBaseUrl()

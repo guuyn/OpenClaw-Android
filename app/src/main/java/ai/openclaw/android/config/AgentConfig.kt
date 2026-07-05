@@ -5,7 +5,7 @@ import ai.openclaw.android.domain.ReflectionStrategy
 data class AgentConfig(
     val id: String,
     val name: String,
-    val model: String = "openai/qwen3.6-plus",
+    val model: String = "",
     val systemPrompt: String = "",
     val maxContextTokens: Int = 4000,
     val tools: List<String> = emptyList(),

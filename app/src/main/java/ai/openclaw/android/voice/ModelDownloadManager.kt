@@ -80,7 +80,7 @@ object ModelDownloadManager {
                 name = "中文语音识别 (Zipformer 14M)",
                 description = "轻量级中文流式语音识别模型，约70MB",
                 downloadUrl = "$BASE_RELEASE/asr-models/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23.tar.bz2",
-                sha256 = "", // TODO: fill in actual SHA256
+                sha256 = "2cbd71b640d9c37d3784f29367333a4577b0398b62e9deeed418170b081cba8b",
                 sizeBytes = 70 * 1024 * 1024,
                 extractTarget = sttDir,
                 requiredFiles = listOf(
@@ -96,8 +96,8 @@ object ModelDownloadManager {
                 name = "中英双语语音识别 (Paraformer)",
                 description = "中英双语流式语音识别，约240MB，识别质量更高",
                 downloadUrl = "$BASE_RELEASE/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2",
-                sha256 = "",
-                sizeBytes = 240 * 1024 * 1024,
+                sha256 = "5d44d87b1a14665301d58b735578524b4bde62688d0b5e6d21e4820170c7364d",
+                sizeBytes = 366 * 1024 * 1024,
                 extractTarget = sttDir,
                 requiredFiles = listOf(
                     "encoder.int8.onnx",
@@ -111,8 +111,8 @@ object ModelDownloadManager {
                 name = "中文+英文语音合成 (Melo TTS)",
                 description = "中英文语音合成模型，约85MB",
                 downloadUrl = "$BASE_RELEASE/tts-models/vits-melo-tts-zh_en.tar.bz2",
-                sha256 = "",
-                sizeBytes = 85 * 1024 * 1024,
+                sha256 = "e58351ed7149f290a54534538badd4077cdbe6fddc964b24d0bee870415d1514",
+                sizeBytes = 160 * 1024 * 1024,
                 extractTarget = ttsDir,
                 requiredFiles = listOf(
                     "model.onnx",
@@ -232,21 +232,36 @@ object ModelDownloadManager {
             // Clean up cache
             cacheFile.delete()
 
-            // SHA256 verification (if hash is provided)
+            // SHA256 verification of the downloaded archive (if hash is provided)
             if (model.sha256.isNotBlank()) {
-                // Verify model files integrity
-                val allOk = model.requiredFiles.all { fileName ->
-                    val file = File(extractDir, fileName)
-                    file.exists() && file.length() > 0
-                }
-                if (!allOk) {
+                emit(DownloadState(model.id, DownloadState.Status.Verifying))
+                val actualHash = sha256(cacheFile)
+                if (!actualHash.equals(model.sha256, ignoreCase = true)) {
+                    Log.e(TAG, "SHA256 mismatch for ${model.id}: expected=${model.sha256}, actual=$actualHash")
+                    // Clean up corrupted download
+                    cacheFile.delete()
                     emit(DownloadState(
                         model.id,
                         DownloadState.Status.Failed,
-                        error = "Model file verification failed"
+                        error = "SHA256 verification failed (downloaded file may be corrupted)"
                     ))
                     return@flow
                 }
+                Log.i(TAG, "SHA256 verified for ${model.id}: $actualHash")
+            }
+
+            // Verify extracted files exist and are non-empty
+            val allOk = model.requiredFiles.all { fileName ->
+                val file = File(extractDir, fileName)
+                file.exists() && file.length() > 0
+            }
+            if (!allOk) {
+                emit(DownloadState(
+                    model.id,
+                    DownloadState.Status.Failed,
+                    error = "Model file verification failed: missing or empty files after extraction"
+                ))
+                return@flow
             }
 
             emit(DownloadState(model.id, DownloadState.Status.Complete))

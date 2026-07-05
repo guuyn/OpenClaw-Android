@@ -16,6 +16,7 @@ import android.os.IBinder
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -31,12 +32,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -58,6 +61,11 @@ import ai.openclaw.android.personalcenter.PersonalCenterViewModel
 import ai.openclaw.android.personalcenter.PersonalCenterViewModelFactory
 import ai.openclaw.android.viewmodel.ChatViewModel
 import ai.openclaw.android.viewmodel.ChatViewModelFactory
+import ai.openclaw.android.viewmodel.TriggerViewModel
+import ai.openclaw.android.ui.trigger.TriggerScreen
+import ai.openclaw.android.data.local.AppDatabase
+import ai.openclaw.android.trigger.scheduler.CronScheduler
+import ai.openclaw.android.trigger.EventBus
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CoroutineScope
@@ -287,6 +295,7 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
 
     var selectedTab by remember { mutableStateOf(0) }
+    var showModelManager by remember { mutableStateOf(false) }
 
     // === Session 管理状态 ===
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -306,7 +315,7 @@ fun MainScreen(
 
     // Configuration state
     var modelApiKey by remember { mutableStateOf("") }
-    var modelName by remember { mutableStateOf("qwen-plus") }
+    var modelName by remember { mutableStateOf("") }
     var modelProvider by remember { mutableStateOf(
         try { ConfigManager.getModelProvider() } catch (_: Exception) { "OPENAI" }
     ) }
@@ -435,7 +444,6 @@ fun MainScreen(
             ConfigManager.setModelProvider("OPENAI")
             ConfigManager.setModelBaseUrl("https://coding.dashscope.aliyuncs.com/v1")
             ConfigManager.setModelApiKey("sk-sp-20300993405641aab0fb73aedac15d33")
-            ConfigManager.setModelName("qwen-plus")
             Log.d("MainScreen", "Default API key set for debugging")
         }
 
@@ -487,7 +495,9 @@ fun MainScreen(
                     Text(when (selectedTab) {
                         0 -> "聊天"
                         1 -> "通知"
-                        else -> "设置"
+                        2 -> "设置"
+                        3 -> "触发器"
+                        else -> ""
                     })
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -526,6 +536,12 @@ fun MainScreen(
                     onClick = { selectedTab = 2 },
                     icon = { Icon(Icons.Default.Settings, "设置") },
                     label = { Text("设置") }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
+                    icon = { Icon(Icons.Default.AutoFixHigh, "触发器") },
+                    label = { Text("触发器") }
                 )
             }
         }
@@ -692,6 +708,16 @@ fun MainScreen(
                 },
                 onSaveConfig = {
                     scope.launch {
+                        // 持久化配置到 SharedPreferences, 避免重启后丢失配置
+                        try {
+                            ConfigManager.setModelApiKey(modelApiKey)
+                            ConfigManager.setModelName(modelName)
+                            ConfigManager.setModelBaseUrl(modelBaseUrl)
+                            ConfigManager.setModelProvider(modelProvider)
+                            LogManager.shared.log("INFO", "MainActivity", "Persisted config to SharedPreferences: apiKey len=${modelApiKey.length} model=$modelName baseUrl=$modelBaseUrl provider=$modelProvider")
+                        } catch (e: Exception) {
+                            LogManager.shared.log("ERROR", "MainActivity", "Failed to persist config: ${e.message}")
+                        }
                         val contract = gatewayContractProvider()
                         val success = contract?.reconfigureModel(
                             ModelConfig(
@@ -732,9 +758,29 @@ fun MainScreen(
                 },
                 isScreenCaptureReady = screenCaptureReady,
                 settingsPermRefreshKey = settingsPermRefreshKey,
+                onOpenModelManager = { showModelManager = true },
                 modifier = Modifier.padding(padding)
             )
+            3 -> {
+                TriggerScreen(
+                    viewModel = remember { TriggerViewModel(
+                        database = AppDatabase.getInstance(context),
+                        agentSessionFactory = { null },
+                        cronScheduler = CronScheduler(context, EventBus.instance!!)
+                    ) },
+                    onNavigateBack = { selectedTab = 0 },
+                    modifier = Modifier.padding(padding)
+                )
+            }
         }
+    }
+
+    // 模型管理全屏覆盖层
+    if (showModelManager) {
+        ai.openclaw.android.ui.ModelDownloadScreen(
+            modelManager = ai.openclaw.android.voice.ModelDownloadManager,
+            onNavigateBack = { showModelManager = false }
+        )
     }
     }
 }
@@ -764,15 +810,17 @@ fun SettingsScreen(
     onRequestScreenCapture: () -> Unit,
     isScreenCaptureReady: Boolean,
     settingsPermRefreshKey: Int,
+    onOpenModelManager: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Service Status Card
@@ -931,7 +979,7 @@ fun SettingsScreen(
                             value = modelName,
                             onValueChange = onModelNameChange,
                             label = { Text("Model Name") },
-                            placeholder = { Text("qwen-plus") },
+                            placeholder = { Text(ConfigManager.getModelName()) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp),
@@ -1020,6 +1068,44 @@ fun SettingsScreen(
             refreshKey = settingsPermRefreshKey
         )
 
+        // 模型管理入口
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenModelManager),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.Memory,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "模型管理",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "下载和管理本地 STT/TTS 模型",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         // Screen Capture Card
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -1080,6 +1166,25 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleMedium
                     )
                     Spacer(modifier = Modifier.weight(1f))
+
+                    // 复制全部按钮：仅在展开时显示
+                    if (logExpanded) {
+                        TextButton(
+                            onClick = {
+                                val text = LogManager.shared.getAllAsText()
+                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
+                                val count = LogManager.shared.logs.value.size
+                                Toast.makeText(
+                                    context,
+                                    "已复制 $count 条日志",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        ) {
+                            Text("复制")
+                        }
+                    }
+
                     Icon(
                         imageVector = if (logExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                         contentDescription = if (logExpanded) "Collapse" else "Expand"

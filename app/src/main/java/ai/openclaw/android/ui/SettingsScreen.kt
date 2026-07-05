@@ -3,12 +3,12 @@ package ai.openclaw.android.ui
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -24,6 +25,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
+import ai.openclaw.android.ConfigManager
 import ai.openclaw.android.LogManager
 import ai.openclaw.android.permission.PermissionManager
 import ai.openclaw.android.ui.theme.SciFiPrimary
@@ -58,13 +60,18 @@ fun SettingsScreen(
     onRequestPermissions: (Array<String>) -> Unit,
     onRequestAllFilesAccess: () -> Unit,
     settingsPermRefreshKey: Int,
+    onOpenModelManager: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    // 在函数顶部一次性获取，避免在深层 if (logExpanded) 子作用域里取不到
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Gateway 服务状态卡片
@@ -197,7 +204,7 @@ fun SettingsScreen(
                             value = modelName,
                             onValueChange = onModelNameChange,
                             label = { Text("Model Name") },
-                            placeholder = { Text("qwen-plus") },
+                            placeholder = { Text(ConfigManager.getModelName()) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp),
@@ -286,6 +293,46 @@ fun SettingsScreen(
             refreshKey = settingsPermRefreshKey
         )
 
+        // 模型管理入口
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenModelManager),
+            colors = CardDefaults.cardColors(containerColor = SciFiSurfaceVariant),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, SciFiOutline)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.Memory,
+                        contentDescription = null,
+                        tint = SciFiPrimary
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "模型管理",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "下载和管理本地 STT/TTS 模型",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         // 日志卡片
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -299,18 +346,44 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onLogExpandedChange(!logExpanded) }
+                        .padding(vertical = 12.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Description,
                         contentDescription = null,
                         modifier = Modifier.size(24.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
                     Text(
                         text = "运行日志",
-                        style = MaterialTheme.typography.titleMedium
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.weight(1f))
+
+                    // 复制按钮：仅在展开时显示，放在标题行右侧、与 chevron 并排。
+                    // v5: 完全去掉 Icon，只用 Text。
+                    // 原因：v3/v4 都用 Icons.Default.*（ContentCopy / Share），真机上
+                    // Icons.Default.* 中 icons-core 36 个之外的图标渲染时被 Compose
+                    // 静默吞错，导致 TextButton（含内部 Icon + Text）整块消失。
+                    // 排除 Icon 变量后，TextButton 只剩纯 Text，必能渲染。
+                    if (logExpanded) {
+                        TextButton(
+                            onClick = {
+                                val text = LogManager.shared.getAllAsText()
+                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
+                                val count = LogManager.shared.logs.value.size
+                                Toast.makeText(
+                                    context,
+                                    "已复制 $count 条日志",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        ) {
+                            Text("复制")
+                        }
+                    }
+
                     Icon(
                         imageVector = if (logExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                         contentDescription = if (logExpanded) "Collapse" else "Expand"
@@ -329,35 +402,34 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(200.dp)
-                        ) {
-                            items(logs) { log ->
-                                Text(
-                                    text = "[${log.timestamp}] ${log.level}/${log.tag}: ${log.message}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = when (log.level) {
-                                        "ERROR" -> MaterialTheme.colorScheme.error
-                                        "WARN" -> SciFiError
-                                        else -> MaterialTheme.colorScheme.onSurface
-                                    }
-                                )
+                        // 使用 Column + verticalScroll 替代 LazyColumn，避免懒加载机制
+                        // 与 SelectionContainer 的文本选择手势冲突（长按单行无反应）。
+                        // 整列外包一个 SelectionContainer，单行/跨行选中都可用。
+                        SelectionContainer {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                logs.forEach { log ->
+                                    Text(
+                                        text = "[${log.timestamp}] ${log.level}/${log.tag}: ${log.message}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = when (log.level) {
+                                            "ERROR" -> MaterialTheme.colorScheme.error
+                                            "WARN" -> SciFiError
+                                            else -> MaterialTheme.colorScheme.onSurface
+                                        }
+                                    )
+                                }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Button(onClick = { LogManager.shared.clear() }) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("清空")
-                        }
+                        // 注意："清空"按钮已移除——重启 App 即可清空日志，不需要在 UI 里留。
+                        // "复制全部"按钮已上移到 Card 标题行右侧（与 chevron 并排），
+                        // 那里只渲染一次，避免和别的子组件交互产生静默报错。
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
                 }
             }

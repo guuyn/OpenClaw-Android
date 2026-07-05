@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import ai.openclaw.android.data.local.AppDatabase
 import ai.openclaw.android.data.model.MessageRole
 import ai.openclaw.android.domain.session.HybridSessionManager
+import ai.openclaw.android.domain.session.SessionCompressor
 import ai.openclaw.android.domain.session.TokenCounter
 import ai.openclaw.android.domain.memory.MemoryManager
 import ai.openclaw.android.model.LocalLLMClient
@@ -29,12 +30,17 @@ class SessionIntegrationTest {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         
         val llmClient = LocalLLMClient(context)
+        val sessionCompressor = SessionCompressor(
+            llmClient = llmClient,
+            summaryDao = db.summaryDao(),
+            isLlmReady = { llmClient.isModelLoaded() }
+        )
         
         manager = HybridSessionManager(
             sessionDao = db.sessionDao(),
             messageDao = db.messageDao(),
             summaryDao = db.summaryDao(),
-            llmClient = llmClient,
+            sessionCompressor = sessionCompressor,
             tokenCounter = TokenCounter(),
             memoryManager = null
         )
@@ -77,11 +83,17 @@ class SessionIntegrationTest {
         
         // 模拟重启（创建新的 manager）
         val context = ApplicationProvider.getApplicationContext<Context>()
+        val newLlmClient = LocalLLMClient(context)
+        val newSessionCompressor = SessionCompressor(
+            llmClient = newLlmClient,
+            summaryDao = db.summaryDao(),
+            isLlmReady = { newLlmClient.isModelLoaded() }
+        )
         val newManager = HybridSessionManager(
             sessionDao = db.sessionDao(),
             messageDao = db.messageDao(),
             summaryDao = db.summaryDao(),
-            llmClient = LocalLLMClient(context),
+            sessionCompressor = newSessionCompressor,
             tokenCounter = TokenCounter(),
             memoryManager = null
         )

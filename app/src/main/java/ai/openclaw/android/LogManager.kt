@@ -47,7 +47,19 @@ class LogManager {
     fun clear() {
         _logs.value = emptyList()
     }
-    
+
+    /**
+     * Dump all current log entries as a single newline-separated text block,
+     * preserving the in-memory order (newest first).
+     *
+     * Format: `[HH:mm:ss] LEVEL/tag: message`
+     */
+    fun getAllAsText(): String {
+        return _logs.value.joinToString(separator = "\n") { entry ->
+            "[${entry.timestamp}] ${entry.level}/${entry.tag}: ${entry.message}"
+        }
+    }
+
     companion object {
         private val _shared = LogManager()
         val shared: LogManager = _shared

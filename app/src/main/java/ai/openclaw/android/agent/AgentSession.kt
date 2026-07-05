@@ -38,7 +38,7 @@ class AgentSession(
     private val modelClient: ModelClient,
     private val skillManager: SkillManager,
     private val permissionManager: PermissionManager? = null,
-    private val maxContextTokens: Int = 4000
+    private val maxContextTokens: Int = 8000
 ) {
     // Agent-specific fields (mutable backing, exposed via factory constructor)
     private var _agentConfig: AgentConfig? = null
@@ -76,13 +76,19 @@ class AgentSession(
         skillManager: SkillManager,
         agentConfig: AgentConfig,
         permissionManager: PermissionManager? = null,
-        maxContextTokens: Int = 4000
+        maxContextTokens: Int = 8000
     ) : this(modelClient, skillManager, permissionManager, maxContextTokens) {
         // Tool filtering: null means all tools allowed, otherwise store prefixes
         _allowedToolPrefixes = if (agentConfig.tools.contains("all")) null else {
             agentConfig.tools
         }
+        // [FIX] Mirror the agentConfig to the legacy `agentConfig` field so
+        // getMaxContextTokens() (which reads from that field) sees the same
+        // value the factory constructor just assigned to _agentConfig.
+        // Previously the two fields were set independently, causing trim to
+        // never trigger in production because the read field stayed null.
         _agentConfig = agentConfig
+        this.agentConfig = agentConfig
         // Auto-select reflection strategy based on agent config
         _reflectionConfig = ReflectionConfig.defaultFor(agentConfig.reflectionStrategy)
     }
@@ -418,9 +424,17 @@ Example:
     }
 
     /**
-     * Get effective max context tokens (from config or default)
+     * Get effective max context tokens (from config or default).
+     *
+     * Treats `maxContextTokens <= 0` on the agent config as "not set" and
+     * falls back to the session default (8k) so a missing yaml value doesn't
+     * silently turn trim into a no-op (0 means "trim every round", which is
+     * even worse than never trimming).
      */
-    fun getMaxContextTokens(): Int = agentConfig?.maxContextTokens ?: maxContextTokens
+    fun getMaxContextTokens(): Int {
+        val fromConfig = agentConfig?.maxContextTokens ?: 0
+        return if (fromConfig > 0) fromConfig else maxContextTokens
+    }
 
     // Memory & persistence hooks (set via setters)
     private var memoryContextProvider: (suspend () -> String?)? = null
@@ -767,6 +781,19 @@ Example:
                 ),
                 currentToolCalls = toolCalls
             )
+            // [FIX] sync mutable history list with state.history so the legacy
+            // history list (consumed by trimHistoryByTokens and the next round's
+            // buildMessagesFromState) stays in lock-step with state. Previously
+            // only tool messages were appended to history, leaving the
+            // assistant(tool_calls) message absent — subsequent rounds would
+            // then send a tool result whose tool_call_id had no matching
+            // assistant(tool_calls) preceding it, triggering the API
+            // 'tool result's tool id(...) not found' (2013) error.
+            history.add(Message(
+                role = "assistant",
+                content = "",
+                toolCalls = toolCalls
+            ))
             Log.d(TAG, "[State] Tool calls → ${state.dump()}")
 
             // Execute tools
@@ -945,11 +972,48 @@ Example:
     /**
      * Token-aware history trimming.
      * Estimates ~1.3 tokens per CJK character, ~0.25 tokens per ASCII character.
+     *
+     * Treats assistant(tool_calls) + N×tool(tool_call_id) as atomic blocks so we
+     * never leave orphan tool messages that would cause the API to reject the
+     * next request with "tool result's tool id(...) not found" (2013).
      */
     private fun trimHistoryByTokens() {
         val effectiveMaxTokens = getMaxContextTokens()
-        while (estimateTokens(history) > effectiveMaxTokens && history.size > 2) {
-            history.removeAt(0)
+        val estimatedTokens = estimateTokens(history)
+        if (estimatedTokens <= effectiveMaxTokens) {
+            Log.d(TAG, "[trim] skip: estimatedTokens=$estimatedTokens <= effectiveMaxTokens=$effectiveMaxTokens (history.size=${history.size})")
+            return
+        }
+        if (history.size <= 2) {
+            Log.d(TAG, "[trim] skip: history.size=${history.size} <= 2")
+            return
+        }
+        Log.d(TAG, "[trim] triggered: estimatedTokens=$estimatedTokens > effectiveMaxTokens=$effectiveMaxTokens (history.size=${history.size})")
+
+        // 跳过 tool-call 配对块作为原子单位: assistant(tool_calls) + N×tool(tool_call_id)
+        // 防止留下 orphan tool 消息导致 API 报 "tool result's tool id not found"
+        var trimStart = 0
+        while (trimStart < history.size - 2 &&
+               estimateTokens(history.subList(trimStart, history.size)) > effectiveMaxTokens) {
+            val msg = history[trimStart]
+            if (msg.role == "assistant" && !msg.toolCalls.isNullOrEmpty()) {
+                // 跳过整个 assistant + tools 配对块
+                val toolIds = msg.toolCalls!!.map { it.id }.toSet()
+                var next = trimStart + 1
+                while (next < history.size &&
+                       history[next].role == "tool" &&
+                       history[next].toolCallId in toolIds) {
+                    next++
+                }
+                trimStart = next
+            } else {
+                trimStart++
+            }
+        }
+
+        if (trimStart > 0) {
+            Log.d(TAG, "[trim] removing first $trimStart messages (history.size: ${history.size} → ${history.size - trimStart})")
+            history.subList(0, trimStart).clear()
         }
     }
 

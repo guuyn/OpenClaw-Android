@@ -13,10 +13,12 @@ data class AgentConfig(
     val id: String,
     /** Display name */
     val name: String,
-    /** Model identifier (e.g. "openai/qwen3.5-plus") */
-    val model: String = "openai/qwen3.5-plus",
+    /** Model identifier (e.g. "openai/qwen3.5-plus"). Empty string means use ConfigManager user settings. */
+    val model: String = "",
     /** Custom system prompt (prepended to BASE_SYSTEM_PROMPT) */
     val systemPrompt: String? = null,
+    /** Max context tokens for the LLM (controls when trimHistoryByTokens kicks in). 0 = use session default. */
+    val maxContextTokens: Int = 0,
     /** Tool filter — list of tool name prefixes or "all" for no filter */
     val tools: List<String> = listOf("all"),
     /** Keywords that trigger routing to this agent */

@@ -3,6 +3,12 @@ package ai.openclaw.android
 import android.app.Application
 import android.content.Context
 import ai.openclaw.android.permission.PermissionManager
+import ai.openclaw.android.prefetch.PrefetchWorker
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.tencent.bugly.BuglyStrategy
 import com.tencent.bugly.crashreport.CrashReport
 
@@ -14,6 +20,25 @@ class OpenClawApplication : Application() {
         super.onCreate()
         permissionManager = PermissionManager(this)
         initBugly()
+        registerPrefetchWorker()
+    }
+
+    /**
+     * 注册预采集定时任务
+     */
+    private fun registerPrefetchWorker() {
+        val workRequest = PeriodicWorkRequestBuilder<PrefetchWorker>(30, java.util.concurrent.TimeUnit.MINUTES)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "prefetch_worker",
+            ExistingPeriodicWorkPolicy.KEEP,
+            workRequest
+        )
     }
 
     /**

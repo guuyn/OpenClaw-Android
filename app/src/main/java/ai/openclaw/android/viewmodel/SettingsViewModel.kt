@@ -26,7 +26,7 @@ class SettingsViewModel(
     private val _modelApiKey = MutableStateFlow("")
     val modelApiKey: StateFlow<String> = _modelApiKey.asStateFlow()
 
-    private val _modelName = MutableStateFlow("qwen-plus")
+    private val _modelName = MutableStateFlow("")
     val modelName: StateFlow<String> = _modelName.asStateFlow()
 
     private val _modelProvider = MutableStateFlow("OPENAI")

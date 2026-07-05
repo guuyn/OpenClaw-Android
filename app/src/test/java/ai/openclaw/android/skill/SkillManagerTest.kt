@@ -21,7 +21,9 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.unmockkAll
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.Assert.*
@@ -42,6 +44,12 @@ class SkillManagerTest {
         every { mockContext.assets } returns mockAssets
         every { mockContext.getSystemService(NOTIFICATION_SERVICE) } returns mockk<NotificationManager>(relaxed = true)
         skillManager = SkillManager(mockContext)
+    }
+
+    @After
+    fun tearDown() {
+        // Release MockK static mocks (ContextCompat) so they don't leak into other test classes
+        unmockkAll()
     }
 
     @Test

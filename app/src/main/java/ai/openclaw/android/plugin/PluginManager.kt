@@ -22,9 +22,9 @@ class PluginManager(private val context: Context) {
         const val META_ENTRY_CLASS = "entry_class"
         const val META_ENGINE_TYPE = "engine_type"
 
-        // TODO: Replace with actual certificate SHA-256
+        // Debug keystore certificate SHA-256 (release build should use production cert)
         // Obtain via: keytool -printcert -jarfile app.apk
-        const val AUTHORIZED_CERT_SHA256 = "REPLACE_WITH_ACTUAL_SHA256"
+        const val AUTHORIZED_CERT_SHA256 = "F3:06:0B:F6:43:E7:48:74:44:69:7A:32:02:E1:26:86:CE:B7:5D:49:3A:D0:0E:74:0F:15:38:5B:C2:5F:7E:D1"
     }
 
     /** 运行时发现的系统 APK 插件（由 PackageManager 发现） */

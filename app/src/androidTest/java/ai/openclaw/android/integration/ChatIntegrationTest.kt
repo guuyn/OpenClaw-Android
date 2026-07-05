@@ -3,13 +3,8 @@ package ai.openclaw.android.integration
 import ai.openclaw.android.ChatMessage
 import ai.openclaw.android.GatewayContract
 import ai.openclaw.android.agent.SessionEvent
-import ai.openclaw.android.data.local.AppDatabase
-import ai.openclaw.android.domain.memory.EmbeddingService
-import ai.openclaw.android.domain.memory.HybridSearchEngine
 import ai.openclaw.android.gateway.MockGateway
 import ai.openclaw.android.gateway.MockScenario
-import ai.openclaw.android.permission.PermissionManager
-import ai.openclaw.android.skill.SkillManager
 import ai.openclaw.android.viewmodel.ChatViewModel
 import io.mockk.every
 import io.mockk.mockk
@@ -49,20 +44,7 @@ class ChatIntegrationTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
 
-        // Mock all heavy dependencies
-        val skillManager = mockk<SkillManager>(relaxed = true)
-        val permManager = mockk<PermissionManager>(relaxed = true)
-        val database = mockk<AppDatabase>(relaxed = true)
-        val embeddingService = mockk<EmbeddingService>(relaxed = true)
-        val hybridSearchEngine = mockk<HybridSearchEngine>(relaxed = true)
-
-        viewModel = ChatViewModel(
-            skillManager = skillManager,
-            permManager = permManager,
-            database = database,
-            embeddingService = embeddingService,
-            hybridSearchEngine = hybridSearchEngine
-        )
+        viewModel = ChatViewModel()
 
         // Set up MockGateway
         mockGateway = MockGateway(MockScenario.PlainText)

@@ -3,6 +3,8 @@ package ai.openclaw.android.skill.builtin
 import ai.openclaw.android.skill.*
 import android.content.Context
 import android.util.Log
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.*
 import java.io.File
 import java.io.IOException
 
@@ -122,14 +124,8 @@ class FileSkill(private val context: Context) : Skill {
                 }
 
                 val content = file.readText(Charsets.UTF_8).take(maxChars)
-                val info = buildString {
-                    appendLine("📄 ${file.name}")
-                    appendLine("路径: ${file.absolutePath}")
-                    appendLine("大小: ${formatSize(file.length())}")
-                    appendLine("字符: ${content.length}")
-                    appendLine("---")
-                }
-                SkillResult(true, info + content)
+                val cardJson = buildFileReadCardV2(file, content)
+                SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             } catch (e: SecurityException) {
                 SkillResult(false, "", "权限不足: ${e.message}")
             } catch (e: IOException) {
@@ -183,10 +179,8 @@ class FileSkill(private val context: Context) : Skill {
                 }
 
                 val mode = if (append) "追加" else "覆盖"
-                SkillResult(
-                    true,
-                    "✅ 写入成功（${mode}模式）\n路径: ${file.absolutePath}\n大小: ${formatSize(file.length())}\n内容: ${content.length} 字符"
-                )
+                val cardJson = buildFileWriteCardV2(file, content, mode)
+                SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             } catch (e: SecurityException) {
                 SkillResult(false, "", "权限不足: ${e.message}")
             } catch (e: IOException) {
@@ -233,13 +227,8 @@ class FileSkill(private val context: Context) : Skill {
 
                 val isExt = dir.canonicalPath.startsWith(externalRoot.canonicalPath)
                 val storageLabel = if (isExt) "外部（用户可访问）" else "内部（应用私有）"
-                val header = buildString {
-                    appendLine("📁 ${dir.absolutePath}")
-                    appendLine("💾 $storageLabel")
-                    appendLine("📊 ${files.size} 项")
-                    appendLine("---")
-                }
-                SkillResult(true, header + lines.joinToString("\n"))
+                val cardJson = buildFileListCardV2(dir, storageLabel, files)
+                SkillResult(true, "[A2UI]$cardJson[/A2UI]")
             } catch (e: Exception) {
                 SkillResult(false, "", "错误: ${e.message}")
             }
@@ -306,4 +295,88 @@ class FileSkill(private val context: Context) : Skill {
     }
 
     override fun cleanup() {}
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildFileReadCardV2(file: File, content: String): String {
+        val truncated = content.length > 2000
+        val displayContent = if (truncated) content.take(2000) + "\n...(内容已截断，超过2000字符)" else content
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("file_read"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("文件内容"),
+                        "fileName" to JsonPrimitive(file.name),
+                        "path" to JsonPrimitive(file.absolutePath),
+                        "size" to JsonPrimitive(formatSize(file.length())),
+                        "content" to JsonPrimitive(displayContent),
+                        "charCount" to JsonPrimitive(content.length)
+                    )
+                ),
+                "actions" to JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "label" to JsonPrimitive("📋 复制"),
+                                "action" to JsonPrimitive("copy")
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildFileWriteCardV2(file: File, content: String, mode: String): String {
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("file_write"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("写入成功"),
+                        "fileName" to JsonPrimitive(file.name),
+                        "path" to JsonPrimitive(file.absolutePath),
+                        "size" to JsonPrimitive(formatSize(file.length())),
+                        "mode" to JsonPrimitive(mode)
+                    )
+                ),
+                "actions" to JsonArray(emptyList())
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildFileListCardV2(dir: File, storageLabel: String, files: List<File>): String {
+        val itemsArray = JsonArray(
+            files.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                .map { f ->
+                    JsonObject(
+                        mapOf(
+                            "name" to JsonPrimitive(f.name),
+                            "type" to JsonPrimitive(if (f.isDirectory) "dir" else "file"),
+                            "size" to JsonPrimitive(if (f.isFile) formatSize(f.length()) else "")
+                        )
+                    )
+                }
+        )
+        val card = JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("file_list"),
+                "data" to JsonObject(
+                    mapOf(
+                        "title" to JsonPrimitive("目录"),
+                        "path" to JsonPrimitive(dir.absolutePath),
+                        "storageLabel" to JsonPrimitive(storageLabel),
+                        "items" to itemsArray,
+                        "total" to JsonPrimitive(files.size)
+                    )
+                ),
+                "actions" to JsonArray(emptyList())
+            )
+        )
+        return Json.encodeToString(JsonObject.serializer(), card)
+    }
 }

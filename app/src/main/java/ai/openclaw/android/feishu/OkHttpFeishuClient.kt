@@ -6,6 +6,7 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.internal.http.HttpMethod.permitsRequestBody
 import okio.ByteString
+import android.util.Log
 import java.io.File
 import java.io.IOException
 import kotlin.coroutines.resume
@@ -43,7 +44,7 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
         webSocket = httpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 isConnected = true
-                println("Feishu WebSocket connected")
+                Log.i("FeishuClient", "WebSocket connected")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -51,7 +52,7 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
                     val event = json.decodeFromString<FeishuEvent>(text)
                     eventListener?.invoke(event)
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    Log.e("FeishuClient", "Failed to parse event: ${e.message}", e)
                 }
             }
 
@@ -61,7 +62,7 @@ class OkHttpFeishuClient(private val httpClient: OkHttpClient) : FeishuClient {
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 isConnected = false
-                println("Feishu WebSocket closing: $code - $reason")
+                Log.i("FeishuClient", "WebSocket closing: $code - $reason")
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {

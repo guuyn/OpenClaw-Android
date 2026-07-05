@@ -8,6 +8,7 @@ import ai.openclaw.android.skill.ToolDefinition
 import android.util.Log
 import io.mockk.*
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -36,6 +37,12 @@ class AgentSessionRefreshTest {
             skillManager = mockSkillManager,
             permissionManager = mockPermissionManager
         )
+    }
+
+    @After
+    fun tearDown() {
+        // Release MockK static mocks (Log) so they don't leak into other test classes
+        unmockkAll()
     }
 
     @Test

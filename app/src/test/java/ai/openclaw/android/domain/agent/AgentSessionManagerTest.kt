@@ -82,7 +82,7 @@ class AgentSessionManagerTest {
         val config = AgentConfig(
             id = "coder",
             name = "Coder Agent",
-            model = "bailian/qwen3.5-coder"
+            model = ""
         )
         every { mockConfigManager.getAgentById("coder") } returns config
         every { mockConfigManager.getDefaultAgent() } returns config
