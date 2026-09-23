@@ -1,5 +1,7 @@
 package org.a2ui.compose.validation
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -33,6 +35,30 @@ object SafeRegexValidator {
         "(a|ab)*"     // 重叠的选择
     )
 
+    /** 编译一次复用，避免每次调用 isPatternSafe / getUnsafeReason 都重新编译 */
+    private val NESTED_QUANTIFIER_REGEX = Regex("""[*+?]\s*[*+?]""")
+
+    /**
+     * 可中断的 CharSequence 包装。
+     *
+     * Java 的正则引擎在回溯过程中不会检查线程中断标志，直接 interrupt() 无法停止
+     * 一个正在灾难性回溯的匹配。把输入包装成每次 charAt 都检查中断标志的序列后，
+     * 匹配过程本身变为可中断，超时保护才真正生效。
+     */
+    private class InterruptibleCharSequence(private val inner: CharSequence) : CharSequence {
+        override val length: Int get() = inner.length
+
+        override fun get(index: Int): Char {
+            if (Thread.currentThread().isInterrupted) {
+                throw InterruptedException("Regex match interrupted")
+            }
+            return inner[index]
+        }
+
+        override fun subSequence(startIndex: Int, endIndex: Int): CharSequence =
+            inner.subSequence(startIndex, endIndex)
+    }
+
     /**
      * 验证正则表达式模式是否安全
      *
@@ -53,8 +79,7 @@ object SafeRegexValidator {
         }
 
         // 3. 检查嵌套量词 (如 *+, +*, ?+, 等)
-        val nestedQuantifiers = Regex("""[*+?]\s*[*+?]""")
-        if (nestedQuantifiers.containsMatchIn(pattern)) {
+        if (NESTED_QUANTIFIER_REGEX.containsMatchIn(pattern)) {
             return false
         }
 
@@ -81,7 +106,11 @@ object SafeRegexValidator {
 
         return try {
             withTimeoutOrNull(VALIDATION_TIMEOUT_MS.milliseconds) {
-                Regex(pattern).matches(input)
+                // runInterruptible 会在协程超时/取消时中断执行线程，配合可中断输入
+                // 序列才能真正停止回溯中的匹配。
+                runInterruptible(Dispatchers.Default) {
+                    Regex(pattern).matches(InterruptibleCharSequence(input))
+                }
             }
         } catch (e: Exception) {
             null
@@ -108,7 +137,7 @@ object SafeRegexValidator {
 
             val thread = Thread {
                 try {
-                    result = Regex(pattern).matches(input)
+                    result = Regex(pattern).matches(InterruptibleCharSequence(input))
                 } catch (e: InterruptedException) {
                     // 超时中断，保持 result 为 null
                 } catch (e: Exception) {
@@ -138,7 +167,7 @@ object SafeRegexValidator {
     /**
      * 获取模式不安全的原因（用于调试和错误消息）
      *
-     * @param pattern 要检查的正则表达式模式
+     * @param pattern 要检查的模式
      * @return 不安全的原因，如果模式安全则返回 null
      */
     fun getUnsafeReason(pattern: String): String? {
@@ -152,8 +181,7 @@ object SafeRegexValidator {
             }
         }
 
-        val nestedQuantifiers = Regex("""[*+?]\s*[*+?]""")
-        if (nestedQuantifiers.containsMatchIn(pattern)) {
+        if (NESTED_QUANTIFIER_REGEX.containsMatchIn(pattern)) {
             return "Contains nested quantifiers"
         }
 
