@@ -2,8 +2,8 @@
 
 **文档版本**: 1.1  
 **创建日期**: 2026-04-12  
-**更新日期**: 2026-04-12  
-**状态**: 设计阶段（已根据 Claude Code 评审优化）
+**更新日期**: 2026-09-23  
+**状态**: ✅ 已实现（GatewayContract 已落地，MainActivity 经 Binder 调用；最终代码中会话由 `AgentSessionManager` 多会话管理而非单一 AgentSession，见 `GatewayManager.kt`。本文其余内容为当时的设计稿）
 
 ---
 

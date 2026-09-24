@@ -1,6 +1,6 @@
 # OpenClaw-Android 全局项目文档
 
-> **最后更新**: 2026-04-13  
+> **最后更新**: 2026-09-23  
 > **项目路径**: `/home/guuya/OpenClaw-Android-build/`  
 > **当前状态**: 功能完善阶段（核心功能可用，持续优化中）
 
@@ -37,9 +37,9 @@
 
 | 能力 | 说明 |
 |------|------|
-| **多轮对话** | AgentSession 工具调用循环（max 5轮），流式响应 |
+| **多轮对话** | AgentSession 工具调用循环（max 15轮），流式响应 |
 | **本地推理** | 设备端运行 Gemma 4 E4B（~18-22 tok/s），完全离线 |
-| **技能系统** | 11个内置技能（天气/搜索/翻译/提醒/定位/通讯录/短信/日历/应用启动/系统设置） |
+| **技能系统** | 20个内置技能（天气/搜索/翻译/提醒/日历/定位/通讯录/短信/通知/应用启动/系统设置/文件/脚本/屏幕/设备/相机/文件传输/Shell/通知操作/技能生成） |
 | **持久记忆** | Room + 向量检索 + 遗忘曲线 + 自动提取 |
 | **设备控制** | Accessibility Service 实现屏幕读取、点击、输入、手势 |
 | **语音交互** | Android 原生 STT/TTS，全语音对话 |
@@ -50,12 +50,12 @@
 
 | 指标 | 数值 |
 |------|------|
-| Kotlin 源文件 | 79 个 |
-| 总代码行数 | ~11,247 行 |
-| 内置技能 | 11 个 |
+| Kotlin 源文件 | 194 个 |
+| 总代码行数 | ~43,700 行 |
+| 内置技能 | 20 个 |
 | LLM 提供商 | 4 个（Bailian / OpenAI / Anthropic / Local） |
-| 单元测试 | 11 个 |
-| 仪器测试 | 6 个 |
+| 单元测试 | 62 个 |
+| 仪器测试 | 16 个 |
 | APK 大小 | 46MB（Debug） / ~160MB（含模型） |
 
 ### 1.3 竞品对比
@@ -83,19 +83,19 @@
 | 分类 | 技术 | 版本 |
 |------|------|------|
 | **语言** | Kotlin | 2.3.0 |
-| **编译目标** | Java 17 | compileSdk 35, minSdk 29 |
+| **编译目标** | Java 17 | compileSdk 36, minSdk 29 |
 | **UI 框架** | Jetpack Compose + Material3 | BOM 2025.03.00 |
 | **构建** | Android Gradle Plugin | 8.7.3 |
 | **网络** | OkHttp + SSE | 4.12.0 |
 | **序列化** | Kotlinx Serialization | 1.8.0 |
 | **数据库** | Room + KSP | 2.7.2 |
 | **本地推理** | LiteRT-LM (Gemma 4 E4B) | 0.10.0 |
-| **ML 推理** | TensorFlow Lite | 2.16.1 |
+| **ML 推理** | LiteRT | 2.1.3 |
 | **嵌入模型** | MiniLM-L6-v2 (TFLite/ONNX) | 384 维 |
-| **ONNX** | ONNX Runtime（备用嵌入） | 1.21.0 |
+| **ONNX** | ONNX Runtime（备用嵌入） | 1.24.3 |
 | **安全** | AndroidX Security Crypto | 1.1.0-alpha06 |
 | **协程** | kotlinx-coroutines | 1.10.1 |
-| **依赖注入** | Koin | 手动注入 |
+| **依赖注入** | Koin | 3.5.3 |
 | **加密数据库** | SQLCipher（可选） | 4.10.0 |
 | **JS 引擎** | Rhino（原型）→ QuickJS（计划） | 1.7.15 |
 | **NDK** | 27.0.12077973 | arm64-v8a, armeabi-v7a |
@@ -113,7 +113,7 @@ User Input (Text / Voice)
 MainActivity (Compose UI, Tab Navigation)
     │
     ▼
-AgentSession (对话编排 + 工具循环, max 5 rounds)
+AgentSession (对话编排 + 工具循环, max 15 rounds)
     │
     ├── ModelClient (LLM 调用, 同步/流式)
     │   ├── BailianClient    (阿里百炼, OpenAI 兼容)
@@ -122,7 +122,7 @@ AgentSession (对话编排 + 工具循环, max 5 rounds)
     │   └── LocalLLMClient   (本地 Gemma 4 E4B, ~18-22 tok/s)
     │
     ├── SkillManager → Skill.executeTool()
-    │   └── 11 个内置技能 + ScriptEngine 动态脚本
+    │   └── 20 个内置技能 + ScriptEngine 动态脚本
     │
     ├── HybridSessionManager (消息持久化 + 压缩)
     │   ├── SessionCompressor (LLM 摘要压缩)
@@ -142,7 +142,7 @@ AgentSession (对话编排 + 工具循环, max 5 rounds)
 ├─────────────────────────────────────────────┤
 │  Agent Layer                                │
 │  AgentSession.kt, SkillManager.kt,          │
-│  11 Skill implementations,                  │
+│  20 Skill implementations,                  │
 │  ScriptEngine (:script module)              │
 ├─────────────────────────────────────────────┤
 │  Domain Layer                               │
@@ -179,7 +179,7 @@ AgentSession (对话编排 + 工具循环, max 5 rounds)
 ```
 AppDatabase → TfLiteEmbeddingService → MemoryManager
        → HybridSessionManager → AgentSession
-       → SkillManager → 11 内置技能
+       → SkillManager → 20 内置技能
        → LocalLLMClient (可选)
 ```
 
@@ -192,22 +192,21 @@ AppDatabase → TfLiteEmbeddingService → MemoryManager
 **职责**: 对话编排中心，管理消息历史、工具调用循环、流式处理。
 
 **关键特性**:
-- **工具调用循环**: 最多 5 轮，支持链式工具调用
+- **工具调用循环**: 最多 15 轮，支持链式工具调用
 - **流式响应**: `Flow<SessionEvent>` 实时发射 Token/Complete/Error
 - **Token 感知**: 自动估算 ~1.3 token/CJK 字符，~0.25 token/ASCII
 - **历史截断**: 超限时自动截断旧消息
 - **工具来源**: Accessibility 工具 + Skill 工具
 - **A2UI 兜底**: `ensureA2UIInResponse()` 确保 LLM 输出富 UI 标记
 
-**文件**: `app/src/main/java/ai/openclaw/android/agent/AgentSession.kt` (391 行)
+**文件**: `app/src/main/java/ai/openclaw/android/agent/AgentSession.kt` (1461 行)
 
 ### 4.2 GatewayService & GatewayManager
 
 **GatewayService**: 前台服务，保持 Assistant 后台运行
 **GatewayManager**: 编排所有核心组件（模型、技能、飞书、无障碍）
 
-**当前问题**: GatewayService 和 MainActivity 各自持有独立实例（内存浪费 7GB+）
-**重构计划**: 引入 `GatewayContract` 接口，GatewayService 作为唯一逻辑中心
+**架构状态**: ✅ 已重构 — GatewayService 作为唯一逻辑中心持有核心组件，MainActivity 经 `GatewayContract` Binder 接口调用（详见第 13 节）
 
 **详见**: [Gateway Service 架构](docs/gateway-service-architecture.md)
 
@@ -243,7 +242,7 @@ AppDatabase → TfLiteEmbeddingService → MemoryManager
 
 ## 5. 技能系统
 
-### 5.1 内置技能清单 (11 个)
+### 5.1 内置技能清单 (20 个)
 
 | 技能 | 工具 | 数据源 | API Key |
 |------|------|--------|---------|
@@ -255,11 +254,22 @@ AppDatabase → TfLiteEmbeddingService → MemoryManager
 | **LocationSkill** | `get_location`, `get_address`, `search_places` | GPS + Nominatim | ❌ |
 | **ContactSkill** | `search_contacts`, `get_contact`, `call_contact` | Android Contacts Provider | ❌ |
 | **SMSSkill** | `send_sms`, `read_sms`, `get_unread_sms` | Android SMS API | ❌ |
+| **NotificationSkill** | `list_notifications`, `send_notification`, `delete_notification`, `clear_notifications`, `mark_notification_read` | Android 通知 API | ❌ |
 | **AppLauncherSkill** | `open`, `list_apps` | PackageManager | ❌ |
 | **SettingsSkill** | `open_settings`, `toggle_bluetooth`, `volume` | 系统服务 | ❌ |
+| **FileSkill** | `read_file`, `write_file`, `list_dir` | 本地文件系统 | ❌ |
 | **ScriptSkill** | `execute_script` | ScriptEngine | ❌ |
+| **ScreenSkill** | `screenshot`, `click_at`, `read`, `scroll_to` | Accessibility Service | ❌ |
+| **DeviceSkill** | `info`, `status`, `health`, `running_apps`, `flashlight`, `volume`, `clipboard`, `wake_screen` | 系统服务 | ❌ |
+| **CameraSkill** | `capture`, `record`, `gallery_latest` | 设备相机 | ❌ |
+| **FileXferSkill** | `read`, `write`, `list`, `share`, `download` | 本地文件系统 | ❌ |
+| **ShellSkill** | `exec` | 受限 Shell | ❌ |
+| **NotifySkill** | `list`, `dismiss`, `reply` | 系统通知 | ❌ |
+| **GenerateSkillSkill** | `generate_skill` | LLM + DynamicSkillManager | ❌ |
 
 ### 5.2 Skill Schema v1.0
+
+> ⚠️ **现状核对（2026-09）**: 动态技能的实际实现为 **JS 脚本模式** — `DynamicSkill` 必须包含 `script` 字段，由 `ScriptOrchestrator` 沙箱执行（见 `skill/DynamicSkill.kt`）。下表的 type 执行器分发（含 `content_resolver` / `allowed_dirs` 沙盒）**未实现**，属早期设计。
 
 技能配置化 JSON Schema，支持 10 种执行器类型：
 
@@ -376,7 +386,7 @@ AppDatabase → TfLiteEmbeddingService → MemoryManager
 | **推理速度** | ~18 tok/s (CPU) / ~22 tok/s (GPU) |
 | **Backend 优先级** | NPU → GPU → CPU（依硬件自动选择） |
 | **Honor/Huawei** | 跳过 NPU（兼容性问题），GPU → CPU |
-| **Token 预算** | E4B: 15872 tokens / E2B: 7680 tokens |
+| **Token 预算** | 按首选值 → 4096 → 2048 逐级降级申请（`.litertlm` 包物理 KV-cache 普遍 4096） |
 
 ### 7.3 模型配置
 
@@ -391,13 +401,18 @@ AppDatabase → TfLiteEmbeddingService → MemoryManager
 
 ### 8.1 Room 数据库
 
-`AppDatabase` (单例, 线程安全) 包含三组 DAO：
+`AppDatabase` (单例, 线程安全) 包含以下 DAO：
 
 | 领域 | DAO | Entity |
 |------|-----|--------|
 | **会话** | SessionDao | SessionEntity |
-| **消息** | MessageDao | MessageEntity, SummaryEntity |
+| **消息** | MessageDao | MessageEntity |
+| **摘要** | SummaryDao | SummaryEntity |
 | **记忆** | MemoryDao, MemoryVectorDao | MemoryEntity, MemoryVectorEntity |
+| **全文检索** | MemoryFtsDao | MemoryFtsEntity |
+| **动态技能** | DynamicSkillDao | DynamicSkillEntity |
+| **触发器** | TriggerRuleDao, TriggerLogDao（`trigger/dao/`） | TriggerRule, TriggerLog |
+| **预取缓存** | CachedDataDao | CachedDataEntity |
 
 ### 8.2 配置管理
 
@@ -442,7 +457,7 @@ Idle ──(开始)──→ Listening ──(检测到语音结束)──→ Pr
 
 **格式**: `[A2UI]{"type": "...", "data": {...}}[/A2UI]`
 
-**支持类型**: `weather`, `location`, `reminder`, `translation`, `search`, `generic`, `confirmation`
+**支持类型**: `weather`, `location`, `reminder`, `translation`, `search`, `generic`
 
 **富文本保障机制**:
 1. **系统提示词**: MANDATORY 标记 + few-shot 示例
@@ -513,7 +528,7 @@ ScriptOrchestrator
 
 **JS 引擎**: Rhino（原型，~2MB）→ QuickJS JNI（计划，~500KB，10x 性能提升）
 
-**测试覆盖**: 62 个用例（Validator 22 + Engine 16 + FileBridge 16 + Result 6 + Policy 2）
+**测试覆盖**: 84 个用例（Validator 22 + Engine 18 + FileBridge 15 + Result 6 + Policy 2 + CapabilityBridge 3 + HttpBridge 4 + OrchestratorIntegration 13 + Diag 1）
 
 **详见**: [ScriptEngine 设计](docs/script-engine.md)
 
@@ -521,25 +536,20 @@ ScriptOrchestrator
 
 ## 13. Gateway Service 架构
 
-### 当前问题
-- GatewayService 和 MainActivity 各自持有独立实例（内存浪费 7GB+）
-- Activity 被回收后模型需重新加载（约 10 秒）
-- MainActivity 包含大量业务逻辑（963 行）
+### 状态: ✅ 已重构完成
 
-### 重构方案
-- **GatewayContract** 接口：Activity 只依赖接口，不直接访问内部组件
-- **GatewayService** 作为唯一逻辑中心，持有所有核心组件
-- **MainActivity** 改为纯 UI 层，通过 Binder 调用 GatewayContract
+- 双实例问题已解决：GatewayService 作为唯一逻辑中心，持有所有核心组件（GatewayManager）
+- **GatewayContract** 接口已落地：Activity 只依赖接口，通过 Binder 调用，不直接访问内部组件
+- **MainActivity** 已改为纯 UI 层，通过 Binder 调用 GatewayContract
+- 后续演进：GatewayManager 内由 `AgentSessionManager` 管理多 Agent 会话（LRU 上限 3），不再是单一 AgentSession
 
-**改动量**:
+### 已落地的改动
 | 文件 | 改动 |
 |------|------|
-| `GatewayContract.kt` | 新增 |
+| `GatewayContract.kt` | 已新增 |
 | `GatewayManager.kt` | 实现 GatewayContract |
 | `GatewayService.kt` | LocalBinder 返回 GatewayContract |
-| `MainActivity.kt` | 移除 ~150 行业务逻辑 |
-
-**预计工期**: 4.5 天
+| `MainActivity.kt` | 移除业务逻辑，改为纯 UI 层 |
 
 **详见**: [Gateway Service 架构](docs/gateway-service-architecture.md)
 
@@ -579,8 +589,8 @@ export JAVA_HOME="E:/Program Files/Android/Android Studio/jbr"
 
 | 类型 | 数量 | 覆盖范围 |
 |------|------|---------|
-| **单元测试** | 11 个类 | 序列化、Token 计数、技能逻辑、记忆 CRUD、向量搜索、会话压缩 |
-| **仪器测试** | 6 个类 | Agent 流式行为、数据库 DAO、会话集成、记忆 DAO、嵌入服务 |
+| **单元测试** | 62 个类 | 序列化、Token 计数、技能逻辑、记忆 CRUD、向量搜索、会话压缩、安全审查、Agent 会话状态 |
+| **仪器测试** | 16 个类 | Agent 流式行为、数据库 DAO（含迁移链）、会话集成、记忆 DAO、嵌入服务 |
 
 **未覆盖**: LLM 客户端（需 mock HTTP）、UI 层、权限管理、语音交互、通知分类、飞书集成
 
@@ -616,16 +626,16 @@ export JAVA_HOME="E:/Program Files/Android/Android Studio/jbr"
 |---|------|------|
 | 1 | `vocab.txt` 缺失导致 TfLiteEmbeddingService 初始化失败 | ✅ 已解决 |
 | 2 | LiteRT-LM native 库加载失败 | ✅ 已解决 (maxNumTokens 调整) |
-| 3 | 数据库无 Migration 策略 | ✅ 已解决 (v2→v3) |
+| 3 | 数据库无 Migration 策略 | ✅ 已解决（v1→v9 幂等迁移链） |
 | 4 | 记忆系统 P0 优化 | ✅ 已完成 |
 
 ### P1 - 架构
 
 | # | 任务 | 状态 |
 |---|------|------|
-| 1 | 拆分 MainActivity (963行) | ❌ 未开始 |
-| 2 | 拆分 ChatScreen (663行) | ❌ 未开始 |
-| 3 | Gateway Service 重构（单实例） | ❌ 未开始 |
+| 1 | 拆分 MainActivity (1473行) | ❌ 未开始 |
+| 2 | 拆分 ChatScreen (1957行) | ❌ 未开始 |
+| 3 | Gateway Service 重构（单实例） | ✅ 已完成 |
 | 4 | 会话压缩质量提升 | ⚠️ 基础实现 |
 | 5 | 补充测试覆盖 | ⚠️ 部分完成 |
 
@@ -639,8 +649,8 @@ export JAVA_HOME="E:/Program Files/Android/Android Studio/jbr"
 | 4 | ML 通知分类 | ❌ 未实现 |
 | 5 | 飞书集成 | ⚠️ 骨架代码 |
 | 6 | 国际化 | ❌ 未开始 |
-| 7 | 图片/语音多模态输入 | ❌ 未开始 |
-| 8 | CI/CD 流水线 | ❌ 未开始 |
+| 7 | 图片/语音多模态输入 | ⚠️ 部分完成（图片视觉输入 + STT/TTS 已实现） |
+| 8 | CI/CD 流水线 | ✅ 已配置（`.github/workflows/android.yml`） |
 
 **详见**: [TODO-LIST](docs/TODO-LIST.md)
 

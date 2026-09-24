@@ -15,7 +15,7 @@ The app follows a **single-source-of-truth** architecture where `GatewayService`
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  GatewayManager (implements GatewayContract)       │  │
 │  │  ├─ LocalLLMClient (唯一实例) - 3.5GB             │  │
-│  │  ├─ AgentSession (唯一实例)                        │  │
+│  │  ├─ AgentSessionManager (per-agent 会话)           │  │
 │  │  ├─ SkillManager (唯一实例)                        │  │
 │  │  ├─ FeishuClient                                   │  │
 │  │  ├─ MemoryManager + EmbeddingService              │  │
@@ -60,7 +60,7 @@ The app follows a **single-source-of-truth** architecture where `GatewayService`
 - **Cold Start Manager**: Gradual memory activation over first 72 hours
 - **Encrypted Storage**: SQLCipher for database, Android Keystore for keys
 
-### Skills (12 Built-in)
+### Skills (20 Built-in)
 | Skill | Description |
 |-------|-------------|
 | Weather | Weather query with A2UI card display |
@@ -71,10 +71,18 @@ The app follows a **single-source-of-truth** architecture where `GatewayService`
 | Location | GPS location lookup |
 | Contact | Contact search and management |
 | SMS | SMS sending |
+| Notification | Get, send, delete and clear system notifications |
 | AppLauncher | Open installed applications |
 | Settings | System settings access |
-| File | File system operations |
-| A2UI | Rich card rendering (weather, location, etc.) |
+| File | File read/write and directory listing |
+| Script | Dynamic JS script execution |
+| Screen | Screenshot, coordinate tap, structured UI reading, scroll-to |
+| Device | Device info/status/health/running apps + device control (flashlight/volume/clipboard) |
+| Camera | Photo capture, short video recording, latest gallery photo |
+| FileXfer | Safe file read/write/list/share/download |
+| Shell | Restricted shell command execution |
+| Notify | List, dismiss and reply to system notifications |
+| GenerateSkill | Generate and register new dynamic skills |
 
 ### UI
 - **Jetpack Compose**: Modern declarative UI
@@ -136,7 +144,7 @@ app/src/main/java/ai/openclaw/android/
 │
 ├── skill/                       # Skill system
 │   ├── SkillManager.kt
-│   └── builtin/                 # 12 built-in skills
+│   └── builtin/                 # 20 built-in skills
 │
 ├── ui/                          # Compose UI components
 │   ├── SettingsScreen.kt
@@ -153,8 +161,8 @@ app/src/main/java/ai/openclaw/android/
 
 ## Requirements
 
-- **Android SDK**: 35 (Android 16)
-- **Kotlin**: 1.9.25
+- **Android SDK**: 36 (Android 16)
+- **Kotlin**: 2.3.0
 - **Gradle**: 8.9
 - **Min SDK**: 29 (Android 10)
 - **Target SDK**: 35

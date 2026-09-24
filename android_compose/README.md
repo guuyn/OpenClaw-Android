@@ -1,8 +1,8 @@
 # A2UI Android Compose Renderer
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Kotlin](https://img.shields.io/badge/Kotlin-1.9.22-blue.svg)](https://kotlinlang.org)
-[![API](https://img.shields.io/badge/API-21%2B-brightgreen.svg)](https://android-arsenal.com/api?level=21)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.0-blue.svg)](https://kotlinlang.org)
+[![API](https://img.shields.io/badge/API-29%2B-brightgreen.svg)](https://android-arsenal.com/api?level=29)
 
 **[English](README_EN.md)** | **中文**
 
@@ -38,7 +38,7 @@ A2UI Android Compose Renderer 是 A2UI 协议在 Android 平台上的完整实�
 - **声明式 UI**: 基于 Jetpack Compose，采用现代声明式 UI 范式
 - **响应式更新**: 内置状态管理，支持高效的数据绑定和 UI 更新
 - **高度可定制**: 支持自定义组件、主题、验证规则等
-- **完整兼容**: 支持 Android 5.0+ (API 21+)，覆盖 99%+ 的 Android 设备
+- **完整兼容**: 支持 Android 10+ (API 29+)
 - **性能优化**: 使用 `rememberSaveable`、`key()` 等技术优化重组性能
 - **可访问性**: 内置 WCAG A 级可访问性支持
 
@@ -186,8 +186,8 @@ android_compose/
 ### 环境要求
 
 - Android Studio Hedgehog (2023.1.1) 或更高版本
-- Android SDK 21+ (Android 5.0 Lollipop)
-- Kotlin 1.9.22
+- Android SDK 29+ (Android 10)
+- Kotlin 2.3.0
 - JDK 17
 
 ### 5 分钟快速集成
@@ -852,9 +852,9 @@ data class A2UIThemeConfig(
 
 ### 兼容性
 
-- **最低 SDK**: Android 5.0 (API 21)
-- **目标 SDK**: Android 14 (API 34)
-- **Kotlin 版本**: 1.9.22
+- **最低 SDK**: Android 10 (API 29)
+- **编译 SDK**: Android 15 (API 35)
+- **Kotlin 版本**: 2.3.0
 
 ### 已知限制
 

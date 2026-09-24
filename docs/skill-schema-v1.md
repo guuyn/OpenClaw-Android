@@ -1,6 +1,8 @@
 # OpenClaw-Android Skill Schema v1.0
 
 > ✅ 2026-04-11 确认定稿
+>
+> ⚠️ 2026-09-23 核对：实际实现为 **JS 脚本模式** — `DynamicSkill` 必须包含 `script` 字段，由 `ScriptOrchestrator` 沙箱执行（见 `skill/DynamicSkill.kt`）。本文所述 type 执行器分发（含 `content_resolver` / `allowed_dirs`）**未实现**，属早期设计。
 
 ## 概述
 

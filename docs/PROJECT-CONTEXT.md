@@ -26,7 +26,7 @@
 | 包名 | `ai.openclaw.android` |
 | compileSdk | 36 (Android 16) |
 | minSdk | 29 |
-| Kotlin | 2.1.0 |
+| Kotlin | 2.3.0 |
 | Compose | 最新 BOM |
 
 ---

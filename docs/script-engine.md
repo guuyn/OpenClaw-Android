@@ -229,10 +229,14 @@ ui.renderCard(JSON.stringify(card));
 | 测试类 | 用例数 | 覆盖内容 |
 |--------|--------|----------|
 | ScriptValidatorTest | 22 | 正常脚本 + 空脚本 + 长度限制 + 18种危险模式 |
-| ScriptEngineTest | 16 | 算术/字符串/数组/JSON + 控制流 + Bridge + 安全 + 超时 |
-| FileBridgeTest | 16 | 读写文件 + 目录 + 存在性 + 路径穿越 + JSON工具 |
+| ScriptEngineTest | 18 | 算术/字符串/数组/JSON + 控制流 + Bridge + 安全 + 超时 |
+| FileBridgeTest | 15 | 读写文件 + 目录 + 存在性 + 路径穿越 + JSON工具 |
 | ScriptResultTest | 6 | 数据类工厂方法 |
 | SandboxPolicyTest | 2 | 默认值 + 自定义值 |
+| CapabilityBridgeTest | 3 | 能力桥接 |
+| HttpBridgeTest | 4 | HTTP get/post |
+| ScriptOrchestratorIntegrationTest | 13 | 编排器集成 |
+| ScriptEngineDiagTest | 1 | 诊断 |
 
 ## 8. 依赖
 

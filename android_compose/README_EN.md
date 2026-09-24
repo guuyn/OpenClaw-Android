@@ -1,8 +1,8 @@
 # A2UI Android Compose Renderer
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Kotlin](https://img.shields.io/badge/Kotlin-1.9.22-blue.svg)](https://kotlinlang.org)
-[![API](https://img.shields.io/badge/API-21%2B-brightgreen.svg)](https://android-arsenal.com/api?level=21)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.0-blue.svg)](https://kotlinlang.org)
+[![API](https://img.shields.io/badge/API-29%2B-brightgreen.svg)](https://android-arsenal.com/api?level=29)
 
 **English** | **[中文](README.md)**
 
@@ -38,7 +38,7 @@ A2UI Android Compose Renderer is a complete implementation of the A2UI protocol 
 - **Declarative UI**: Built on Jetpack Compose with modern declarative UI paradigm
 - **Reactive Updates**: Built-in state management with efficient data binding and UI updates
 - **Highly Customizable**: Support for custom components, themes, validation rules, etc.
-- **Full Compatibility**: Supports Android 5.0+ (API 21+), covering 99%+ of Android devices
+- **Full Compatibility**: Supports Android 10+ (API 29+)
 - **Performance Optimized**: Uses `rememberSaveable`, `key()` and other techniques to optimize recomposition
 - **Accessibility**: Built-in WCAG A level accessibility support
 
@@ -187,8 +187,8 @@ android_compose/
 ### Requirements
 
 - Android Studio Hedgehog (2023.1.1) or later
-- Android SDK 21+ (Android 5.0 Lollipop)
-- Kotlin 1.9.22
+- Android SDK 29+ (Android 10)
+- Kotlin 2.3.0
 - JDK 17
 
 ### 5-Minute Integration
@@ -853,9 +853,9 @@ data class A2UIThemeConfig(
 
 ### Compatibility
 
-- **Minimum SDK**: Android 5.0 (API 21)
-- **Target SDK**: Android 14 (API 34)
-- **Kotlin Version**: 1.9.22
+- **Minimum SDK**: Android 10 (API 29)
+- **Compile SDK**: Android 15 (API 35)
+- **Kotlin Version**: 2.3.0
 
 ### Known Limitations
 

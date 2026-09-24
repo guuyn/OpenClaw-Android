@@ -68,7 +68,7 @@ User (text + optional images) → ChatScreen → AgentSession (conversation mana
 
 ### Key Components
 
-- **`AgentSession`** — Central conversation orchestrator. Manages message history, runs tool-calling loops (max 5 rounds), supports both sync (`handleMessage`) and streaming (`handleMessageStream`) modes. Tools come from two sources: accessibility tools and skill tools.
+- **`AgentSession`** — Central conversation orchestrator. Manages message history, runs tool-calling loops (max 15 rounds, `MAX_TOOL_ROUNDS`), supports both sync (`handleMessage`) and streaming (`handleMessageStream`) modes. Tools come from two sources: accessibility tools and skill tools.
 
 - **`ModelClient`** interface — Abstract LLM client with implementations for Bailian (阿里百炼), OpenAI, Anthropic, and LOCAL (on-device Gemma). All providers support streaming via `Flow<ChatEvent>`. **All providers support multimodal vision input** (images in messages), with provider-specific formats.
 
@@ -96,7 +96,7 @@ LLM-generated skills with JS script execution, persisted in Room.
 - **`DynamicSkillManager`** — Lifecycle management (30d auto-disable, 90d purge)
 - **`GenerateSkillSkill`** — Provides `generate_skill` tool for LLM to create new skills
 - **`ScriptSkill`** — Generic script execution skill
-- **`ToolSecurityPolicy`** — Security review before execution: AUTO_EXECUTE / ASK_USER / DENY
+- **`ToolSecurityPolicy`** — Execution policy from security review: AUTO_EXECUTE / ASK_USER / DENY. `SecurityReview` derives it from the tool's risk level (`ToolRiskLevel`: READ/WRITE/DANGEROUS, defined in `SkillTool.kt`) plus the user's approval preference — DANGEROUS always asks. `SkillManager.executeTool` is the single execution entry for built-in + dynamic skills (permission gate → risk review → execute/approve/deny)
 - **`UserPreferenceManager`** — Persists per-tool approval decisions
 
 ### Trigger/Event System (`trigger/`)
@@ -148,12 +148,12 @@ Room database (singleton via `AppDatabase.getInstance(context)`, managed by Koin
 - **Memory** — `MemoryDao`, `MemoryVectorDao` for storing memories and their vector embeddings
 - **Memory FTS** — `MemoryFtsDao`, `BM25Index` for full-text keyword search (BM25 tokenizer handles CJK bigrams; `isLetterOrDigit()` alone would swallow adjacent CJK chars — fixed in `c0d7ce0`)
 - **Dynamic Skills** — `DynamicSkillDao` for LLM-generated skill persistence
-- **Triggers** — `TriggerRuleDao`, `TriggerLogDao` (v1 rules + v2 engine logs), `TriggerEventEntity` (v2 event history) — unified into Room by `71d7711`
+- **Triggers** — `TriggerRuleDao`, `TriggerLogDao` — unified into Room by `71d7711`（`trigger_events_v2` 表及其实体已随 v8→v9 迁移删除）
 - **Pre-fetch Cache** — `CachedDataDao` + `CachedDataEntity` (`cached_data` table): cache-first storage for high-frequency queries (weather etc.), 30min TTL, added in v7→v8 migration (`66014c6`, T005)
 
-Entities are in `data/model/`, the Room database is `AppDatabase` (**schema version 8**, `exportSchema=true` → `app/schemas/`). `Converters` handle complex type serialization.
+Entities are in `data/model/`, the Room database is `AppDatabase` (**schema version 9**, `exportSchema=true` → `app/schemas/`). `Converters` handle complex type serialization.
 
-⚠️ **Migration chain is idempotent v1→v8** (see `AppDatabase.kt`): early schema versions were never exported and `fallbackToDestructiveMigration()` used to silently wipe the encrypted DB on upgrade. All `ALTER` migrations use `columnExists()` for idempotency; open failure falls back to explicit reporting (Bugly) + rebuild instead of silent data loss. **Never re-enable `fallbackToDestructiveMigration()`.**
+⚠️ **Migration chain is idempotent v1→v9** (see `AppDatabase.kt`): early schema versions were never exported and `fallbackToDestructiveMigration()` used to silently wipe the encrypted DB on upgrade. All `ALTER` migrations use `columnExists()` for idempotency; open failure falls back to explicit reporting (Bugly) + rebuild instead of silent data loss. **Never re-enable `fallbackToDestructiveMigration()`.**
 
 ### Domain Layer (`domain/`)
 
@@ -247,7 +247,7 @@ Agent responses use the `[A2UI]...[/A2UI]` markup for rich UI rendering. Support
 ### Test Coverage Areas
 
 - **Unit tests** (`src/test/`): JVM-based using JUnit 4 + MockK. Cover serialization (`ModelModelsTest`), skill logic, session compression, memory system, embedding service, agent config, and domain logic.
-- **Instrumented tests** (`src/androidTest/`): Require device/emulator. Cover AgentSession streaming, HybridSessionManager integration, DAO operations (incl. `AppDatabaseMigrationTest` v1→v8), UI components (EnergyBar, SettingsScreen), and ML embedding services.
+- **Instrumented tests** (`src/androidTest/`): Require device/emulator. Cover AgentSession streaming, HybridSessionManager integration, DAO operations (incl. `AppDatabaseMigrationTest` v1→v9), UI components (EnergyBar, SettingsScreen), and ML embedding services.
 - **A2UI compose module** (`android_compose/src/test/`): DataModelProcessor, NetworkTransport, A2UIService lifecycle, theme/color parsing, memory leak detection.
 
 ### Known Test Patterns & Pitfalls

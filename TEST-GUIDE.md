@@ -48,7 +48,7 @@ adb logcat | grep -E "HybridSessionManager|SessionDao|SessionCompressor"
 # 使用 adb 查看数据库
 adb shell run-as ai.openclaw.android
 cd databases
-sqlite3 app_database.db
+sqlite3 openclaw_database
 
 # 查询会话表
 SELECT * FROM sessions;

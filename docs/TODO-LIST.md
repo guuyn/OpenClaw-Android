@@ -34,7 +34,7 @@
 | 2 | 安全加固 | 部分完成 | SQLCipher + SecurityKeyManager + AuditLogger 已有；速率限制、日志脱敏待做 |
 | 3 | ~~ML 通知分类~~ | ✅ 已实现 | 基于包名白名单 + 关键词匹配的启发式分类器，6 大类别（社交/工作/财务/购物/系统/促销）|
 | 4 | 飞书集成 | 骨架代码 | 302 行基础 HTTP 客户端，无实际业务逻辑 |
-| 5 | ScriptEngine 生产化 | 原型阶段 | Rhino 原型 + 9 文件 + 60 测试；待 QuickJS JNI + 安全沙箱完善 |
+| 5 | ScriptEngine 生产化 | 原型阶段 | Rhino 原型 + 10 文件 + 84 测试；待 QuickJS JNI + 安全沙箱完善 |
 
 ---
 
@@ -86,7 +86,7 @@
 | 指标 | 值 |
 |------|-----|
 | Kotlin 源文件 | 151+ 个 |
-| 内置技能 | 14 个 + GenerateSkill |
+| 内置技能 | 20 个（含 GenerateSkill） |
 | A2UI 卡片类型 | **14 种** |
 | 总 Commit | 120+ 个 |
 | 单元测试 | **全部通过 ✅**（app + android_compose） |

@@ -46,7 +46,7 @@ curl -L -o app/libs/sherpa-onnx.aar \
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.39/sherpa-onnx-1.12.39.aar"
 ```
 
-> **注意**：当前项目包含一个编译用的 stub AAR（仅含类签名），功能测试需要替换为真实的 AAR。
+> **注意**：当前 `app/libs/sherpa-onnx.aar` 已是真实 AAR（约 56MB，含 JNI 库），可直接进行功能测试。
 
 ### 2. 下载语音模型
 
@@ -146,7 +146,7 @@ manager.switchToAndroidTts()
 
 ## 已知限制
 
-1. **Stub AAR**: 当前项目包含编译用的 stub AAR，不包含真实的 JNI 库。功能测试需要下载真实 AAR（56MB）。
+1. **AAR**: `app/libs/sherpa-onnx.aar` 已是真实 AAR（56MB，含 JNI 库），无需额外替换。
 2. **模型下载**: 模型文件较大（STT ~70-240MB, TTS ~85MB），建议在 WiFi 环境下下载。
 3. **存储权限**: 需要 `MANAGE_EXTERNAL_STORAGE` 权限（已在 AndroidManifest.xml 中声明）。
 
